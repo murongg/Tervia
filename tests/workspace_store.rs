@@ -170,18 +170,23 @@ fn duplicate_directory_aliases_restore_one_project_and_keep_the_selection() {
 #[test]
 fn save_failures_preserve_the_previous_state_file() {
     let root = tempfile::tempdir().unwrap();
+    let project = directory(&root, "mock-alpha");
     let blocked = root.path().join("blocked");
     fs::write(&blocked, "synthetic file").unwrap();
-    assert!(Store::new(blocked.join("workspace.json")).load().is_err());
+    let mut blocked_store = Store::new(blocked.join("workspace.json"));
+    // Windows can report a blocked parent as NotFound, deferring the error until saving.
+    let _ = blocked_store.load();
+    assert!(
+        blocked_store
+            .save(&Workspace::new(project.clone()))
+            .is_err()
+    );
+    assert_eq!(fs::read_to_string(&blocked).unwrap(), "synthetic file");
     let path = root.path().join("workspace.json");
     let mut store = Store::new(path.clone());
     store.load().unwrap();
     fs::write(&path, "synthetic external change").unwrap();
-    assert!(
-        store
-            .save(&Workspace::new(directory(&root, "mock-alpha")))
-            .is_err()
-    );
+    assert!(store.save(&Workspace::new(project)).is_err());
     assert_eq!(
         fs::read_to_string(path).unwrap(),
         "synthetic external change"
