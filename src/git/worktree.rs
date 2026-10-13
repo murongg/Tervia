@@ -47,6 +47,11 @@ impl Repository {
         let mut trees = parse(&self.run(&["worktree", "list", "--porcelain", "-z"])?)?;
         for tree in &mut trees {
             tree.missing = !tree.path.is_dir();
+            // Existing worktrees must share Repository::root's canonical identity.
+            // Keep Git's recorded path when a directory is missing so it can still be pruned.
+            if let Ok(path) = tree.path.canonicalize() {
+                tree.path = path;
+            }
         }
         Ok(trees)
     }

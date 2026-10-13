@@ -50,6 +50,16 @@ fn ordinary_workspace_discovers_multiple_nested_repositories() {
 }
 
 #[test]
+fn opened_and_discovered_repositories_use_the_same_canonical_root() {
+    let workspace = Workspace::new();
+    let path = workspace.repo("project");
+    let repository = Repository::open(&path).unwrap();
+    assert_eq!(repository.root, path);
+    let discovery = Repository::discover(&workspace.0).unwrap();
+    assert!(discovery.repositories.contains(&repository.root));
+}
+
+#[test]
 fn nested_repositories_are_kept_and_dependency_trees_are_skipped() {
     let workspace = Workspace::new();
     let root = workspace.repo("");

@@ -70,6 +70,37 @@ fn lists_sibling_worktrees_from_a_linked_directory_with_independent_indices() {
 }
 
 #[test]
+fn worktree_paths_share_the_canonical_repository_identity() {
+    let fixture = Fixture::new();
+    let outside = tempfile::tempdir().unwrap();
+    let linked = outside.path().join("linked");
+    fixture.git(&[
+        "worktree",
+        "add",
+        "--detach",
+        linked.to_str().unwrap(),
+        "HEAD",
+    ]);
+    // Git can report a different spelling from fs::canonicalize (notably Windows \\?\ paths).
+    // A synthetic parent component exercises that boundary on every platform.
+    let alternate = linked.join("..").join("linked").join(".git");
+    fs::write(
+        fixture.0.path().join(".git/worktrees/linked/gitdir"),
+        format!("{}\n", alternate.to_string_lossy().replace('\\', "/")),
+    )
+    .unwrap();
+    let repository = Repository::open(&linked).unwrap();
+    let tree = repository
+        .worktrees()
+        .unwrap()
+        .into_iter()
+        .find(|tree| !tree.main)
+        .unwrap();
+    assert_eq!(tree.path, linked.canonicalize().unwrap());
+    assert_eq!(tree.path, repository.root);
+}
+
+#[test]
 fn captures_detached_locked_and_missing_worktrees() {
     let fixture = Fixture::new();
     let outside = tempfile::tempdir().unwrap();

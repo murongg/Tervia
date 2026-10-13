@@ -150,9 +150,15 @@ fn reference(value: &str) -> Result<&str, String> {
 impl Repository {
     pub fn open(directory: &Path) -> Result<Self, String> {
         let root = command::run(directory, &arguments(&["rev-parse", "--show-toplevel"]))?;
-        let root = status::path(root.strip_suffix(b"\n").unwrap_or(&root))?;
+        // Git prints ordinary drive paths on Windows, while workspace identities use
+        // canonical \\?\ paths. Normalize here so containment and ownership comparisons agree.
+        let root = status::path(root.strip_suffix(b"\n").unwrap_or(&root))?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
         let git_dir = command::run(&root, &arguments(&["rev-parse", "--absolute-git-dir"]))?;
-        let git_dir = status::path(git_dir.strip_suffix(b"\n").unwrap_or(&git_dir))?;
+        let git_dir = status::path(git_dir.strip_suffix(b"\n").unwrap_or(&git_dir))?
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
         let common = command::run(&root, &arguments(&["rev-parse", "--git-common-dir"]))?;
         let common = status::path(common.strip_suffix(b"\n").unwrap_or(&common))?;
         let common_dir = root
