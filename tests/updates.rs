@@ -6,8 +6,34 @@ use std::{
 };
 use tervia::{
     platform::Platform,
-    updates::{Candidate, Installation, Target},
+    updates::{Candidate, Installation, Schedule, Settings, Target},
 };
+
+#[test]
+fn automatic_checks_follow_the_interval_and_live_configuration() {
+    use std::time::{Duration, Instant};
+    let now = Instant::now();
+    let minutes = |value: u64| Duration::from_secs(value * 60);
+    let mut schedule = Schedule::new(Settings::default());
+    assert_eq!(schedule.delay(now), Some(Duration::ZERO));
+    schedule.record_check(now);
+    assert_eq!(schedule.delay(now + minutes(59)), Some(minutes(1)));
+    schedule.configure(Settings {
+        auto_check: true,
+        interval_minutes: 15,
+    });
+    assert_eq!(schedule.delay(now + minutes(10)), Some(minutes(5)));
+    assert_eq!(schedule.delay(now + minutes(16)), Some(Duration::ZERO));
+    schedule.configure(Settings {
+        auto_check: false,
+        interval_minutes: 60,
+    });
+    assert_eq!(schedule.delay(now + minutes(120)), None);
+    // A manual check while automatic checks are off still prevents a duplicate on re-enabling.
+    schedule.record_check(now + minutes(120));
+    schedule.configure(Settings::default());
+    assert_eq!(schedule.delay(now + minutes(120)), Some(minutes(60)));
+}
 
 fn release(version: &str, target: Target, digest: Option<&str>) -> Release {
     let name = target.asset_name(version);

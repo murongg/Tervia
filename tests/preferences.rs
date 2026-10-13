@@ -22,3 +22,25 @@ fn reset_restores_all_appearance_preferences() {
     prefs.reset();
     assert_eq!(prefs, Preferences::default());
 }
+
+#[test]
+fn resetting_appearance_preserves_the_automatic_update_policy() {
+    let updates = tervia::updates::Settings {
+        auto_check: false,
+        interval_minutes: 37,
+    };
+    let mut prefs = Preferences {
+        updates,
+        light_theme: true,
+        ui_size: 16,
+        ..Preferences::default()
+    };
+    prefs.reset();
+    assert_eq!(
+        prefs,
+        Preferences {
+            updates,
+            ..Preferences::default()
+        }
+    );
+}

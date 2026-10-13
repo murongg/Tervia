@@ -60,11 +60,13 @@ Linux packages require the runtime libraries described above. Each archive targe
 
 ## Online updates
 
-Release builds check the latest stable GitHub Release in the background at startup. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. The icon becomes a restart action after installation. Open **Settings → Updates** to check manually, read release notes, and confirm **Download and install**. Download progress and retry actions are shown in the app. Once installed, choose **Restart Tervia**, or restart later yourself.
+By default, Tervia checks the latest stable GitHub Release in the background at startup and every **60 minutes** while running. **Settings → Updates** provides an automatic-check switch, common check intervals, manual checking, release notes, and **Download and install**. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. The icon becomes a restart action after installation. Download progress and retry actions are shown in the app. Once installed, choose **Restart Tervia**, or restart later yourself.
+
+Intervals are measured from the last completed check, including manual checks and failures. Failed checks retry at the configured interval. Settings changes take effect immediately; editing `[updates]` in `config.toml` takes effect after restarting. Custom `interval_minutes` values from **5 to 10080 minutes (7 days)** are supported and retained in the settings menu. Disabling automatic checks leaves manual checking available. Checks pause during installation and confirmations and stop once an update is installed until restart; downloads and installation always require confirmation.
 
 Updates require an exact platform/architecture match and verify the archive against its SHA-256 digest captured during the check. macOS replaces the complete signed, notarized `.app` after signature and Gatekeeper checks; Windows and Linux replace the executable from the release archive. The installation must be writable by the current user; updates do not elevate privileges. Failed verification or installation preserves the existing app.
 
-Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions and returns to the welcome screen. Development builds can check manually but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
+Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions and returns to the welcome screen. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
 
 ## Available interactions
 
@@ -95,7 +97,7 @@ Tervia creates a commented `config.toml` on first launch. Use **config.toml** at
 
 Set `TERVIA_CONFIG_FILE` to an absolute file path to override this location. The configuration applies to the whole app, regardless of the project directory.
 
-Top-level tables represent feature domains. Current settings belong to `ui`, with typography in its `fonts` subtable. Future terminal, editor, Git and workspace settings can use separate top-level domains without flattening unrelated options together.
+Top-level tables represent feature domains: `ui` contains appearance and its `fonts` subtable, and `updates` contains automatic-check settings. Future terminal, editor, Git and workspace settings can use separate top-level domains without flattening unrelated options together.
 
 ```toml
 [ui]
@@ -106,6 +108,10 @@ theme = "dark"      # dark or light
 code_family = "Menlo" # Installed font shared by terminal and editor
 code_size = 14        # 11–24
 ui_size = 13          # 11–16
+
+[updates]
+auto_check = true
+interval_minutes = 60 # 5–10080; default: 1 hour
 ```
 
 The default code font is Menlo on macOS, Consolas on Windows and DejaVu Sans Mono on Linux. Omitted settings use defaults. See [the commented template](assets/config.toml) for all supported settings.

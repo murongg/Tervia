@@ -47,6 +47,67 @@ fn partial_config_uses_defaults_and_loads_all_supported_preferences() {
 }
 
 #[test]
+fn update_settings_round_trip_with_custom_intervals_and_preserve_comments() {
+    let (_root, mut config) = fixture(
+        "[updates]\nauto_check = false # synthetic switch\ninterval_minutes = 37 # synthetic interval\nfuture_option = 'synthetic'\n",
+    );
+    let mut preferences = config.load().unwrap();
+    assert!(!preferences.updates.auto_check);
+    assert_eq!(preferences.updates.interval_minutes, 37);
+    preferences.updates.auto_check = true;
+    preferences.updates.interval_minutes = 120;
+    config.save(&preferences).unwrap();
+    assert_eq!(
+        Config::new(config.path().into()).load().unwrap(),
+        preferences
+    );
+    let source = fs::read_to_string(config.path()).unwrap();
+    assert!(source.contains("# synthetic switch"));
+    assert!(source.contains("# synthetic interval"));
+    assert!(source.contains("future_option = 'synthetic'"));
+    preferences.updates.interval_minutes = 0;
+    assert!(config.save(&preferences).is_err());
+    assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+}
+
+#[test]
+fn invalid_update_configuration_is_rejected_without_overwriting_it() {
+    for (source, key) in [
+        ("updates = false", "updates"),
+        ("[updates]\nauto_check = 'yes'", "updates.auto_check"),
+        (
+            "[updates]\ninterval_minutes = 0",
+            "updates.interval_minutes",
+        ),
+        (
+            "[updates]\ninterval_minutes = 4",
+            "updates.interval_minutes",
+        ),
+        (
+            "[updates]\ninterval_minutes = 10081",
+            "updates.interval_minutes",
+        ),
+        (
+            "[updates]\ninterval_minutes = -1",
+            "updates.interval_minutes",
+        ),
+        (
+            "[updates]\ninterval_minutes = '60'",
+            "updates.interval_minutes",
+        ),
+        (
+            "[updates]\ninterval_minutes = 60.5",
+            "updates.interval_minutes",
+        ),
+    ] {
+        let (_root, mut config) = fixture(source);
+        assert!(config.load().unwrap_err().contains(key));
+        assert!(config.save(&Preferences::default()).is_err());
+        assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+    }
+}
+
+#[test]
 fn saves_preserve_comments_unknown_settings_and_unchanged_formatting() {
     let (_root, mut config) = fixture(
         "# My synthetic setup\n[ui]\ntheme = 'dark' # keep this note\nlanguage = 'system'\n\n[future]\nvalue = 42 # another note\n",

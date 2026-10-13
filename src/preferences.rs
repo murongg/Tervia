@@ -5,6 +5,7 @@ pub struct Preferences {
     pub ui_size: u8,
     pub light_theme: bool,
     pub language: Language,
+    pub updates: crate::updates::Settings,
 }
 
 impl Default for Preferences {
@@ -15,6 +16,7 @@ impl Default for Preferences {
             ui_size: 13,
             light_theme: false,
             language: Language::System,
+            updates: crate::updates::Settings::default(),
         }
     }
 }
@@ -27,7 +29,11 @@ impl Preferences {
         self.ui_size = size.clamp(11, 16);
     }
     pub fn reset(&mut self) {
-        *self = Self::default();
+        // Resetting Interface settings must not re-enable automatic network checks.
+        *self = Self {
+            updates: self.updates,
+            ..Self::default()
+        };
     }
 }
 use crate::{locale::Language, platform::Platform};

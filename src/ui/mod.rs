@@ -168,18 +168,10 @@ impl Tervia {
             |this, _, _: &updates::Restart, window, cx| this.restart_after_update(window, cx),
         ));
         view.subscriptions
-            .push(cx.observe(&view.updater, |this, updater, cx| {
-                // A background version check must not hide an existing config, file, or Git warning.
-                if this.state.notice.is_empty()
-                    && let updates::State::Available(candidate) = &updater.read(cx).state
-                {
-                    this.state.notice =
-                        this.f("update_available", &[("version", candidate.version())]);
-                }
-                cx.notify();
-            }));
-        if !cfg!(debug_assertions) && !cfg!(test) {
-            view.updater.update(cx, |updater, cx| updater.check(cx));
+            .push(cx.observe(&view.updater, |_, _, cx| cx.notify()));
+        if !cfg!(test) {
+            view.updater
+                .update(cx, |updater, cx| updater.start_automatic(cx));
         }
         view.subscriptions
             .push(cx.subscribe(&view.welcome_url, |_, _, _: &InputEvent, cx| cx.notify()));

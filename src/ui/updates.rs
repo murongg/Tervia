@@ -13,7 +13,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use tervia::{
     preferences::Preferences,
-    updates::{self, Candidate, Installation, Installed},
+    updates::{self, Candidate, Installation, Installed, Schedule},
 };
 
 use super::{
@@ -22,9 +22,15 @@ use super::{
     theme::Palette,
 };
 
+mod options;
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests;
+
+type Checker = Arc<dyn Fn() -> Result<Option<Candidate>, String> + Send + Sync>;
+
 pub(super) enum State {
     Idle,
-    Checking,
+    Checking(Option<Candidate>),
     Latest,
     Available(Candidate),
     Installing,
@@ -44,6 +50,7 @@ impl State {
     fn candidate(&self) -> Option<&Candidate> {
         match self {
             Self::Available(candidate)
+            | Self::Checking(Some(candidate))
             | Self::Failed {
                 candidate: Some(candidate),
                 ..
@@ -53,7 +60,7 @@ impl State {
     }
 
     fn busy(&self) -> bool {
-        matches!(self, Self::Checking | Self::Installing)
+        matches!(self, Self::Checking(_) | Self::Installing)
     }
 }
 
@@ -64,6 +71,10 @@ pub(super) struct Updater {
     preferences: Entity<Preferences>,
     confirming: bool,
     progress: Option<Arc<(AtomicU64, AtomicU64)>>,
+    checker: Checker,
+    schedule: Schedule,
+    automatic_enabled: bool,
+    automatic_task: Option<Task<()>>,
     _subscription: Subscription,
 }
 
@@ -71,26 +82,76 @@ impl EventEmitter<Restart> for Updater {}
 
 impl Updater {
     pub(super) fn new(preferences: Entity<Preferences>, cx: &mut Context<Self>) -> Self {
-        let subscription = cx.observe(&preferences, |_, _, cx| cx.notify());
+        Self::with_checker(preferences, Arc::new(updates::check), cx)
+    }
+
+    fn with_checker(
+        preferences: Entity<Preferences>,
+        checker: Checker,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let schedule = Schedule::new(preferences.read(cx).updates);
+        let subscription = cx.observe(&preferences, |this, preferences, cx| {
+            let settings = preferences.read(cx).updates;
+            if settings != this.schedule.settings() {
+                this.schedule.configure(settings);
+                this.schedule_next(cx);
+            }
+            cx.notify();
+        });
         Self {
             state: State::Idle,
             preferences,
             confirming: false,
             progress: None,
+            checker,
+            schedule,
+            automatic_enabled: false,
+            automatic_task: None,
             _subscription: subscription,
         }
+    }
+
+    pub(super) fn start_automatic(&mut self, cx: &mut Context<Self>) {
+        self.automatic_enabled = true;
+        self.schedule_next(cx);
+    }
+
+    fn schedule_next(&mut self, cx: &mut Context<Self>) {
+        self.automatic_task = None;
+        if !self.automatic_enabled
+            || self.confirming
+            || self.state.busy()
+            || matches!(self.state, State::Installed(_))
+        {
+            return;
+        }
+        let Some(delay) = self.schedule.delay(cx.background_executor().now()) else {
+            return;
+        };
+        self.automatic_task = Some(cx.spawn(async move |weak, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = weak.update(cx, |this, cx| {
+                this.automatic_task = None;
+                this.check(cx);
+            });
+        }));
     }
 
     pub(super) fn check(&mut self, cx: &mut Context<Self>) {
         if self.state.busy() || self.confirming || matches!(self.state, State::Installed(_)) {
             return;
         }
-        self.state = State::Checking;
+        self.automatic_task = None;
+        let previous = self.state.candidate().cloned();
+        // Keep an already discovered update visible while polling or temporarily offline.
+        self.state = State::Checking(previous.clone());
+        let checker = self.checker.clone();
         cx.notify();
         cx.spawn(async move |weak, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async { updates::check() })
+                .spawn(async move { checker() })
                 .await;
             let _ = weak.update(cx, |this, cx| {
                 this.state = match result {
@@ -98,9 +159,11 @@ impl Updater {
                     Ok(None) => State::Latest,
                     Err(error) => State::Failed {
                         error,
-                        candidate: None,
+                        candidate: previous,
                     },
                 };
+                this.schedule.record_check(cx.background_executor().now());
+                this.schedule_next(cx);
                 cx.notify();
             });
         })
@@ -123,6 +186,7 @@ impl Updater {
             cx,
         );
         self.confirming = true;
+        self.schedule_next(cx);
         cx.notify();
         cx.spawn(async move |weak, cx| {
             let choice = receiver.await;
@@ -131,6 +195,7 @@ impl Updater {
                 if choice == Ok(1) {
                     this.install(candidate, cx);
                 }
+                this.schedule_next(cx);
                 cx.notify();
             });
         })
@@ -151,6 +216,7 @@ impl Updater {
         let progress = Arc::new((AtomicU64::new(0), AtomicU64::new(0)));
         self.progress = Some(progress.clone());
         self.state = State::Installing;
+        self.schedule_next(cx);
         cx.spawn(async move |weak, cx| {
             let retry = candidate.clone();
             let result = cx
@@ -171,6 +237,7 @@ impl Updater {
                         candidate: Some(retry),
                     },
                 };
+                this.schedule_next(cx);
                 cx.notify();
             });
         })
@@ -207,7 +274,10 @@ impl Render for Updater {
         let candidate = self.state.candidate().cloned();
         let status = match &self.state {
             State::Idle => String::new(),
-            State::Checking => language.text("update_checking").into(),
+            State::Checking(None) => language.text("update_checking").into(),
+            State::Checking(Some(candidate)) => {
+                language.format("update_available", &[("version", candidate.version())])
+            }
             State::Latest => language.text("update_latest").into(),
             State::Available(candidate) => {
                 language.format("update_available", &[("version", candidate.version())])
@@ -312,7 +382,7 @@ impl Render for Updater {
                                 .outline()
                                 .h(px(32.0))
                                 .px(px(12.0))
-                                .loading(matches!(self.state, State::Checking))
+                                .loading(matches!(self.state, State::Checking(_)))
                                 .disabled(self.state.busy() || self.confirming || installed)
                                 .on_click(cx.listener(|this, _, _, cx| this.check(cx))),
                             ),
@@ -369,7 +439,9 @@ impl Render for Updater {
                                                         .primary()
                                                         .h(px(32.0))
                                                         .px(px(12.0))
-                                                        .disabled(self.confirming)
+                                                        .disabled(
+                                                            self.confirming || self.state.busy(),
+                                                        )
                                                         .on_click(cx.listener(
                                                             |this, _, window, cx| {
                                                                 this.confirm_install(window, cx)
@@ -411,6 +483,7 @@ impl Render for Updater {
                     .text_color(p.secondary)
                     .child(language.text("update_source")),
             )
+            .child(self.options(cx))
     }
 }
 
@@ -459,7 +532,7 @@ impl Tervia {
                     ))
                     .accessibility_label(label)
                     .loading(installing)
-                    .disabled(installing || updater.confirming)
+                    .disabled(updater.state.busy() || updater.confirming)
                     .on_click(cx.listener(|this, _, window, cx| {
                         if matches!(this.updater.read(cx).state, State::Installed(_)) {
                             this.restart_after_update(window, cx);

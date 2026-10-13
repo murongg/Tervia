@@ -234,7 +234,7 @@
     "worktree_prune_target": "清理失效 Worktree 记录：{repository}",
     "updates": "在线更新",
     "update_version": "当前版本：{version}",
-    "update_source": "启动时在后台检查稳定版更新。",
+    "update_source": "从 GitHub Releases 获取稳定版本，下载和安装需要确认。",
     "update_check": "检查更新",
     "update_checking": "正在检查更新…",
     "update_latest": "已是最新版本。",
@@ -248,7 +248,14 @@
     "update_restart": "重启 Tervia",
     "update_restart_confirm": "重启以使用新版本？所有终端会话将结束，重启后进入欢迎页。",
     "update_restart_blocked": "请先保存所有修改的文件，并等待进行中的操作完成后再重启。",
-    "update_wait": "请等待更新完成后再退出。"
+    "update_wait": "请等待更新完成后再退出。",
+    "update_auto_check": "自动检查更新",
+    "update_interval": "检查间隔",
+    "update_interval_minutes": "{minutes} 分钟",
+    "update_interval_hours": "{hours} 小时",
+    "update_interval_days": "{days} 天",
+    "update_auto_hint": "启动时检查，并按设定间隔在后台自动检查。",
+    "update_manual_hint": "已关闭自动检查，仍可手动检查更新。"
   },
   "en": {
     "settings": "Settings",
@@ -485,7 +492,7 @@
     "worktree_prune_target": "Prune missing worktree records: {repository}",
     "updates": "Updates",
     "update_version": "Current version: {version}",
-    "update_source": "Stable releases are checked in the background at startup.",
+    "update_source": "Stable versions come from GitHub Releases. Downloading and installing require confirmation.",
     "update_check": "Check for updates",
     "update_checking": "Checking for updates…",
     "update_latest": "You are up to date.",
@@ -499,7 +506,14 @@
     "update_restart": "Restart Tervia",
     "update_restart_confirm": "Restart to use the update? All terminal sessions will end and the welcome screen will open.",
     "update_restart_blocked": "Save all edited files and wait for pending operations before restarting.",
-    "update_wait": "Wait for the update to finish before quitting."
+    "update_wait": "Wait for the update to finish before quitting.",
+    "update_auto_check": "Check for updates automatically",
+    "update_interval": "Check interval",
+    "update_interval_minutes": "{minutes} min",
+    "update_interval_hours": "{hours} h",
+    "update_interval_days": "{days} d",
+    "update_auto_hint": "Checks at startup and periodically at the chosen interval.",
+    "update_manual_hint": "Automatic checks are off. You can still check manually."
   },
   "ja": {
     "settings": "設定",
@@ -736,7 +750,7 @@
     "worktree_prune_target": "欠落した Worktree 記録を整理: {repository}",
     "updates": "アップデート",
     "update_version": "現在のバージョン：{version}",
-    "update_source": "起動時にバックグラウンドで安定版を確認します。",
+    "update_source": "GitHub Releases の安定版を確認します。ダウンロードとインストールには確認が必要です。",
     "update_check": "更新を確認",
     "update_checking": "更新を確認中…",
     "update_latest": "最新バージョンです。",
@@ -750,7 +764,14 @@
     "update_restart": "Tervia を再起動",
     "update_restart_confirm": "更新を適用するため再起動しますか？すべてのターミナルセッションが終了し、ようこそ画面が開きます。",
     "update_restart_blocked": "編集したファイルをすべて保存し、実行中の操作が完了してから再起動してください。",
-    "update_wait": "更新が完了してから終了してください。"
+    "update_wait": "更新が完了してから終了してください。",
+    "update_auto_check": "更新を自動確認",
+    "update_interval": "確認間隔",
+    "update_interval_minutes": "{minutes} 分",
+    "update_interval_hours": "{hours} 時間",
+    "update_interval_days": "{days} 日",
+    "update_auto_hint": "起動時および指定した間隔でバックグラウンド確認します。",
+    "update_manual_hint": "自動確認はオフです。手動で確認できます。"
   },
   "ko": {
     "settings": "설정",
@@ -987,7 +1008,7 @@
     "worktree_prune_target": "누락된 Worktree 기록 정리: {repository}",
     "updates": "업데이트",
     "update_version": "현재 버전: {version}",
-    "update_source": "시작할 때 백그라운드에서 안정 버전 업데이트를 확인합니다.",
+    "update_source": "GitHub Releases의 안정 버전을 확인합니다. 다운로드와 설치에는 확인이 필요합니다.",
     "update_check": "업데이트 확인",
     "update_checking": "업데이트 확인 중…",
     "update_latest": "최신 버전입니다.",
@@ -1001,7 +1022,14 @@
     "update_restart": "Tervia 재시작",
     "update_restart_confirm": "새 버전을 사용하도록 재시작할까요? 모든 터미널 세션이 종료되고 환영 화면이 열립니다.",
     "update_restart_blocked": "편집한 파일을 모두 저장하고 진행 중인 작업이 완료된 후 재시작하세요.",
-    "update_wait": "업데이트가 완료된 후 종료하세요."
+    "update_wait": "업데이트가 완료된 후 종료하세요.",
+    "update_auto_check": "자동 업데이트 확인",
+    "update_interval": "확인 간격",
+    "update_interval_minutes": "{minutes}분",
+    "update_interval_hours": "{hours}시간",
+    "update_interval_days": "{days}일",
+    "update_auto_hint": "시작할 때와 설정한 간격에 따라 백그라운드에서 확인합니다.",
+    "update_manual_hint": "자동 확인이 꺼져 있습니다. 수동으로 확인할 수 있습니다."
   },
   "fr": {
     "settings": "Paramètres",
@@ -1238,7 +1266,7 @@
     "worktree_prune_target": "Nettoyer les entrées worktree manquantes : {repository}",
     "updates": "Mises à jour",
     "update_version": "Version actuelle : {version}",
-    "update_source": "Les versions stables sont vérifiées en arrière-plan au démarrage.",
+    "update_source": "Les versions stables proviennent de GitHub Releases. Le téléchargement et l’installation demandent une confirmation.",
     "update_check": "Rechercher des mises à jour",
     "update_checking": "Recherche en cours…",
     "update_latest": "Vous êtes à jour.",
@@ -1252,7 +1280,14 @@
     "update_restart": "Redémarrer Tervia",
     "update_restart_confirm": "Redémarrer pour utiliser la mise à jour ? Toutes les sessions de terminal seront fermées et l’écran d’accueil s’ouvrira.",
     "update_restart_blocked": "Enregistrez les fichiers modifiés et attendez la fin des opérations avant de redémarrer.",
-    "update_wait": "Attendez la fin de la mise à jour avant de quitter."
+    "update_wait": "Attendez la fin de la mise à jour avant de quitter.",
+    "update_auto_check": "Rechercher automatiquement",
+    "update_interval": "Intervalle de recherche",
+    "update_interval_minutes": "{minutes} min",
+    "update_interval_hours": "{hours} h",
+    "update_interval_days": "{days} j",
+    "update_auto_hint": "Recherche au démarrage et régulièrement selon l’intervalle choisi.",
+    "update_manual_hint": "La recherche automatique est désactivée. Vous pouvez vérifier manuellement."
   },
   "de": {
     "settings": "Einstellungen",
@@ -1489,7 +1524,7 @@
     "worktree_prune_target": "Fehlende Worktree-Einträge bereinigen: {repository}",
     "updates": "Updates",
     "update_version": "Aktuelle Version: {version}",
-    "update_source": "Beim Start werden stabile Versionen im Hintergrund geprüft.",
+    "update_source": "Stabile Versionen stammen von GitHub Releases. Download und Installation benötigen eine Bestätigung.",
     "update_check": "Nach Updates suchen",
     "update_checking": "Updates werden gesucht…",
     "update_latest": "Sie sind auf dem neuesten Stand.",
@@ -1503,7 +1538,14 @@
     "update_restart": "Tervia neu starten",
     "update_restart_confirm": "Für das Update neu starten? Alle Terminalsitzungen werden beendet und der Startbildschirm wird geöffnet.",
     "update_restart_blocked": "Speichern Sie alle bearbeiteten Dateien und warten Sie auf laufende Vorgänge, bevor Sie neu starten.",
-    "update_wait": "Warten Sie vor dem Beenden auf den Abschluss des Updates."
+    "update_wait": "Warten Sie vor dem Beenden auf den Abschluss des Updates.",
+    "update_auto_check": "Automatisch nach Updates suchen",
+    "update_interval": "Prüfintervall",
+    "update_interval_minutes": "{minutes} Min.",
+    "update_interval_hours": "{hours} Std.",
+    "update_interval_days": "{days} Tg.",
+    "update_auto_hint": "Prüft beim Start und regelmäßig im gewählten Intervall.",
+    "update_manual_hint": "Automatische Prüfungen sind deaktiviert. Manuelle Prüfungen sind weiterhin möglich."
   },
   "es": {
     "settings": "Ajustes",
@@ -1740,7 +1782,7 @@
     "worktree_prune_target": "Limpiar registros worktree ausentes: {repository}",
     "updates": "Actualizaciones",
     "update_version": "Versión actual: {version}",
-    "update_source": "Al iniciar se buscan versiones estables en segundo plano.",
+    "update_source": "Las versiones estables provienen de GitHub Releases. La descarga e instalación requieren confirmación.",
     "update_check": "Buscar actualizaciones",
     "update_checking": "Buscando actualizaciones…",
     "update_latest": "Está actualizado.",
@@ -1754,7 +1796,14 @@
     "update_restart": "Reiniciar Tervia",
     "update_restart_confirm": "¿Reiniciar para usar la actualización? Todas las sesiones de terminal terminarán y se abrirá la pantalla de bienvenida.",
     "update_restart_blocked": "Guarde todos los archivos editados y espere a que terminen las operaciones antes de reiniciar.",
-    "update_wait": "Espere a que termine la actualización antes de salir."
+    "update_wait": "Espere a que termine la actualización antes de salir.",
+    "update_auto_check": "Buscar actualizaciones automáticamente",
+    "update_interval": "Intervalo de búsqueda",
+    "update_interval_minutes": "{minutes} min",
+    "update_interval_hours": "{hours} h",
+    "update_interval_days": "{days} d",
+    "update_auto_hint": "Comprueba al iniciar y periódicamente según el intervalo elegido.",
+    "update_manual_hint": "La comprobación automática está desactivada. Puede buscar manualmente."
   },
   "pt": {
     "settings": "Configurações",
@@ -1991,7 +2040,7 @@
     "worktree_prune_target": "Limpar registros de worktree ausentes: {repository}",
     "updates": "Atualizações",
     "update_version": "Versão atual: {version}",
-    "update_source": "Versões estáveis são verificadas em segundo plano ao iniciar.",
+    "update_source": "As versões estáveis vêm do GitHub Releases. O download e a instalação exigem confirmação.",
     "update_check": "Verificar atualizações",
     "update_checking": "Verificando atualizações…",
     "update_latest": "Você está atualizado.",
@@ -2005,7 +2054,14 @@
     "update_restart": "Reiniciar Tervia",
     "update_restart_confirm": "Reiniciar para usar a atualização? Todas as sessões de terminal serão encerradas e a tela de boas-vindas será aberta.",
     "update_restart_blocked": "Salve todos os arquivos editados e aguarde o fim das operações antes de reiniciar.",
-    "update_wait": "Aguarde a atualização terminar antes de sair."
+    "update_wait": "Aguarde a atualização terminar antes de sair.",
+    "update_auto_check": "Verificar atualizações automaticamente",
+    "update_interval": "Intervalo de verificação",
+    "update_interval_minutes": "{minutes} min",
+    "update_interval_hours": "{hours} h",
+    "update_interval_days": "{days} d",
+    "update_auto_hint": "Verifica ao iniciar e periodicamente no intervalo escolhido.",
+    "update_manual_hint": "A verificação automática está desativada. Você pode verificar manualmente."
   },
   "ru": {
     "settings": "Настройки",
@@ -2242,7 +2298,7 @@
     "worktree_prune_target": "Очистить отсутствующие записи worktree: {repository}",
     "updates": "Обновления",
     "update_version": "Текущая версия: {version}",
-    "update_source": "При запуске стабильные версии проверяются в фоновом режиме.",
+    "update_source": "Стабильные версии доступны в GitHub Releases. Скачивание и установка требуют подтверждения.",
     "update_check": "Проверить обновления",
     "update_checking": "Проверка обновлений…",
     "update_latest": "Установлена последняя версия.",
@@ -2256,7 +2312,14 @@
     "update_restart": "Перезапустить Tervia",
     "update_restart_confirm": "Перезапустить для применения обновления? Все сеансы терминала завершатся и откроется экран приветствия.",
     "update_restart_blocked": "Сохраните все изменённые файлы и дождитесь завершения операций перед перезапуском.",
-    "update_wait": "Дождитесь завершения обновления перед выходом."
+    "update_wait": "Дождитесь завершения обновления перед выходом.",
+    "update_auto_check": "Автоматически проверять обновления",
+    "update_interval": "Интервал проверки",
+    "update_interval_minutes": "{minutes} мин",
+    "update_interval_hours": "{hours} ч",
+    "update_interval_days": "{days} дн.",
+    "update_auto_hint": "Проверяет при запуске и регулярно с выбранным интервалом.",
+    "update_manual_hint": "Автоматическая проверка отключена. Можно проверить вручную."
   },
   "zh-TW": {
     "settings": "設置",
@@ -2493,7 +2556,7 @@
     "worktree_prune_target": "清理失效 Worktree 記錄：{repository}",
     "updates": "線上更新",
     "update_version": "目前版本：{version}",
-    "update_source": "啟動時在背景檢查穩定版更新。",
+    "update_source": "從 GitHub Releases 取得穩定版本，下載和安裝需要確認。",
     "update_check": "檢查更新",
     "update_checking": "正在檢查更新…",
     "update_latest": "已是最新版本。",
@@ -2507,6 +2570,13 @@
     "update_restart": "重新啟動 Tervia",
     "update_restart_confirm": "重新啟動以使用新版本？所有終端機工作階段將結束，啟動後會開啟歡迎頁。",
     "update_restart_blocked": "請先儲存所有修改的檔案，並等待進行中的操作完成後再重新啟動。",
-    "update_wait": "請等待更新完成後再結束。"
+    "update_wait": "請等待更新完成後再結束。",
+    "update_auto_check": "自動檢查更新",
+    "update_interval": "檢查間隔",
+    "update_interval_minutes": "{minutes} 分鐘",
+    "update_interval_hours": "{hours} 小時",
+    "update_interval_days": "{days} 天",
+    "update_auto_hint": "啟動時檢查，並依設定間隔在背景自動檢查。",
+    "update_manual_hint": "已關閉自動檢查，仍可手動檢查更新。"
   }
 }

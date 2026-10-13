@@ -8,6 +8,9 @@ use self_update::{Release, ReleaseSource};
 
 use crate::platform::Platform;
 
+mod schedule;
+pub use schedule::{MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES, Schedule, Settings};
+
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const RELEASES_URL: &str = "https://github.com/murongg/Tervia/releases";
 

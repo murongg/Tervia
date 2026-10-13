@@ -8,6 +8,63 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn configured_update_policy_loads_into_the_scheduler_and_ui_edits_persist(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    fs::write(
+        &path,
+        "[updates]\nauto_check = false\ninterval_minutes = 37\n",
+    )
+    .unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::configured(Ok(Config::new(path.clone())), window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert!(!this.preferences.read(cx).updates.auto_check);
+            assert_eq!(this.preferences.read(cx).updates.interval_minutes, 37);
+            this.preferences.update(cx, |preferences, cx| {
+                preferences.updates.auto_check = true;
+                preferences.updates.interval_minutes = 15;
+                cx.notify();
+            });
+        })
+    });
+    assert_eq!(
+        Config::new(path).load().unwrap().updates,
+        tervia::updates::Settings {
+            auto_check: true,
+            interval_minutes: 15
+        }
+    );
+}
+
+#[gpui_test::test]
+fn update_settings_show_save_errors_without_an_interface_reset_action(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| Some("Synthetic settings save failure".into()));
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let settings = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        gpui_kit::base::Root::new(settings, window, cx)
+    });
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let nav = cx.debug_bounds("settings-updates-nav").unwrap();
+    cx.simulate_click(nav.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("settings-footer").is_some());
+    assert!(cx.debug_bounds("settings-reset-defaults").is_none());
+}
+
+#[gpui_test::test]
 fn escape_on_the_welcome_screen_cannot_interrupt_installation(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut view = None;

@@ -18,3 +18,9 @@ code_family = "Menlo"
 code_size = 14
 # Interface font size: 11–16
 ui_size = 13
+
+# Check GitHub Releases at startup and periodically. Downloading/installing still requires confirmation.
+[updates]
+auto_check = true
+# Minutes between completed checks, including manual checks. Valid range: 5–10080 (7 days).
+interval_minutes = 60

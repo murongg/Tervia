@@ -450,6 +450,7 @@ impl Render for PreferencesWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::new(self.current.light_theme);
         let error = self.config_error.read(cx).clone();
+        let show_footer = !self.updates_selected || error.is_some();
         let body = div()
             .id("preferences-body")
             .flex_1()
@@ -587,23 +588,26 @@ impl Render for PreferencesWindow {
                         )
                     }),
             )
-            .child(
-                label_button("reset-preferences", self.t("reset_defaults"), p)
-                    .flex_shrink_0()
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.preferences.update(cx, |prefs, cx| {
-                            prefs.reset();
-                            cx.notify();
-                        });
-                        this.font_select.update(cx, |select, cx| {
-                            select.set_selected_value(
-                                &SharedString::from(Preferences::default().font_family),
-                                window,
-                                cx,
-                            )
-                        });
-                    })),
-            );
+            .when(!self.updates_selected, |footer| {
+                footer.child(
+                    label_button("reset-preferences", self.t("reset_defaults"), p)
+                        .debug_selector(|| "settings-reset-defaults".into())
+                        .flex_shrink_0()
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.preferences.update(cx, |prefs, cx| {
+                                prefs.reset();
+                                cx.notify();
+                            });
+                            this.font_select.update(cx, |select, cx| {
+                                select.set_selected_value(
+                                    &SharedString::from(Preferences::default().font_family),
+                                    window,
+                                    cx,
+                                )
+                            });
+                        })),
+                )
+            });
         div()
             .size_full()
             .key_context("TerviaSettings")
@@ -641,7 +645,7 @@ impl Render for PreferencesWindow {
                             .flex_1()
                             .min_w_0()
                             .child(body)
-                            .when(!self.updates_selected, |pane| pane.child(footer)),
+                            .when(show_footer, |pane| pane.child(footer)),
                     ),
             )
     }
