@@ -36,6 +36,12 @@ jobs:
           persist-credentials: false
       - name: Install Rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Keep the key shared with the reusable release workflow.
+          shared-key: native-${{ matrix.os }}
+          save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       - name: Release and signing script tests
         if: runner.os == 'Linux'
         env:
