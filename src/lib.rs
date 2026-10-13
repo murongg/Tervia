@@ -12,3 +12,4 @@ pub mod pty;
 pub mod state;
 pub mod terminal;
 pub mod updates;
+pub mod workspace;

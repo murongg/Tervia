@@ -66,7 +66,7 @@ Intervals are measured from the last completed check, including manual checks an
 
 Updates require an exact platform/architecture match and verify the archive against its SHA-256 digest captured during the check. macOS replaces the complete signed, notarized `.app` after signature and Gatekeeper checks; Windows and Linux replace the executable from the release archive. The installation must be writable by the current user; updates do not elevate privileges. Failed verification or installation preserves the existing app.
 
-Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions and returns to the welcome screen. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
+Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions; the open project list is restored after restarting. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
 
 ## Available interactions
 
@@ -83,7 +83,7 @@ Save all edited files across projects and worktrees and wait for pending writes/
 - Open / clone repositories from the welcome page, add real directories from the project rail, and use quick actions.
 - A separate native settings window with a feature-category sidebar to select installed common monospaced fonts, adjust terminal / code and interface font sizes, preview changes immediately, and restore defaults.
 
-On startup, the welcome page offers to open or clone a repository. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts. Preferences are persisted; the project list is not yet persisted.
+On startup, Tervia restores the open project list, its order, the selected project and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. Missing project directories are skipped; an empty list opens the welcome page. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Terminal processes and unsaved editing drafts are not restored after quitting.
 
 ## Configuration
 
@@ -96,6 +96,8 @@ Tervia creates a commented `config.toml` on first launch. Use **config.toml** at
 | Windows | `%APPDATA%\tervia\config.toml` |
 
 Set `TERVIA_CONFIG_FILE` to an absolute file path to override this location. The configuration applies to the whole app, regardless of the project directory.
+
+The app stores project history in `workspace.json` alongside `config.toml`, including when `TERVIA_CONFIG_FILE` overrides the configuration location. Opening or switching projects, changing the sidebar and removing worktrees save this state automatically. Writes replace the file atomically. Invalid state or changes made by another running instance display a project-history warning and preserve the existing file; fix the file and restart to resume saving. Preferences remain independent of project history.
 
 Top-level tables represent feature domains: `ui` contains appearance and its `fonts` subtable, and `updates` contains automatic-check settings. Future terminal, editor, Git and workspace settings can use separate top-level domains without flattening unrelated options together.
 
@@ -139,7 +141,7 @@ Child repository scanning runs in the background, traversing at most 8 levels, 8
 - Merge / rebase status, viewing all three conflict stages, editing the result, marking conflicts resolved, continuing, and aborting. Deleting a file is also supported as a resolution.
 - The Git page refreshes in the background every 3 seconds, when opened, and after operations complete. Background results retain their project association, and stale diff / file reads are rejected.
 
-Git uses your existing configuration, SSH, credential helpers, and signing programs. Interactive authentication can be completed in the terminal. The editor is limited to UTF-8 text and files up to 4 MiB. Non-UTF-8 diffs display a notice, while whole-file staging preserves the original bytes. Git output is capped at 8 MiB. Interactive rebase, PR / Issue / CI integration, and project/session persistence are planned for later.
+Git uses your existing configuration, SSH, credential helpers, and signing programs. Interactive authentication can be completed in the terminal. The editor is limited to UTF-8 text and files up to 4 MiB. Non-UTF-8 diffs display a notice, while whole-file staging preserves the original bytes. Git output is capped at 8 MiB. Interactive rebase, PR / Issue / CI integration, and terminal session persistence are planned for later.
 
 When creating a terminal, the app removes `NO_COLOR` inherited from the launcher and declares `xterm-256color` / `truecolor` support, so launching from a command environment without colors does not cause TUIs to disable colors automatically. Your shell configuration or individual commands can still explicitly set `NO_COLOR`.
 
@@ -181,6 +183,7 @@ cargo build --features native
 
 - `src/config.rs`, `assets/config.toml`: User configuration, validation and comment-preserving persistence.
 - `src/state.rs`: Real project, terminal, and editing draft state, independent of GPUI.
+- `src/workspace.rs`: Atomic project-history persistence and startup restoration.
 - `src/terminal.rs`, `src/pty.rs`: Terminal parsing, key encoding, selection, and the real PTY lifecycle.
 - `src/locale.rs`, `assets/locales.json`: System language matching and interface text.
 - `src/agent.rs`: Pure path-based rules for identifying foreground agents.

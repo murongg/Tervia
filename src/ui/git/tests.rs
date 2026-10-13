@@ -2,6 +2,7 @@ use super::{Detail, FileStatus, Mode, Side, Snapshot, Tervia};
 use core::prelude::v1::test;
 use gpui_kit::AppContext as _;
 use gpui_test::TestAppContext;
+use std::fs;
 
 #[gpui_test::test]
 fn worktree_open_reuses_project_state_and_removal_refuses_any_cached_dirty_draft(
@@ -528,4 +529,92 @@ fn switching_diff_files_clears_old_content_and_rejects_late_results(cx: &mut Tes
             assert!(ui.detail.is_empty());
         })
     });
+}
+
+#[gpui_test::test]
+fn opening_and_switching_projects_saves_the_workspace_before_quitting(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let alpha = root.path().join("mock-alpha");
+    let beta = root.path().join("mock-beta");
+    fs::create_dir(&alpha).unwrap();
+    fs::create_dir(&beta).unwrap();
+    let alpha = alpha.canonicalize().unwrap();
+    let beta = beta.canonicalize().unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(
+                Ok(tervia::config::Config::new(root.path().join("config.toml"))),
+                window,
+                cx,
+            )
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| {
+        view.unwrap().update(cx, |this, cx| {
+            this.open_workspace(
+                tervia::git::Repository::discover(&alpha).unwrap(),
+                true,
+                window,
+                cx,
+            );
+            this.open_workspace(
+                tervia::git::Repository::discover(&beta).unwrap(),
+                true,
+                window,
+                cx,
+            );
+            this.change_project(0, window, cx);
+        });
+    });
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("workspace.json")).unwrap())
+            .unwrap();
+    assert_eq!(saved["projects"].as_array().unwrap().len(), 2);
+    assert_eq!(saved["active"], serde_json::json!(alpha));
+    assert_eq!(saved["projects"][1]["directory"], serde_json::json!(beta));
+}
+
+#[gpui_test::test]
+fn corrupt_project_history_preserves_preferences_and_reports_the_state_file(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config.toml");
+    let history = root.path().join("workspace.json");
+    fs::write(&config, "[ui]\nlanguage = 'zh-CN'\ntheme = 'light'\n").unwrap();
+    fs::write(&history, "{synthetic invalid JSON").unwrap();
+    let project = root.path().join("mock-project");
+    fs::create_dir(&project).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity =
+            cx.new(|cx| Tervia::configured(Ok(tervia::config::Config::new(config)), window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| {
+        view.unwrap().update(cx, |this, cx| {
+            assert!(this.appearance.light_theme);
+            assert_eq!(this.appearance.language, tervia::locale::Language::Chinese);
+            assert!(this.config_error.read(cx).is_none());
+            assert!(this.state.notice.contains("workspace.json"));
+            assert!(this.state.projects.is_empty());
+            this.open_workspace(
+                tervia::git::Repository::discover(&project).unwrap(),
+                true,
+                window,
+                cx,
+            );
+            assert_eq!(this.state.projects.len(), 1);
+        });
+    });
+    assert_eq!(
+        fs::read_to_string(history).unwrap(),
+        "{synthetic invalid JSON"
+    );
 }
