@@ -1,4 +1,4 @@
-use std::{fs, path::Path, process::Command};
+use std::{fs, process::Command};
 use tempfile::TempDir;
 use tervia::git::{Repository, WorktreeCheckout, WorktreeOperation};
 
@@ -138,7 +138,7 @@ fn worktree_paths_with_newlines_are_not_split_or_unquoted() {
         .find(|tree| !tree.main)
         .unwrap();
     assert_eq!(tree.path, path.canonicalize().unwrap());
-    assert!(Path::new(&tree.path).exists());
+    assert!(tree.path.exists());
 }
 
 #[test]

@@ -9,8 +9,8 @@ publish = false
 [features]
 default = []
 pty = ["dep:portable-pty", "dep:async-channel"]
-native = ["pty", "dep:gpui-kit"]
-ui-tests = ["native", "dep:gpui-test"]
+native = ["pty", "dep:gpui-kit", "dep:gpui-test"]
+ui-tests = ["native", "gpui-test/test-support"]
 
 [dependencies]
 sys-locale = "=0.3.2"
@@ -22,7 +22,8 @@ toml_edit = "=0.25.17"
 alacritty_terminal = { version = "=0.26.0", default-features = false }
 portable-pty = { version = "=0.9.0", optional = true }
 async-channel = { version = "2", optional = true }
-gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, features = ["test-support"] }
+# Select application-owned Windows resources even when transitive dependencies enable GPUI defaults.
+gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, features = ["windows-manifest-provided-by-host"] }
 gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-rust", "tree-sitter-toml", "tree-sitter-markdown", "tree-sitter-typescript"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -44,3 +45,6 @@ embed-resource = "=3.0.12"
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[patch.crates-io]
+gpui-pre = { path = "vendor/gpui-pre" }

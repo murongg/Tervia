@@ -18,6 +18,8 @@ Linux requires Vulkan drivers and development libraries for Fontconfig, ALSA, XK
 
 On Windows, use the MSVC Rust toolchain and Visual Studio C++ Build Tools, then run `cargo run --features native`. Run `./scripts/windows.ps1` in PowerShell to create a ZIP. The terminal uses system ConPTY and opens PowerShell by default with its Profile enabled. Linux defaults to Bash and macOS to Zsh; when `SHELL` is set, its value takes precedence.
 
+Tervia owns the Windows application manifest. A [scoped patch to the pinned GPUI dependency](vendor/gpui-pre/PATCH.md) prevents duplicate manifest resources while preserving DPI awareness, Common Controls v6, long-path and UTF-8 settings. Windows CI checks these settings in the linked executable.
+
 Git integration has been verified on macOS through synthetic repository tests, native interaction tests, and interface checks in both dark and light themes. These checks covered discovery of multiple repositories, collapsing and scrolling, hunk staging, commits, conflict editing, and continuing merges. The Git core has passed cross-compilation checks for Windows GNU and Linux GNU; the graphical interface still needs testing on actual machines running those systems. CI is configured to test, build, and package on all three systems, but remote CI has not yet run.
 
 ## Releases
