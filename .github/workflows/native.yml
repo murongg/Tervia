@@ -4,6 +4,11 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sign-macos:
+        description: Validate Developer ID signing and Apple notarization.
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       sign-macos:

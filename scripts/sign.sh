@@ -37,9 +37,22 @@ sign_app=$(CDPATH= cd -- "$1" && pwd)
 umask 077
 sign_tmp=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/tervia-sign.XXXXXX")
 sign_keychain=$sign_tmp/signing.keychain-db
+sign_restore_search_list=false
+set_search_list() {
+  while IFS= read -r sign_existing_keychain; do
+    set -- "$@" "$sign_existing_keychain"
+  done < "$sign_tmp/search-list"
+  security list-keychains -d user -s "$@"
+}
 cleanup() {
   sign_exit=$?
   trap - 0
+  if [ "$sign_restore_search_list" = true ]; then
+    if ! set_search_list; then
+      printf '%s\n' 'Unable to restore the original keychain search list.' >&2
+      sign_exit=1
+    fi
+  fi
   if [ -f "$sign_keychain" ]; then
     if ! security delete-keychain "$sign_keychain" >/dev/null 2>&1; then
       printf '%s\n' 'Unable to delete the temporary signing keychain.' >&2
@@ -54,8 +67,13 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 printf '%s' "$MACOS_CERTIFICATE" | base64 --decode > "$sign_tmp/certificate.p12"
+security list-keychains -d user > "$sign_tmp/search-list-raw"
+sed -n 's/^[[:space:]]*"\(.*\)"$/\1/p' "$sign_tmp/search-list-raw" > "$sign_tmp/search-list"
+sign_restore_search_list=true
 sign_password=$(openssl rand -hex 32)
 security create-keychain -p "$sign_password" "$sign_keychain"
+# --keychain narrows identity selection; codesign still needs the search list.
+set_search_list "$sign_keychain"
 security set-keychain-settings -lut 21600 "$sign_keychain"
 security unlock-keychain -p "$sign_password" "$sign_keychain"
 security import "$sign_tmp/certificate.p12" -k "$sign_keychain" \
@@ -65,7 +83,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
 rm -f "$sign_tmp/certificate.p12"
 unset MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD
 
-# An explicit temporary keychain avoids replacing the user's keychain search list.
+# Select only the imported identity even when other keychains contain certificates.
 security find-identity -v -p codesigning "$sign_keychain" > "$sign_tmp/identities"
 sign_identity=$(awk -v team="$APPLE_TEAM_ID" '
   /"Developer ID Application: / && index($0, "(" team ")\"") { print $2 }

@@ -27,12 +27,24 @@ if " ".join([tool, *args]).startswith(failure) and failure:
 if tool == "uname":
     print("Darwin")
 elif tool == "security":
-    if args[0] == "create-keychain":
+    if args[0] == "list-keychains":
+        state = Path(os.environ["SIGN_SEARCH_LIST"])
+        if "-s" in args:
+            state.write_text(json.dumps(args[args.index("-s") + 1:]))
+        else:
+            for keychain in json.loads(state.read_text()):
+                print(f'    "{keychain}"')
+    elif args[0] == "create-keychain":
         Path(args[-1]).write_text("synthetic keychain")
     elif args[0] == "delete-keychain":
         Path(args[-1]).unlink(missing_ok=True)
     elif args[0] == "find-identity":
         print(os.environ.get("SIGN_IDENTITIES", '1) ' + 'A' * 40 + ' "Developer ID Application: Synthetic (TESTTEAM01)"'))
+elif tool == "codesign" and "--sign" in args and os.environ.get("SIGN_REQUIRE_SEARCH_LIST"):
+    search_list = json.loads(Path(os.environ["SIGN_SEARCH_LIST"]).read_text())
+    if args[args.index("--keychain") + 1] not in search_list:
+        sys.stderr.write("synthetic identity: no identity found\n")
+        sys.exit(1)
 elif tool == "ditto":
     Path(args[-1]).write_bytes(b"synthetic archive")
 elif tool == "xcrun" and args[:2] == ["notarytool", "submit"]:
@@ -61,6 +73,9 @@ class SigningTests(unittest.TestCase):
         (self.app / "Contents/MacOS/Tervia").write_bytes(b"synthetic executable")
         (self.app / "Contents/Info.plist").write_text("synthetic plist")
         self.calls = self.root / "calls.jsonl"
+        self.search_list = self.root / "search-list.json"
+        self.original_search_list = ["/synthetic/keychains/login.keychain-db", "/synthetic/keychains/with spaces.keychain-db"]
+        self.search_list.write_text(json.dumps(self.original_search_list))
         for name in ("uname", "security", "codesign", "ditto", "xcrun", "plutil", "spctl"):
             path = self.tools / name
             path.write_text(f"#!{sys.executable}\n" + TOOL)
@@ -70,6 +85,7 @@ class SigningTests(unittest.TestCase):
             "PATH": f"{self.tools}{os.pathsep}{os.environ['PATH']}",
             "RUNNER_TEMP": str(self.scratch),
             "SIGN_CALLS": str(self.calls),
+            "SIGN_SEARCH_LIST": str(self.search_list),
             "MACOS_CERTIFICATE": base64.b64encode(b"synthetic certificate").decode(),
             "MACOS_CERTIFICATE_PASSWORD": "synthetic-p12-password",
             "APPLE_ID": "release@example.test",
@@ -89,6 +105,20 @@ class SigningTests(unittest.TestCase):
     def assert_cleaned(self):
         self.assertEqual(list(self.scratch.iterdir()), [])
         self.assertTrue(any(call[:2] == ["security", "delete-keychain"] for call in self.recorded()))
+        self.assertEqual(json.loads(self.search_list.read_text()), self.original_search_list)
+
+    def test_signing_identity_is_searchable_and_original_keychains_are_restored(self):
+        self.env["SIGN_REQUIRE_SEARCH_LIST"] = "1"
+        result = self.run_sign()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.recorded()
+        sign = next(call for call in calls if call[:2] == ["codesign", "--force"])
+        registrations = [call for call in calls if call[:4] == ["security", "list-keychains", "-d", "user"] and "-s" in call]
+        self.assertEqual(len(registrations), 2)
+        self.assertLess(calls.index(registrations[0]), calls.index(sign))
+        self.assertGreater(calls.index(registrations[1]), calls.index(sign))
+        self.assertEqual(registrations[0][5:], [sign[sign.index("--keychain") + 1], *self.original_search_list])
+        self.assert_cleaned()
 
     def test_preflight_requires_all_secrets_without_using_apple_tools(self):
         for name in ("MACOS_CERTIFICATE", "MACOS_CERTIFICATE_PASSWORD", "APPLE_ID", "APPLE_TEAM_ID", "APPLE_APP_SPECIFIC_PASSWORD"):
