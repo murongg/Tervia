@@ -95,8 +95,13 @@ fn dropping_a_session_terminates_a_synthetic_shell_that_ignores_hangup() {
 #[cfg(windows)]
 #[test]
 fn a_synthetic_windows_command_round_trip_uses_conpty() {
-    let mut command = CommandBuilder::new("cmd.exe");
+    let system_root = std::env::var_os("SystemRoot").expect("Windows must provide SystemRoot");
+    let executable = std::path::PathBuf::from(&system_root).join("System32/cmd.exe");
+    // portable-pty resolves executables from the command's PATH. An isolated
+    // environment needs an absolute executable and Windows' system directory.
+    let mut command = CommandBuilder::new(executable);
     command.env_clear();
+    command.env("SystemRoot", system_root);
     command.args([
         "/D",
         "/Q",
