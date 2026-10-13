@@ -7,6 +7,11 @@ if [[ "${1:-}" != "--no-build" ]]; then
   cargo build --features native
 fi
 
+TERVIA_PACKAGE_ID="$(cargo pkgid --locked --offline)"
+TERVIA_VERSION="${TERVIA_PACKAGE_ID##*@}"
+# Apple bundle versions require the numeric core, without SemVer prerelease/build suffixes.
+TERVIA_VERSION="${TERVIA_VERSION%%[-+]*}"
+
 TERVIA_APP="$TERVIA_ROOT/build/Tervia.app"
 mkdir -p "$TERVIA_APP/Contents/MacOS" "$TERVIA_APP/Contents/Resources" "$TERVIA_ROOT/build/Tervia.iconset"
 cp "$TERVIA_ROOT/target/debug/tervia" "$TERVIA_APP/Contents/MacOS/Tervia"
@@ -21,7 +26,7 @@ for TERVIA_SIZE in 16 32 128 256 512; do
 done
 iconutil -c icns "$TERVIA_ROOT/build/Tervia.iconset" -o "$TERVIA_APP/Contents/Resources/Tervia.icns"
 
-cat > "$TERVIA_APP/Contents/Info.plist" <<'PLIST'
+cat > "$TERVIA_APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -31,8 +36,8 @@ cat > "$TERVIA_APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Tervia</string>
 <key>CFBundleIconFile</key><string>Tervia</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>1</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
+<key>CFBundleVersion</key><string>$TERVIA_VERSION</string>
+<key>CFBundleShortVersionString</key><string>$TERVIA_VERSION</string>
 <key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundleLocalizations</key><array>
 <string>zh-Hans</string><string>zh-Hant</string><string>en</string>

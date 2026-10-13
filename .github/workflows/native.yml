@@ -1,5 +1,26 @@
 name: Native desktop builds
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      sign-macos:
+        description: Require Developer ID signing and Apple notarization for macOS artifacts.
+        type: boolean
+        default: false
+    secrets:
+      MACOS_CERTIFICATE:
+        required: false
+      MACOS_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: false
 permissions:
   contents: read
 jobs:
@@ -15,21 +36,38 @@ jobs:
           persist-credentials: false
       - name: Install Rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Release and signing script tests
+        if: runner.os == 'Linux'
+        env:
+          RUSTUP_TOOLCHAIN: 1.99.0
+        run: python3 -B -m unittest discover -s tests -p 'test_*.py'
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev libfontconfig1-dev libasound2-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libwayland-dev libvulkan-dev libpipewire-0.3-dev clang cmake fonts-dejavu-core
       - run: cargo fmt --all -- --check
-      - run: cargo test --features ui-tests
-      - run: cargo clippy --features ui-tests --all-targets -- -D warnings
-      - run: cargo build --release --features native
+      - run: cargo test --locked --features ui-tests
+      - run: cargo clippy --locked --features ui-tests --all-targets -- -D warnings
+      - run: cargo build --locked --release --features native
       - name: macOS package
         if: runner.os == 'macOS'
         run: |
+          mkdir -p target/debug
           cp target/release/tervia target/debug/tervia
           ./scripts/package.sh --no-build
-          tar -C build -czf build/Tervia-macos.tar.gz Tervia.app
+      - name: Sign and notarize macOS app
+        if: runner.os == 'macOS' && inputs.sign-macos
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: sh scripts/sign.sh build/Tervia.app
+      - name: macOS archive
+        if: runner.os == 'macOS'
+        run: ditto -c -k --sequesterRsrc --keepParent build/Tervia.app "build/Tervia-macos-$(uname -m).zip"
       - name: Linux package
         if: runner.os == 'Linux'
         run: bash scripts/linux.sh --no-build

@@ -20,6 +20,42 @@ On Windows, use the MSVC Rust toolchain and Visual Studio C++ Build Tools, then 
 
 Git integration has been verified on macOS through synthetic repository tests, native interaction tests, and interface checks in both dark and light themes. These checks covered discovery of multiple repositories, collapsing and scrolling, hunk staging, commits, conflict editing, and continuing merges. The Git core has passed cross-compilation checks for Windows GNU and Linux GNU; the graphical interface still needs testing on actual machines running those systems. CI is configured to test, build, and package on all three systems, but remote CI has not yet run.
 
+## Releases
+
+The [release script](scripts/release.sh) uses a POSIX shell, Git, and Cargo (use Git Bash on Windows). Set `package.version` in `Cargo.toml`, run `cargo check` to update `Cargo.lock` and cache dependencies, and commit your changes before releasing. The script reads that committed version; it does not bump versions automatically.
+
+```sh
+git fetch --tags origin
+sh scripts/release.sh --dry-run  # Preview the changelog without making changes
+sh scripts/release.sh --push     # Generate, commit, tag, and push to origin
+```
+
+Running without flags creates a local release and prints the push command. The script generates `CHANGELOG.md` from non-merge commits since the nearest reachable `v*` version tag, or the full history for the first release. Conventional Commits are grouped into features, fixes, performance, documentation, breaking changes, and other changes. Existing changelog entries are retained. A `chore(release): v<version>` commit is created, then an annotated tag containing the current release notes points to that commit.
+
+Releases require a clean working tree, a branch checkout, full history, a matching lockfile, and a new tag. `--push` fetches origin tags first and pushes the current branch and tag atomically. If a hook or push fails, generated files, commits, and tags are retained for inspection; a failed push prints the command to retry. The script respects Git hooks and signing settings.
+
+Pushing the tag triggers the [release workflow](.github/workflows/release.yml), which reuses native CI checks and release builds on macOS, Linux, and Windows. After all three succeed, it publishes a GitHub Release using the annotated tag's changelog, with versioned platform archives and `SHA256SUMS`. Manually pushed lightweight tags fall back to GitHub-generated release notes. Tags such as `v0.2.0-beta.1` publish a prerelease and require the same version in `Cargo.toml`. GitHub publishing uses the built-in `GITHUB_TOKEN`; macOS releases also require the Apple secrets below. Existing releases are not overwritten.
+
+### macOS signing and notarization
+
+Configure these repository secrets under **Settings → Secrets and variables → Actions** before pushing a release tag:
+
+| Secret | Value |
+| --- | --- |
+| `MACOS_CERTIFICATE` | Base64-encoded `.p12` containing one **Developer ID Application** certificate and its private key. |
+| `MACOS_CERTIFICATE_PASSWORD` | The password used when exporting the `.p12`. |
+| `APPLE_ID` | Your Apple developer account email. |
+| `APPLE_TEAM_ID` | Your 10-character developer team ID. |
+| `APPLE_APP_SPECIFIC_PASSWORD` | An app-specific password for notarization, not your Apple account password. |
+
+An Apple Developer Program membership is required. Export the certificate together with its private key from Keychain Access, then copy its Base64 representation with `base64 -i DeveloperID.p12 | pbcopy` and paste it into the secret. The certificate must match `APPLE_TEAM_ID`; Apple Development and Mac App Store distribution certificates are not accepted. See [Apple's Developer ID guidance](https://developer.apple.com/developer-id/) and [notarization documentation](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
+
+[sign.sh](scripts/sign.sh) imports the certificate into a temporary keychain, signs with Hardened Runtime and a secure timestamp, submits a ZIP to Apple's notary service, waits up to 30 minutes for `Accepted`, staples the ticket, and checks Gatekeeper before the workflow creates the final macOS ZIP. Missing secrets, invalid signatures, rejected or timed-out notarization, and failed ticket checks stop the release. Notarization failures include Apple's diagnostic log when available. Temporary certificates, credentials, and the keychain are removed on success or failure. No extra keychain-password secret is needed.
+
+Ordinary branch / pull-request CI and local development builds retain ad-hoc signing. For local notarization, export the same five environment variables and run `sh scripts/sign.sh build/Tervia.app` after packaging on a Mac with Xcode. `sh scripts/sign.sh --check` only checks that the required values are present and the team ID has the expected format; it does not contact Apple or verify the certificate.
+
+Linux packages require the runtime libraries described above. Each archive targets the architecture of its CI runner; macOS archives include that architecture in the filename.
+
 ## Available interactions
 
 - A compact project icon rail and an expandable project list. Each project keeps its own terminals, tabs, and editing drafts when you switch projects.
@@ -116,6 +152,7 @@ The terminal currently focuses on standard xterm / VT interaction. Image protoco
 ## Verification
 
 ```sh
+python3 -B -m unittest discover -s tests -p 'test_*.py'
 cargo test --no-default-features
 cargo test --features native
 cargo test --features ui-tests

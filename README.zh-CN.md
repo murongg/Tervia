@@ -20,6 +20,42 @@ Windows 使用 MSVC Rust 工具链和 Visual Studio C++ Build Tools，运行 `ca
 
 Git 接入在 macOS 上通过合成仓库测试、原生交互测试与深浅主题界面复查，实际验证了多仓库发现、折叠和滚动、区块暂存、提交、冲突编辑与继续合并。Git 核心通过 Windows GNU / Linux GNU 交叉编译检查；两个系统的图形界面仍需实机验证。CI 配置会在三个系统执行测试、构建及打包，尚未运行远程 CI。
 
+## 自动发版
+
+[发版脚本](scripts/release.sh) 使用 POSIX shell、Git 和 Cargo，Windows 下使用 Git Bash。先修改 `Cargo.toml` 的 `package.version`，运行 `cargo check` 同步 `Cargo.lock` 并缓存依赖，提交所有改动后再发版。脚本读取已提交的版本，不会自动递增版本号。
+
+```sh
+git fetch --tags origin
+sh scripts/release.sh --dry-run  # 预览 changelog，不修改文件或 Git 引用
+sh scripts/release.sh --push     # 生成、提交、打标签并推送到 origin
+```
+
+不加参数时只创建本地版本，并打印推送命令。脚本根据最近可达的 `v*` 版本标签以来的非合并提交生成 `CHANGELOG.md`，首次发版使用完整历史。按 Conventional Commits 将提交归为新功能、修复、性能、文档、破坏性变更和其他变更，保留已有 changelog。随后创建 `chore(release): v<版本号>` 提交，再创建指向该提交的附注标签，标签说明包含本次 changelog。
+
+脚本要求工作区干净、位于分支上、历史完整、lockfile 版本一致，且目标标签尚不存在。`--push` 会先同步 origin 标签，再原子推送当前分支和版本标签。Hook 或推送失败时保留生成的文件、提交与标签供检查；推送失败会打印重试命令。保留现有 Git hooks 与签名设置。
+
+推送标签后触发[发布工作流](.github/workflows/release.yml)，复用 macOS、Linux、Windows 的原生 CI 检查与 release 构建；三平台全部成功后，用附注标签中的 changelog 创建 GitHub Release，并上传带版本号的平台压缩包与 `SHA256SUMS`。手动推送轻量标签时仍使用 GitHub 自动生成的发布说明。`v0.2.0-beta.1` 等标签会标记为预发布，`Cargo.toml` 也需使用相同版本。GitHub 发布使用内置 `GITHUB_TOKEN`，macOS 发版还需下方的 Apple Secrets；已有 Release 不会被覆盖。
+
+### macOS 正式签名与公证
+
+推送发版标签前，在仓库 **Settings → Secrets and variables → Actions** 配置：
+
+| Secret | 内容 |
+| --- | --- |
+| `MACOS_CERTIFICATE` | 包含一个 **Developer ID Application** 证书及对应私钥的 `.p12`，转成 Base64。 |
+| `MACOS_CERTIFICATE_PASSWORD` | 导出 `.p12` 时设置的密码。 |
+| `APPLE_ID` | Apple 开发者账号邮箱。 |
+| `APPLE_TEAM_ID` | 10 位开发者团队 ID。 |
+| `APPLE_APP_SPECIFIC_PASSWORD` | 用于公证的 App 专用密码，不是 Apple 账号登录密码。 |
+
+需要 Apple Developer Program 会员。从钥匙串访问中将证书与对应私钥一起导出，再执行 `base64 -i DeveloperID.p12 | pbcopy`，将结果粘贴到 Secret。证书必须属于 `APPLE_TEAM_ID` 指定团队；不接受 Apple Development 或 Mac App Store 分发证书。参考 [Apple Developer ID 说明](https://developer.apple.com/developer-id/)与[公证文档](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)。
+
+[sign.sh](scripts/sign.sh) 将证书导入临时钥匙串，启用 Hardened Runtime 和安全时间戳签名，提交 ZIP 给 Apple 公证，最多等待 30 分钟，只有状态为 `Accepted` 才附加票据并执行 Gatekeeper 检查，随后工作流生成最终 macOS ZIP。缺少凭据、签名无效、公证拒绝或超时、票据检查失败都会终止发版；公证失败时尽可能输出 Apple 诊断日志。成功或失败后都会清理临时证书、凭据与钥匙串，无需额外配置钥匙串密码 Secret。
+
+普通分支 / PR 的 CI 和本地开发构建继续使用 ad-hoc 签名。本地公证时，在装有 Xcode 的 Mac 上导出同名的五个环境变量，打包后执行 `sh scripts/sign.sh build/Tervia.app`。`sh scripts/sign.sh --check` 只检查必需值是否存在、团队 ID 格式是否正确，不连接 Apple 或验证证书有效性。
+
+Linux 仍需安装上文所述运行库。每个压缩包只对应其 CI runner 的架构，macOS 文件名会注明架构。
+
 ## 可体验的交互
 
 - 窄项目图标栏与展开项目列表；切换项目时保留各自的终端、Tab 和编辑草稿。
@@ -115,6 +151,7 @@ TOML 语法、配置值或读取出错时，使用默认设置启动并显示配
 ## 验证
 
 ```sh
+python3 -B -m unittest discover -s tests -p 'test_*.py'
 cargo test --no-default-features
 cargo test --features native
 cargo test --features ui-tests
