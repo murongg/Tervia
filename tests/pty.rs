@@ -99,19 +99,23 @@ fn a_synthetic_windows_command_round_trip_uses_conpty() {
     use tervia::terminal::TerminalBuffer;
 
     let system_root = std::env::var_os("SystemRoot").expect("Windows must provide SystemRoot");
-    let executable = std::path::PathBuf::from(&system_root).join("System32/cmd.exe");
+    let executable = std::path::PathBuf::from(&system_root)
+        .join("System32")
+        .join("cmd.exe");
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("roundtrip.cmd"),
+        "@echo off\r\necho synthetic-ready\r\nset /p \"value=\"\r\necho synthetic:%value%\r\n",
+    )
+    .unwrap();
     // portable-pty resolves executables from the command's PATH. An isolated
     // environment needs an absolute executable and Windows' system directory.
     let mut command = CommandBuilder::new(executable);
     command.env_clear();
     command.env("SystemRoot", system_root);
-    command.args([
-        "/D",
-        "/Q",
-        "/V:ON",
-        "/C",
-        "echo synthetic-ready&set /p value=&echo synthetic:!value!",
-    ]);
+    command.cwd(directory.path());
+    // Keep shell syntax in the batch file instead of relying on CRT quoting for cmd /C.
+    command.args(["/D", "/Q", "/C", "roundtrip.cmd"]);
     let (session, receiver) = PtySession::spawn(
         command,
         PtySize {
