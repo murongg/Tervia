@@ -625,7 +625,7 @@ impl Render for PreferencesWindow {
                     .justify_center()
                     .text_color(p.secondary)
                     .font_weight(FontWeight::MEDIUM)
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+                    .on_mouse_down(MouseButton::Left, super::controls::titlebar_mouse_down)
                     .child(self.t("settings")),
             )
             .child(
