@@ -1,6 +1,6 @@
 use super::{
     OpenPreferences, Tervia,
-    controls::{icon, label_button},
+    controls::{icon, label_button, titlebar_mouse_down},
     theme,
 };
 use gpui_kit::assets::IconName;
@@ -139,9 +139,7 @@ impl Tervia {
                             .items_center()
                             .justify_center()
                             .child("Tervia")
-                            .on_mouse_down(MouseButton::Left, |_, window, _| {
-                                window.start_window_move()
-                            }),
+                            .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
                     )
                     .child(
                         div()

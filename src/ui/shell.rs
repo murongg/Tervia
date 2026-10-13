@@ -10,7 +10,7 @@ use tervia::state::Tab;
 
 use super::{
     Tervia,
-    controls::{badge, icon, icon_button, label_button, separator},
+    controls::{badge, icon, icon_button, label_button, separator, titlebar_mouse_down},
 };
 
 #[cfg(all(test, feature = "ui-tests"))]
@@ -129,6 +129,7 @@ impl Tervia {
                     .items_center()
                     .gap(px(7.0))
                     .ml(px(8.0))
+                    .on_mouse_down(MouseButton::Left, titlebar_mouse_down)
                     .child(icon(IconName::Folder, p.secondary))
                     .child(
                         div()
@@ -141,7 +142,7 @@ impl Tervia {
                 div()
                     .flex_1()
                     .h_full()
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+                    .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
             )
             // Keep transient actions before the fixed controls so their click targets never move.
             .when_some(update, |titlebar, update| {
