@@ -58,6 +58,14 @@ Ordinary branch / pull-request CI and local development builds retain ad-hoc sig
 
 Linux packages require the runtime libraries described above. Each archive targets the architecture of its CI runner; macOS archives include that architecture in the filename.
 
+## Online updates
+
+Release builds check the latest stable GitHub Release in the background at startup. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. The icon becomes a restart action after installation. Open **Settings → Updates** to check manually, read release notes, and confirm **Download and install**. Download progress and retry actions are shown in the app. Once installed, choose **Restart Tervia**, or restart later yourself.
+
+Updates require an exact platform/architecture match and verify the archive against its SHA-256 digest captured during the check. macOS replaces the complete signed, notarized `.app` after signature and Gatekeeper checks; Windows and Linux replace the executable from the release archive. The installation must be writable by the current user; updates do not elevate privileges. Failed verification or installation preserves the existing app.
+
+Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions and returns to the welcome screen. Development builds can check manually but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
+
 ## Available interactions
 
 - A compact project icon rail and an expandable project list. Each project keeps its own terminals, tabs, and editing drafts when you switch projects.

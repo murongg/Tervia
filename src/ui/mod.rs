@@ -9,6 +9,7 @@ mod shell;
 mod tabs;
 mod terminal;
 mod theme;
+mod updates;
 mod welcome;
 
 use std::path::PathBuf;
@@ -68,6 +69,8 @@ pub struct Tervia {
     config: Option<Config>,
     config_error: Entity<Option<String>>,
     preferences_window: Option<AnyWindowHandle>,
+    updater: Entity<updates::Updater>,
+    update_restarting: bool,
     editors: Vec<Vec<Entity<EditorState>>>,
     explorers: Vec<explorer::Explorer>,
     monitors: Vec<monitor::Monitor>,
@@ -130,14 +133,18 @@ impl Tervia {
         if let Some(error) = &error {
             state.notice = format!("{}\n{error}", language.text("config_error"));
         }
+        let preferences = cx.new(|_| appearance.clone());
+        let updater = cx.new(|cx| updates::Updater::new(preferences.clone(), cx));
         let mut view = Self {
             focus: cx.focus_handle(),
             state,
-            preferences: cx.new(|_| appearance.clone()),
+            preferences,
             appearance,
             config,
             config_error: cx.new(|_| error),
             preferences_window: None,
+            updater,
+            update_restarting: false,
             editors: Vec::new(),
             explorers: Vec::new(),
             monitors: Vec::new(),
@@ -155,6 +162,25 @@ impl Tervia {
             files_active: window.is_window_active(),
             subscriptions: Vec::new(),
         };
+        view.subscriptions.push(cx.subscribe_in(
+            &view.updater,
+            window,
+            |this, _, _: &updates::Restart, window, cx| this.restart_after_update(window, cx),
+        ));
+        view.subscriptions
+            .push(cx.observe(&view.updater, |this, updater, cx| {
+                // A background version check must not hide an existing config, file, or Git warning.
+                if this.state.notice.is_empty()
+                    && let updates::State::Available(candidate) = &updater.read(cx).state
+                {
+                    this.state.notice =
+                        this.f("update_available", &[("version", candidate.version())]);
+                }
+                cx.notify();
+            }));
+        if !cfg!(debug_assertions) && !cfg!(test) {
+            view.updater.update(cx, |updater, cx| updater.check(cx));
+        }
         view.subscriptions
             .push(cx.subscribe(&view.welcome_url, |_, _, _: &InputEvent, cx| cx.notify()));
         view.subscriptions
@@ -389,7 +415,7 @@ impl Tervia {
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.state.dismiss_palette() {
             cx.notify();
-        } else {
+        } else if self.try_quit(cx) {
             window.remove_window();
         }
     }
@@ -412,6 +438,7 @@ impl Tervia {
         let preferences = self.preferences.clone();
         let config_path = self.config.as_ref().map(|config| config.path().to_owned());
         let config_error = self.config_error.clone();
+        let updater = self.updater.clone();
         let bounds = Bounds::centered(None, size(px(760.0), px(640.0)), cx);
         match gpui_kit::open_window(
             WindowOptions {
@@ -432,6 +459,7 @@ impl Tervia {
                         preferences,
                         config_path,
                         config_error,
+                        updater,
                         window,
                         cx,
                     )

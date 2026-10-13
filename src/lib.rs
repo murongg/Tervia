@@ -11,3 +11,4 @@ pub mod process;
 pub mod pty;
 pub mod state;
 pub mod terminal;
+pub mod updates;

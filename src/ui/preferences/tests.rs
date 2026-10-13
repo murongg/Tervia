@@ -8,6 +8,32 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn escape_on_the_welcome_screen_cannot_interrupt_installation(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.updater.update(cx, |updater, cx| {
+                updater.state = super::super::updates::State::Installing;
+                cx.notify();
+            })
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.dispatch_action(gpui_kit::base::actions::Cancel);
+    assert_eq!(
+        cx.update(|_, cx| view.read(cx).state.notice.clone()),
+        Language::System.text("update_wait")
+    );
+}
+
+#[gpui_test::test]
 fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
     cx: &mut TestAppContext,
 ) {
@@ -23,11 +49,13 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
         super::apply(&preferences, cx);
         let preferences = cx.new(|_| preferences);
         let error = cx.new(|_| Some("Synthetic configuration error".into()));
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
         let entity = cx.new(|cx| {
             super::PreferencesWindow::new(
                 preferences,
                 Some("/synthetic/config.toml".into()),
                 error,
+                updater,
                 window,
                 cx,
             )
@@ -78,6 +106,202 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
         px(0.0)
     );
     assert_eq!(cx.update(|_, cx| settings.read(cx).current.clone()), before);
+}
+
+#[gpui_test::test]
+fn updates_navigation_exposes_check_status_and_respects_the_minimum_window(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences {
+            language: Language::Chinese,
+            ..Preferences::default()
+        });
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let nav = cx
+        .debug_bounds("settings-updates-nav")
+        .expect("Updates navigation");
+    cx.simulate_click(nav.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let check = cx
+        .debug_bounds("updates-check")
+        .expect("Check for updates button");
+    assert!(check.right() <= px(676.0));
+    assert!(check.bottom() <= px(580.0));
+    assert!(cx.debug_bounds("updates-version").is_some());
+    assert!(cx.debug_bounds("font-control").is_none());
+    assert!(cx.debug_bounds("settings-footer").is_none());
+    let version = cx.debug_bounds("updates-version").unwrap();
+    assert!(check.left() >= version.right() + px(12.0));
+    assert!(cx.update(|_, cx| settings.unwrap().read(cx).updater.read(cx).state.is_idle()));
+}
+
+#[gpui_test::test]
+fn update_restart_blocks_dirty_files_in_inactive_projects_and_busy_writes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, _| {
+            assert!(this.update_restart_allowed());
+            this.state.open_directory("/synthetic/project-a".into());
+            this.state.open_directory("/synthetic/project-b".into());
+            this.state.switch_project(0);
+            this.state.projects[1].files.push(tervia::state::File {
+                path: "draft.txt".into(),
+                disk_path: "/synthetic/project-b/draft.txt".into(),
+                language: "text".into(),
+                saved: "Synthetic saved".into(),
+                draft: "Synthetic draft".into(),
+            });
+            assert!(!this.update_restart_allowed());
+            this.state.projects[1].files.clear();
+            assert!(this.update_restart_allowed());
+            this.git_mutating = true;
+            assert!(!this.update_restart_allowed());
+            this.git_mutating = false;
+            this.saving_file = true;
+            assert!(!this.update_restart_allowed());
+        })
+    });
+}
+
+#[gpui_test::test]
+fn quitting_is_blocked_until_the_update_finishes_installing(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.updater.update(cx, |updater, _| {
+                updater.state = super::super::updates::State::Installing
+            });
+            assert!(!this.try_quit(cx));
+            assert!(!this.state.notice.is_empty());
+            this.updater.update(cx, |updater, _| {
+                updater.state = super::super::updates::State::Latest
+            });
+            assert!(this.try_quit(cx));
+        })
+    });
+}
+
+#[gpui_test::test]
+fn background_update_notifications_preserve_an_existing_workspace_warning(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let target = tervia::updates::Target::current().unwrap();
+    let release = self_update::Release::builder()
+        .version("9.0.0")
+        .asset(
+            self_update::ReleaseAsset::new(
+                target.asset_name("9.0.0"),
+                "https://example.test/synthetic.zip",
+            )
+            .with_digest(format!("sha256:{}", "ab".repeat(32))),
+        )
+        .build()
+        .unwrap();
+    let candidate = tervia::updates::Candidate::from_release(release, "1.0.0", target)
+        .unwrap()
+        .unwrap();
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.state.notice = "Synthetic existing warning".into();
+            this.updater.update(cx, |updater, cx| {
+                updater.state = super::super::updates::State::Available(candidate);
+                cx.notify();
+            });
+        })
+    });
+    assert_eq!(
+        cx.update(|_, cx| view.read(cx).state.notice.clone()),
+        "Synthetic existing warning"
+    );
+}
+
+#[gpui_test::test]
+fn main_window_update_icon_opens_install_confirmation_without_opening_settings(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("workspace-update").is_none());
+    let target = tervia::updates::Target::current().unwrap();
+    let release = self_update::Release::builder()
+        .version("9.0.0")
+        .asset(
+            self_update::ReleaseAsset::new(
+                target.asset_name("9.0.0"),
+                "https://example.test/synthetic.zip",
+            )
+            .with_digest(format!("sha256:{}", "ab".repeat(32))),
+        )
+        .build()
+        .unwrap();
+    let candidate = tervia::updates::Candidate::from_release(release, "1.0.0", target)
+        .unwrap()
+        .unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.preferences.update(cx, |preferences, cx| {
+                preferences.language = Language::English;
+                cx.notify();
+            });
+            this.updater.update(cx, |updater, cx| {
+                updater.state = super::super::updates::State::Available(candidate);
+                cx.notify();
+            });
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let icon = cx
+        .debug_bounds("workspace-update")
+        .expect("An available update has a main-window icon");
+    assert!(icon.right() <= cx.update(|window, _| window.viewport_size().width));
+    cx.simulate_click(icon.center(), Modifiers::default());
+    assert!(cx.has_pending_prompt());
+    assert!(
+        cx.pending_prompt()
+            .unwrap()
+            .1
+            .contains(Language::English.text("update_confirm"))
+    );
+    assert!(cx.update(|_, cx| view.read(cx).preferences_window.is_none()));
+    cx.simulate_prompt_answer(Language::English.text("git_cancel"));
 }
 
 #[gpui_test::test]

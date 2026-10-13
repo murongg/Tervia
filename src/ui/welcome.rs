@@ -4,17 +4,20 @@ use super::{
     theme,
 };
 use gpui_kit::assets::IconName;
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::{
     Disableable as _,
     button::{Button, ButtonVariants},
-    input::Input,
+    input::{Escape, Input},
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::sync::Arc;
 
 impl Tervia {
     pub(super) fn welcome(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = theme::Palette::workbench(self.appearance.light_theme);
+        let update = self.workspace_update(cx);
         let introduction = div()
             .w(px(260.0))
             .flex_shrink_0()
@@ -117,16 +120,36 @@ impl Tervia {
             .text_color(p.text)
             .font_family(tervia::platform::Platform::CURRENT.ui_font())
             .on_action(cx.listener(|this, _: &OpenPreferences, _, cx| this.open_preferences(cx)))
+            .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
+            .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
             .child(
                 div()
                     .h(px(48.0))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .justify_center()
+                    .px(px(16.0))
                     .text_size(px(12.0))
-                    .child("Tervia")
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+                    .child(div().w(px(72.0)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("Tervia")
+                            .on_mouse_down(MouseButton::Left, |_, window, _| {
+                                window.start_window_move()
+                            }),
+                    )
+                    .child(
+                        div()
+                            .w(px(72.0))
+                            .flex()
+                            .justify_end()
+                            .when_some(update, |slot, update| slot.child(update)),
+                    ),
             )
             .child(
                 div().flex_1().flex().items_center().justify_center().child(

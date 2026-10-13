@@ -51,6 +51,8 @@ pub struct PreferencesWindow {
     current: Preferences,
     config_path: Option<PathBuf>,
     config_error: Entity<Option<String>>,
+    updater: Entity<super::updates::Updater>,
+    updates_selected: bool,
     font_select: Entity<SelectState<Vec<SharedString>>>,
     language_select: Entity<SelectState<Vec<LanguageChoice>>>,
     _subscriptions: Vec<Subscription>,
@@ -90,6 +92,7 @@ impl PreferencesWindow {
         preferences: Entity<Preferences>,
         config_path: Option<PathBuf>,
         config_error: Entity<Option<String>>,
+        updater: Entity<super::updates::Updater>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -180,6 +183,8 @@ impl PreferencesWindow {
             current,
             config_path,
             config_error,
+            updater,
+            updates_selected: false,
             font_select,
             language_select,
             _subscriptions: vec![
@@ -326,10 +331,39 @@ impl PreferencesWindow {
                                     .child(icon(IconName::Settings, p.text))
                                     .child(self.t("settings_interface")),
                             )
-                            .toggled(true)
-                            .bg(p.selected)
+                            .toggled(!self.updates_selected)
+                            .when(!self.updates_selected, |button| button.bg(p.selected))
                             .text_color(p.text)
                             .on_click(cx.listener(|this, _, _, cx| {
+                                this.updates_selected = false;
+                                this.scroll.set_offset(point(px(0.0), px(0.0)));
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(
+                div()
+                    .debug_selector(|| "settings-updates-nav".to_owned())
+                    .child(
+                        Button::new("preferences-updates")
+                            .ghost()
+                            .w_full()
+                            .h(px(36.0))
+                            .accessibility_label(self.t("updates"))
+                            .child(
+                                div()
+                                    .flex()
+                                    .w_full()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .child(icon(IconName::Download, p.text))
+                                    .child(self.t("updates")),
+                            )
+                            .toggled(self.updates_selected)
+                            .when(self.updates_selected, |button| button.bg(p.selected))
+                            .text_color(p.text)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.updates_selected = true;
                                 this.scroll.set_offset(point(px(0.0), px(0.0)));
                                 cx.notify();
                             })),
@@ -424,85 +458,90 @@ impl Render for PreferencesWindow {
             .track_scroll(&self.scroll)
             .px(px(24.0))
             .py(px(20.0))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(24.0))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(
-                                div()
-                                    .mb(px(20.0))
-                                    .text_size(px(20.0))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(self.t("settings_interface")),
-                            )
-                            .child(self.row("theme", "theme-control", self.theme_control(cx)))
-                            .child(
-                                self.row(
-                                    "language",
-                                    "language-control",
-                                    Select::new(&self.language_select)
-                                        .w_full()
-                                        .accessibility_label(self.t("language")),
-                                ),
-                            ),
-                    )
-                    .child(div().h(px(1.0)).bg(p.border))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .child(self.heading("settings_fonts"))
-                            .child(
-                                self.row(
-                                    "code_font",
-                                    "font-control",
-                                    Select::new(&self.font_select)
-                                        .w_full()
-                                        .accessibility_label(self.t("code_font")),
-                                ),
-                            )
-                            .child(self.row(
-                                "code_size",
-                                "code-size-control",
-                                self.size_control(true, cx),
-                            ))
-                            .child(self.row(
-                                "ui_size",
-                                "ui-size-control",
-                                self.size_control(false, cx),
-                            ))
-                            .child(
-                                div()
-                                    .mt(px(12.0))
-                                    .px(px(12.0))
-                                    .py(px(10.0))
-                                    .rounded(px(6.0))
-                                    .bg(p.raised.opacity(0.5))
-                                    .flex()
-                                    .flex_col()
-                                    .gap(px(6.0))
-                                    .child(
-                                        div()
-                                            .text_size(px(11.0))
-                                            .text_color(p.secondary)
-                                            .child(self.t("preview")),
-                                    )
-                                    .child(
-                                        div()
-                                            .overflow_x_hidden()
-                                            .font_family(self.current.font_family.clone())
-                                            .text_size(px(self.current.code_size as f32))
-                                            .line_height(relative(1.4))
-                                            .child("Aa Bb 012345  {}"),
+            .when(self.updates_selected, |body| {
+                body.child(self.updater.clone())
+            })
+            .when(!self.updates_selected, |body| {
+                body.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(24.0))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(
+                                    div()
+                                        .mb(px(20.0))
+                                        .text_size(px(20.0))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(self.t("settings_interface")),
+                                )
+                                .child(self.row("theme", "theme-control", self.theme_control(cx)))
+                                .child(
+                                    self.row(
+                                        "language",
+                                        "language-control",
+                                        Select::new(&self.language_select)
+                                            .w_full()
+                                            .accessibility_label(self.t("language")),
                                     ),
-                            ),
-                    ),
-            );
+                                ),
+                        )
+                        .child(div().h(px(1.0)).bg(p.border))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(self.heading("settings_fonts"))
+                                .child(
+                                    self.row(
+                                        "code_font",
+                                        "font-control",
+                                        Select::new(&self.font_select)
+                                            .w_full()
+                                            .accessibility_label(self.t("code_font")),
+                                    ),
+                                )
+                                .child(self.row(
+                                    "code_size",
+                                    "code-size-control",
+                                    self.size_control(true, cx),
+                                ))
+                                .child(self.row(
+                                    "ui_size",
+                                    "ui-size-control",
+                                    self.size_control(false, cx),
+                                ))
+                                .child(
+                                    div()
+                                        .mt(px(12.0))
+                                        .px(px(12.0))
+                                        .py(px(10.0))
+                                        .rounded(px(6.0))
+                                        .bg(p.raised.opacity(0.5))
+                                        .flex()
+                                        .flex_col()
+                                        .gap(px(6.0))
+                                        .child(
+                                            div()
+                                                .text_size(px(11.0))
+                                                .text_color(p.secondary)
+                                                .child(self.t("preview")),
+                                        )
+                                        .child(
+                                            div()
+                                                .overflow_x_hidden()
+                                                .font_family(self.current.font_family.clone())
+                                                .text_size(px(self.current.code_size as f32))
+                                                .line_height(relative(1.4))
+                                                .child("Aa Bb 012345  {}"),
+                                        ),
+                                ),
+                        ),
+                )
+            });
         let footer = div()
             .debug_selector(|| "settings-footer".to_owned())
             .flex_shrink_0()
@@ -602,7 +641,7 @@ impl Render for PreferencesWindow {
                             .flex_1()
                             .min_w_0()
                             .child(body)
-                            .child(footer),
+                            .when(!self.updates_selected, |pane| pane.child(footer)),
                     ),
             )
     }
