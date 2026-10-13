@@ -87,17 +87,13 @@ fn an_update_requires_an_exact_architecture_asset_and_valid_digest() {
 #[test]
 fn macos_installation_resolves_the_bundle_root_and_original_launch_path() {
     let target = Target::new(Platform::Mac, "aarch64").unwrap();
-    let install =
-        Installation::new("/synthetic/Tervia.app/Contents/MacOS/Tervia".into(), target).unwrap();
-    assert_eq!(
-        install.bundle().unwrap(),
-        std::path::Path::new("/synthetic/Tervia.app")
-    );
-    assert_eq!(
-        install.executable(),
-        std::path::Path::new("/synthetic/Tervia.app/Contents/MacOS/Tervia")
-    );
-    assert!(Installation::new("/synthetic/target/debug/tervia".into(), target).is_err());
+    let root = tempfile::tempdir().unwrap();
+    let bundle = root.path().join("Tervia.app");
+    let executable = bundle.join("Contents/MacOS/Tervia");
+    let install = Installation::new(executable.clone(), target).unwrap();
+    assert_eq!(install.bundle().unwrap(), bundle);
+    assert_eq!(install.executable(), executable);
+    assert!(Installation::new(root.path().join("target/debug/tervia"), target).is_err());
 }
 
 #[cfg(target_os = "macos")]
