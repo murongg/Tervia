@@ -5,6 +5,29 @@ use alacritty_terminal::{
 use tervia::terminal::{TerminalBuffer, key_bytes, paste_bytes};
 
 #[test]
+fn cursor_queries_produce_replies_across_split_pty_reads() {
+    use alacritty_terminal::event::Event;
+    let mut terminal = TerminalBuffer::new(40, 8);
+    terminal.feed(b"\x1b[3;5H\x1b[6");
+    assert!(
+        !terminal
+            .events()
+            .iter()
+            .any(|event| matches!(event, Event::PtyWrite(_)))
+    );
+    terminal.feed(b"n");
+    let replies: Vec<_> = terminal
+        .events()
+        .into_iter()
+        .filter_map(|event| match event {
+            Event::PtyWrite(reply) => Some(reply),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(replies, ["\x1b[3;5R"]);
+}
+
+#[test]
 fn escape_streams_overwrite_cells_and_preserve_split_utf8() {
     let mut terminal = TerminalBuffer::new(40, 8);
     terminal.feed(b"hello\rHi");

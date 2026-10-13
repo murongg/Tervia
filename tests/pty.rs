@@ -95,6 +95,9 @@ fn dropping_a_session_terminates_a_synthetic_shell_that_ignores_hangup() {
 #[cfg(windows)]
 #[test]
 fn a_synthetic_windows_command_round_trip_uses_conpty() {
+    use alacritty_terminal::event::Event;
+    use tervia::terminal::TerminalBuffer;
+
     let system_root = std::env::var_os("SystemRoot").expect("Windows must provide SystemRoot");
     let executable = std::path::PathBuf::from(&system_root).join("System32/cmd.exe");
     // portable-pty resolves executables from the command's PATH. An isolated
@@ -119,15 +122,37 @@ fn a_synthetic_windows_command_round_trip_uses_conpty() {
         },
     )
     .unwrap();
-    session.write(b"mock-value\r").unwrap();
     let mut session = Some(session);
-    let mut output = Vec::new();
+    let mut terminal = TerminalBuffer::new(40, 8);
+    let mut raw_output = Vec::new();
+    let mut input_sent = false;
+    let mut exited = false;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     while std::time::Instant::now() < deadline {
         match receiver.try_recv() {
-            Ok(PtyEvent::Data(bytes)) => output.extend(bytes),
+            Ok(PtyEvent::Data(bytes)) => {
+                raw_output.extend_from_slice(&bytes);
+                terminal.feed(&bytes);
+                // ConPTY's INHERIT_CURSOR mode waits for a cursor report before
+                // starting output. Drive the same VT response loop as the GUI.
+                for event in terminal.events() {
+                    if let Event::PtyWrite(reply) = event
+                        && let Some(session) = &session
+                    {
+                        session.write(reply.as_bytes()).unwrap();
+                    }
+                }
+                if !input_sent
+                    && terminal.text().contains("synthetic-ready")
+                    && let Some(session) = &session
+                {
+                    session.write(b"mock-value\r").unwrap();
+                    input_sent = true;
+                }
+            }
             Ok(PtyEvent::Error(error)) => panic!("{error}"),
             Ok(PtyEvent::Exited(_)) => {
+                exited = true;
                 session.take();
             }
             Err(async_channel::TryRecvError::Closed) => break,
@@ -136,7 +161,12 @@ fn a_synthetic_windows_command_round_trip_uses_conpty() {
             }
         }
     }
-    let output = String::from_utf8_lossy(&output);
-    assert!(output.contains("synthetic-ready"));
-    assert!(output.contains("synthetic:mock-value"));
+    let output = terminal.text();
+    let raw = String::from_utf8_lossy(&raw_output);
+    assert!(input_sent, "ConPTY never became ready; output: {raw:?}");
+    assert!(
+        output.contains("synthetic:mock-value"),
+        "Output: {output:?}; raw: {raw:?}"
+    );
+    assert!(exited, "The synthetic ConPTY command did not exit");
 }
