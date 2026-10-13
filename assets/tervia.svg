@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Tervia</title>
+  <rect x="64" y="64" width="896" height="896" rx="212" fill="#252B36"/>
+  <path d="M232 280H504L376 408H360Z" fill="#A8D9C5"/>
+  <path d="M548 280H792L664 408H568V632L440 760V388Z" fill="#A8D9C5"/>
+</svg>

@@ -1,0 +1,46 @@
+[package]
+name = "tervia"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+description = "A native terminal workspace with Git and lightweight editing"
+publish = false
+
+[features]
+default = []
+pty = ["dep:portable-pty", "dep:async-channel"]
+native = ["pty", "dep:gpui-kit"]
+ui-tests = ["native", "dep:gpui-test"]
+
+[dependencies]
+sys-locale = "=0.3.2"
+serde_json = "=1.0.154"
+notify = "=8.2.0"
+dirs = "=6.0.0"
+tempfile = "=3.27.0"
+toml_edit = "=0.25.17"
+alacritty_terminal = { version = "=0.26.0", default-features = false }
+portable-pty = { version = "=0.9.0", optional = true }
+async-channel = { version = "2", optional = true }
+gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, features = ["test-support"] }
+gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-rust", "tree-sitter-toml", "tree-sitter-markdown", "tree-sitter-typescript"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Pipes"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[[bin]]
+name = "tervia"
+path = "src/main.rs"
+required-features = ["native"]
+
+[profile.dev]
+debug = 1
+
+[build-dependencies]
+embed-resource = "=3.0.12"
+
+[profile.dev.package."*"]
+opt-level = 2

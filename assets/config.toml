@@ -1,0 +1,20 @@
+# Tervia configuration. Edit this file, then restart Tervia to apply changes.
+# Settings-window changes are saved here, preserving comments and unknown keys.
+# Missing keys use defaults. Invalid values leave the file untouched.
+# Top-level tables are feature domains; related options live in their subtables.
+
+# User interface: shared language and appearance across the application.
+[ui]
+# "system", "zh-CN", "zh-TW", "en", "ja", "ko", "fr", "de", "es", "pt", "ru"
+language = "system"
+# "dark" or "light"
+theme = "dark"
+
+# Typography shared by the terminal, editor and application interface.
+[ui.fonts]
+# Installed font name. Default: Menlo (macOS), Consolas (Windows), DejaVu Sans Mono (Linux).
+code_family = "Menlo"
+# Terminal and editor font size: 11–24
+code_size = 14
+# Interface font size: 11–16
+ui_size = 13

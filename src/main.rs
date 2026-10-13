@@ -1,0 +1,74 @@
+extern crate gpui_kit as gpui;
+
+mod ui;
+
+use gpui_kit::base::actions::Cancel;
+use gpui_kit::*;
+use tervia::{config::Config, platform::Platform};
+use ui::{
+    CloseFileTab, FilesTab, GitTab, NewSession, NextFileTab, OpenPreferences, PreviousFileTab,
+    Quit, ReopenFileTab, SaveFile, TerminalTab, Tervia, TogglePalette, ToggleSidebar,
+};
+
+fn main() {
+    application().with_assets(assets::AllAssets).run(|cx| {
+        gpui_kit::init(cx);
+        ui::console::init(cx);
+        cx.bind_keys([
+            KeyBinding::new(Platform::CURRENT.quit_key(), Quit, None),
+            KeyBinding::new(
+                Platform::CURRENT.sidebar_key(),
+                ToggleSidebar,
+                Some("Tervia"),
+            ),
+            KeyBinding::new("secondary-1", TerminalTab, Some("Tervia")),
+            KeyBinding::new("secondary-2", GitTab, Some("Tervia")),
+            KeyBinding::new("secondary-3", FilesTab, Some("Tervia")),
+            KeyBinding::new("secondary-s", SaveFile, Some("Tervia")),
+            KeyBinding::new("secondary-w", CloseFileTab, Some("FileTabs")),
+            KeyBinding::new("ctrl-tab", NextFileTab, Some("FileTabs")),
+            KeyBinding::new("ctrl-shift-tab", PreviousFileTab, Some("FileTabs")),
+            KeyBinding::new("secondary-shift-t", ReopenFileTab, Some("FileTabs")),
+            KeyBinding::new("secondary-shift-p", TogglePalette, Some("Tervia")),
+            KeyBinding::new(Platform::CURRENT.new_key(), NewSession, Some("Tervia")),
+            KeyBinding::new("secondary-,", OpenPreferences, Some("Tervia")),
+            KeyBinding::new("escape", Cancel, Some("Tervia")),
+            KeyBinding::new("escape", Cancel, Some("TerviaSettings")),
+        ]);
+        let bounds = Bounds::centered(None, size(px(1220.0), px(790.0)), cx);
+        let (workspace_window, view) = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                titlebar: Some(TitlebarOptions {
+                    title: Some(ui::window_title("Tervia")),
+                    appears_transparent: true,
+                    traffic_light_position: (Platform::CURRENT == Platform::Mac)
+                        .then(|| point(px(16.0), px(18.0))),
+                }),
+                window_min_size: Some(size(px(880.0), px(560.0))),
+                ..Default::default()
+            },
+            cx,
+            |window, cx| cx.new(|cx| Tervia::configured(Config::discover(), window, cx)),
+        )
+        .expect("Unable to open Tervia's native window");
+        // The application has one workspace: do not leave an orphaned Settings-only app.
+        let closing_view = view.clone();
+        cx.on_window_closed(move |cx, closed| {
+            if closed == workspace_window.window_id() {
+                closing_view.update(cx, |view, cx| view.shutdown_terminals(cx));
+                cx.quit();
+            }
+        })
+        .detach();
+        let quitting_view = view.clone();
+        cx.on_action(move |_: &Quit, cx| {
+            quitting_view.update(cx, |view, cx| view.shutdown_terminals(cx));
+            cx.quit();
+        });
+        cx.activate(true);
+        if std::env::args().any(|argument| argument == "--settings") {
+            view.update(cx, |view, cx| view.open_preferences(cx));
+        }
+    });
+}
