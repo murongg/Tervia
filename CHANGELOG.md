@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.2 (2026-10-13)
+
+### Fixes
+
+- **release:** register the temporary signing keychain (c4ec8b72)
+
+### Other changes
+
+- allow validating one desktop platform (552e4b68)
+- cache Rust dependencies across desktop builds (7d51ffbf)
+
 ## v0.1.1 (2026-10-13)
 
 ### Fixes
