@@ -2,6 +2,7 @@ use super::super::controls::{icon, icon_button};
 use super::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::diff::Diff;
+use gpui_kit::component::resizable::{h_resizable, resizable_panel};
 
 pub(super) fn commit_patch(detail: &str) -> &str {
     detail
@@ -74,6 +75,36 @@ impl Tervia {
                         }),
                     ),
                 );
+        } else if let Some(Detail::Commit(hash)) = &ui.selected {
+            let copied_hash = hash.clone();
+            header = header
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_ellipsis()
+                        .text_size(px(12.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(
+                            ui.commit
+                                .as_ref()
+                                .map_or_else(|| hash.clone(), |commit| commit.message.clone()),
+                        ),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(p.accent)
+                        .font_family(self.appearance.font_family.clone())
+                        .child(hash.chars().take(7).collect::<String>()),
+                )
+                .child(
+                    icon_button("git-copy-commit", IconName::Copy, self.t("git_copy"), p, cx)
+                        .accessibility_label(self.t("git_copy"))
+                        .on_click(cx.listener(move |_, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copied_hash.clone()));
+                        })),
+                );
         } else {
             header = header.child(
                 div()
@@ -129,10 +160,25 @@ impl Tervia {
             && !ui.diff.read(cx).files().is_empty()
             && !matches!(ui.selected, Some(Detail::Conflict(_)))
         {
-            Diff::new(&ui.diff)
-                .bg(p.background)
-                .border_0()
-                .into_any_element()
+            let diff = Diff::new(&ui.diff).bg(p.background).border_0();
+            if matches!(ui.selected, Some(Detail::Commit(_))) {
+                h_resizable(("git-commit-diff-layout", project))
+                    .child(
+                        resizable_panel()
+                            .size(px(210.0))
+                            .size_range(px(150.0)..px(300.0))
+                            .flex_none()
+                            .child(self.git_commit_files(project, cx)),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size_range(px(250.0)..Pixels::MAX)
+                            .child(diff),
+                    )
+                    .into_any_element()
+            } else {
+                diff.into_any_element()
+            }
         } else if ui.detail.is_empty() {
             div()
                 .flex_1()
@@ -238,31 +284,42 @@ impl Tervia {
             .child(header)
             .child(tools)
             .child(self.git_hunks(cx))
-            .when(matches!(ui.selected, Some(Detail::Commit(_))), |viewer| {
-                let lines = ui.metadata_lines.clone();
-                viewer.child(
-                    div()
-                        .h(px((lines.len() as f32 * 18.0 + 20.0).min(105.0)))
-                        .flex_shrink_0()
-                        .px(px(16.0))
-                        .py(px(10.0))
-                        .text_size(px(11.0))
-                        .text_color(p.secondary)
-                        .child(
-                            uniform_list(
-                                ("git-commit-metadata", project),
-                                lines.len(),
-                                move |range: std::ops::Range<usize>, _, _| {
-                                    range
-                                        .map(|index| div().h(px(18.0)).child(lines[index].clone()))
-                                        .collect()
-                                },
-                            )
-                            .size_full()
-                            .track_scroll(&ui.metadata_scroll),
-                        ),
-                )
+            .when_some(ui.commit.as_ref(), |viewer, commit| {
+                viewer.child(self.git_commit_metadata(project, commit, cx))
             })
+            .when(
+                matches!(ui.selected, Some(Detail::Commit(_)))
+                    && !ui.collapsed_sections.contains("git_commit_metadata"),
+                |viewer| {
+                    let lines = ui.metadata_lines.clone();
+                    viewer.child(
+                        div()
+                            .id("git-commit-metadata")
+                            .debug_selector(|| "git-commit-metadata".into())
+                            .h(px((lines.len() as f32 * 18.0 + 20.0).min(105.0)))
+                            .flex_shrink_0()
+                            .px(px(16.0))
+                            .py(px(10.0))
+                            .text_size(px(11.0))
+                            .text_color(p.secondary)
+                            .child(
+                                uniform_list(
+                                    ("git-commit-metadata", project),
+                                    lines.len(),
+                                    move |range: std::ops::Range<usize>, _, _| {
+                                        range
+                                            .map(|index| {
+                                                div().h(px(18.0)).child(lines[index].clone())
+                                            })
+                                            .collect()
+                                    },
+                                )
+                                .size_full()
+                                .track_scroll(&ui.metadata_scroll),
+                            ),
+                    )
+                },
+            )
             .child(content)
     }
 

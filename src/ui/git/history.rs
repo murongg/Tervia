@@ -1,6 +1,6 @@
-use super::super::controls::icon;
+use super::super::controls::badge;
 use super::*;
-use gpui_kit::assets::IconName;
+use tervia::git::graph::VisibleRow;
 
 impl Tervia {
     pub(super) fn git_history(&self, snapshot: &Arc<Snapshot>, cx: &mut Context<Self>) -> Div {
@@ -24,14 +24,17 @@ impl Tervia {
             .map(|(index, _)| index)
             .collect();
         let captured = snapshot.clone();
+        let visible = ui.history_graph.visible(&indices);
+        let graph = ui.history_graph.clone();
+        let graph_width = graph::width(&graph);
         let rows = uniform_list(
             ("git-history-rows", project),
             indices.len(),
             cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
                 range
                     .map(|row| {
-                        let index = indices[row];
-                        this.git_history_row(project, index, &captured.commits[index], cx)
+                        let row = visible[row];
+                        this.git_history_row(project, row, &captured.commits[row.index], &graph, cx)
                     })
                     .collect()
             }),
@@ -62,6 +65,16 @@ impl Tervia {
                             .font_weight(FontWeight::MEDIUM)
                             .child(self.t("commit_history")),
                     )
+                    .when(!filter.is_empty(), |toolbar| {
+                        toolbar.child(
+                            div()
+                                .max_w(px(180.0))
+                                .text_ellipsis()
+                                .text_size(px(11.0))
+                                .text_color(p.muted)
+                                .child(self.t("git_graph_filtered")),
+                        )
+                    })
                     .child(div().flex_1())
                     .child(
                         Input::new(&ui.first)
@@ -80,28 +93,57 @@ impl Tervia {
             )
             .child(
                 div()
-                    .h(px(26.0))
-                    .flex_shrink_0()
-                    .px(px(12.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.0))
-                    .text_size(px(11.0))
-                    .text_color(p.muted)
-                    .bg(p.toolbar)
-                    .child(div().w(px(89.0)).child("SHA"))
-                    .child(div().flex_1().child(self.t("commit_message")))
-                    .child(div().w(px(130.0)).child(self.t("git_author")))
-                    .child(div().w(px(95.0)).child(self.t("git_date"))),
+                    .id("git-history-table")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_x_scroll()
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w(px(graph_width + 535.0))
+                            .h_full()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .h(px(26.0))
+                                    .flex_shrink_0()
+                                    .px(px(12.0))
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.0))
+                                    .text_size(px(11.0))
+                                    .text_color(p.muted)
+                                    .bg(p.toolbar)
+                                    .child(
+                                        div()
+                                            .w(px(graph_width))
+                                            .flex_shrink_0()
+                                            .child(self.t("git_graph")),
+                                    )
+                                    .child(div().w(px(66.0)).flex_shrink_0().child("SHA"))
+                                    .child(div().flex_1().child(self.t("commit_message")))
+                                    .child(
+                                        div()
+                                            .w(px(130.0))
+                                            .flex_shrink_0()
+                                            .child(self.t("git_author")),
+                                    )
+                                    .child(
+                                        div().w(px(95.0)).flex_shrink_0().child(self.t("git_date")),
+                                    ),
+                            )
+                            .child(rows),
+                    ),
             )
-            .child(rows)
     }
 
     fn git_history_row(
         &self,
         project: usize,
-        index: usize,
+        row: VisibleRow,
         commit: &tervia::git::Commit,
+        graph: &tervia::git::graph::Graph,
         cx: &mut Context<Self>,
     ) -> Button {
         let ui = &self.git_states[project];
@@ -110,10 +152,11 @@ impl Tervia {
         ui.rendered_rows.set(ui.rendered_rows.get() + 1);
         let hash = commit.hash.clone();
         let selected = matches!(&ui.selected, Some(Detail::Commit(selected)) if selected == &hash);
-        label_button(("git-commit-row", index), "", p)
+        label_button(("git-commit-row", row.index), "", p)
             .w_full()
             .h(px(32.0))
             .min_h(px(32.0))
+            .p(px(0.0))
             .rounded(px(0.0))
             .bg(if selected { p.selected } else { p.background })
             .accessibility_label(commit.message.clone())
@@ -121,13 +164,20 @@ impl Tervia {
             .child(
                 div()
                     .w_full()
+                    .h(px(32.0))
+                    .px(px(12.0))
                     .flex()
                     .items_center()
                     .gap(px(8.0))
                     .min_w_0()
                     .text_size(px(12.0))
                     .text_color(p.text)
-                    .child(icon(IconName::GitCommitHorizontal, p.accent))
+                    .child(graph::cell(
+                        graph,
+                        row,
+                        selected,
+                        self.appearance.light_theme,
+                    ))
                     .child(
                         div()
                             .w(px(66.0))
@@ -144,14 +194,28 @@ impl Tervia {
                             .text_ellipsis()
                             .child(commit.message.clone()),
                     )
-                    .when(!commit.refs.is_empty(), |row| {
-                        row.child(
+                    .when(!commit.refs.is_empty(), |view| {
+                        view.child(
                             div()
                                 .max_w(px(170.0))
+                                .flex()
+                                .items_center()
+                                .gap(px(4.0))
+                                .overflow_hidden()
                                 .text_ellipsis()
                                 .text_size(px(10.0))
                                 .text_color(p.accent)
-                                .child(commit.refs.clone()),
+                                .children(commit.refs.split(", ").map(|reference| {
+                                    badge(
+                                        reference.replace("HEAD -> ", "HEAD · "),
+                                        graph::color(
+                                            graph.rows[row.index].color,
+                                            self.appearance.light_theme,
+                                        ),
+                                        p,
+                                    )
+                                    .text_ellipsis()
+                                })),
                         )
                     })
                     .child(
@@ -174,5 +238,27 @@ impl Tervia {
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.git_detail(project, Detail::Commit(hash.clone()), window, cx)
             }))
+    }
+
+    pub(super) fn open_git_commit(
+        &mut self,
+        project: usize,
+        hash: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let ui = &mut self.git_states[project];
+        ui.first
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        if let Some(index) = ui.snapshot.as_ref().and_then(|snapshot| {
+            snapshot
+                .commits
+                .iter()
+                .position(|commit| commit.hash == hash)
+        }) {
+            ui.history_scroll
+                .scroll_to_item(index, ScrollStrategy::Center);
+        }
+        self.git_detail(project, Detail::Commit(hash), window, cx);
     }
 }
