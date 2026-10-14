@@ -91,6 +91,52 @@ fn empty_repository_and_literal_paths_are_supported() {
 }
 
 #[test]
+fn staging_a_group_only_adds_its_literal_paths_and_accepts_an_empty_group() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write("sample.txt", "synthetic tracked edit\n");
+    fixture.write("[mock] space.txt", "synthetic new file\n");
+    fixture.write("m space.txt", "synthetic other new file\n");
+    let mut paths = vec!["[mock] space.txt".into()];
+    if cfg!(unix) {
+        fixture.write("synthetic\nnew.txt", "synthetic newline path\n");
+        paths.push("synthetic\nnew.txt".into());
+    }
+    let repo = fixture.repo();
+    repo.execute(Operation::StageFiles(paths)).unwrap();
+    let status = repo.status().unwrap();
+    let state = |path: &str| {
+        let file = status
+            .files
+            .iter()
+            .find(|file| file.path.to_str() == Some(path))
+            .unwrap();
+        (file.index, file.worktree)
+    };
+    assert_eq!(state("[mock] space.txt"), ('A', '.'));
+    if cfg!(unix) {
+        assert_eq!(state("synthetic\nnew.txt"), ('A', '.'));
+    }
+    assert_eq!(state("m space.txt"), ('.', '?'));
+    assert_eq!(state("sample.txt"), ('.', 'M'));
+    repo.execute(Operation::StageFiles(Vec::new())).unwrap();
+    assert_eq!(repo.status().unwrap().files, status.files);
+    fs::remove_file(fixture.0.join("sample.txt")).unwrap();
+    repo.execute(Operation::StageFiles(vec!["sample.txt".into()]))
+        .unwrap();
+    assert_eq!(
+        repo.status()
+            .unwrap()
+            .files
+            .iter()
+            .find(|file| file.path.to_str() == Some("sample.txt"))
+            .unwrap()
+            .index,
+        'D'
+    );
+}
+
+#[test]
 fn staged_and_worktree_changes_coexist_and_commit_only_consumes_index() {
     let fixture = Fixture::new();
     fixture.seed();
@@ -597,6 +643,10 @@ fn merge_conflicts_are_detected_and_can_be_resolved_then_continued() {
     let snapshot = repo.snapshot(50).unwrap();
     assert_eq!(snapshot.status.operation.as_deref(), Some("merge"));
     assert!(repo.execute(Operation::StageAll).is_err());
+    assert!(
+        repo.execute(Operation::StageFiles(vec!["sample.txt".into()]))
+            .is_err()
+    );
     assert!(repo.execute(Operation::Stage("sample.txt".into())).is_err());
     assert!(snapshot.status.files[0].conflicted);
     assert!(

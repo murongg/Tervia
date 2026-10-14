@@ -40,6 +40,8 @@ impl Tervia {
                 .child(div().text_size(px(10.0)).text_color(p.muted).child(self.t(
                     if *side == Side::Index {
                         "staged"
+                    } else if file.worktree == '?' {
+                        "untracked"
                     } else {
                         "unstaged"
                     },

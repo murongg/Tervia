@@ -512,7 +512,7 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
             .iter()
             .any(|row| matches!(row, ChangeRow::File { group: 1, .. }))
     );
-    assert!(rows.contains(&ChangeRow::Group { group: 1, count: 2 }));
+    assert!(rows.contains(&ChangeRow::Group { group: 1, count: 1 }));
     let rows = change_rows(
         &files,
         &Default::default(),
@@ -527,7 +527,7 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
         }
     )));
     assert!(rows.contains(&ChangeRow::File {
-        group: 1,
+        group: 3,
         index: 1,
         depth: 0
     }));
@@ -536,6 +536,80 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
         index: 0,
         depth: 2
     }));
+}
+
+#[test]
+fn untracked_changes_have_their_own_group() {
+    use super::changes::{ChangeRow, change_rows};
+    let make = |path: &str, index, worktree, conflicted| FileStatus {
+        path: path.into(),
+        original: None,
+        index,
+        worktree,
+        conflicted,
+    };
+    let snapshot = Snapshot {
+        status: tervia::git::Status {
+            files: vec![
+                make("src/conflict.rs", 'U', 'U', true),
+                make("src/both.rs", 'M', 'M', false),
+                make("src/new.rs", '.', '?', false),
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let rows = change_rows(
+        &snapshot.status.files,
+        &Default::default(),
+        &Default::default(),
+    );
+    let groups: Vec<_> = rows
+        .iter()
+        .filter_map(|row| match row {
+            ChangeRow::Group { group, count } => Some((*group, *count)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(groups, vec![(0, 1), (1, 1), (3, 1), (2, 1)]);
+    let entries: Vec<_> = rows
+        .iter()
+        .filter_map(|row| match row {
+            ChangeRow::File { group, index, .. } => Some((*group, *index)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(entries, vec![(0, 0), (1, 1), (3, 2), (2, 1)]);
+    let folded = change_rows(
+        &snapshot.status.files,
+        &std::collections::BTreeSet::from([3]),
+        &Default::default(),
+    );
+    assert!(folded.contains(&ChangeRow::Group { group: 3, count: 1 }));
+    assert!(
+        !folded
+            .iter()
+            .any(|row| matches!(row, ChangeRow::File { group: 3, .. }))
+    );
+    let folder_folded = change_rows(
+        &snapshot.status.files,
+        &Default::default(),
+        &std::collections::BTreeSet::from([(3, "src".into())]),
+    );
+    assert!(folder_folded.contains(&ChangeRow::Folder {
+        group: 3,
+        path: "src".into(),
+        depth: 0,
+        count: 1,
+    }));
+    assert!(
+        !folder_folded
+            .iter()
+            .any(|row| matches!(row, ChangeRow::File { group: 3, .. }))
+    );
+
+    let empty = change_rows(&[], &Default::default(), &Default::default());
+    assert!(empty.contains(&ChangeRow::Group { group: 3, count: 0 }));
 }
 
 #[gpui_test::test]

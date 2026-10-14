@@ -130,7 +130,7 @@ pub(super) fn run_input(
     };
     let stdout = output.finish()?;
     let stderr = errors.finish()?;
-    // Only git apply feeds stdin here; it consumes the finite patch before exit.
+    // Git consumes finite patch or pathspec input before exit.
     if let Some(writer) = writer {
         let _ = writer.join();
     }

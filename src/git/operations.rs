@@ -52,6 +52,39 @@ impl Repository {
                 }
                 return self.run_path(&["add", "--"], &path).map(text);
             }
+            Operation::StageFiles(paths) => {
+                if paths.is_empty() {
+                    return Ok(String::new());
+                }
+                let selected: std::collections::BTreeSet<_> = paths.iter().collect();
+                if self
+                    .status()?
+                    .files
+                    .iter()
+                    .any(|file| file.conflicted && selected.contains(&file.path))
+                {
+                    return Err(
+                        "This file has a conflict. Save the resolved result and mark it resolved."
+                            .into(),
+                    );
+                }
+                // NUL-delimited stdin keeps large groups within OS argument limits and paths literal.
+                let mut input = Vec::new();
+                for path in paths {
+                    let bytes = path.as_os_str().as_encoded_bytes();
+                    if bytes.contains(&0) {
+                        return Err("Invalid Git file path".into());
+                    }
+                    input.extend_from_slice(bytes);
+                    input.push(0);
+                }
+                return command::run_input(
+                    &self.root,
+                    &arguments(&["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"]),
+                    Some(input),
+                )
+                .map(text);
+            }
             Operation::Unstage(path) => {
                 let status = self.status()?;
                 if status.unborn {

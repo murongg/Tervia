@@ -87,6 +87,7 @@ pub struct Snapshot {
 #[derive(Clone, Debug)]
 pub enum Operation {
     Stage(PathBuf),
+    StageFiles(Vec<PathBuf>),
     Unstage(PathBuf),
     Resolve(PathBuf),
     StageAll,
