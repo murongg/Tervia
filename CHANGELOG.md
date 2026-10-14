@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.3.1 (2026-10-15)
+
+### Fixes
+
+- **git:** show stage icons in diff hunk headers (1b2c17c4)
+- **updates:** enable packaged updates and show circular progress (88daf614)
+
+### Documentation
+
+- **git:** add clean hunk header preview (1ea62ddf)
+
 ## v0.3.0 (2026-10-14)
 
 ### Features
