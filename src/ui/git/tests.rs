@@ -1143,6 +1143,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
             assert_eq!(this.state.active_project, existing);
             assert_eq!(this.state.projects.len(), 4);
             assert_eq!(this.state.project_rows(), vec![existing, 1]);
+            assert_eq!(this.working_directory_rows(1, cx), vec![1, 2, 3]);
             assert_eq!(
                 this.git_states[existing].message.read(cx).value().as_ref(),
                 "Synthetic draft"
@@ -1167,6 +1168,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
                 "Removed repositories keep their project and drafts"
             );
             assert_eq!(this.state.project_rows(), vec![existing, 1]);
+            assert_eq!(this.working_directory_rows(1, cx), vec![1, 2]);
             for ui in &this.git_states[1..] {
                 assert_eq!(ui.workspace.as_ref().unwrap().repositories.len(), 1);
             }

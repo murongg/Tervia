@@ -361,10 +361,7 @@ impl Tervia {
         if index == count {
             self.init_project(index, window, cx);
         }
-        let parent = self.attach_navigation(index);
-        if !self.navigation.roots.contains_key(&parent) {
-            self.restore_navigation(parent, window, cx);
-        }
+        self.attach_navigation(index);
         self.state.set_tab(Tab::Git);
         self.refresh_git(index, window, cx);
         cx.notify();
@@ -425,9 +422,6 @@ impl Tervia {
         let parent = members.first().copied();
         if let Some(parent) = parent {
             self.state.group_folder(parent, &members[1..]);
-            if !self.navigation.roots.contains_key(&parent) {
-                self.restore_navigation(parent, window, cx);
-            }
         }
         // Removed repositories retain their drafts, but must receive the group's new membership too.
         for ui in &mut self.git_states {

@@ -172,7 +172,7 @@ impl Tervia {
             update_restarting: false,
             editors: Vec::new(),
             explorers: Vec::new(),
-            navigation: projects::Navigation::default(),
+            navigation: projects::Navigation::new(window, cx),
             monitors: Vec::new(),
             terminals: Vec::new(),
             git_states: Vec::new(),
@@ -196,6 +196,28 @@ impl Tervia {
         ));
         view.subscriptions
             .push(cx.observe(&view.updater, |_, _, cx| cx.notify()));
+        view.subscriptions.push(cx.subscribe_in(
+            &view.navigation.input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.navigation.selected = 0;
+                    this.navigation
+                        .scroll
+                        .scroll_to_item(0, ScrollStrategy::Top);
+                    cx.notify();
+                } else if matches!(event, InputEvent::PressEnter { .. }) && this.navigation.open {
+                    let parent = this.working_directory_owner();
+                    if let Some(index) = this
+                        .working_directory_rows(parent, cx)
+                        .get(this.navigation.selected)
+                        .copied()
+                    {
+                        this.select_working_directory(parent, index, window, cx);
+                    }
+                }
+            },
+        ));
         if !cfg!(test) {
             view.updater
                 .update(cx, |updater, cx| updater.start_automatic(cx));
@@ -247,7 +269,6 @@ impl Tervia {
         }
         for parent in view.state.project_rows() {
             view.state.attach_directory(parent, parent);
-            view.restore_navigation(parent, window, cx);
         }
         view.subscriptions
             .push(cx.observe_self(|this, cx| this.persist_workspace(cx)));
@@ -483,7 +504,11 @@ impl Tervia {
     }
 
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.dismiss_palette() {
+        // Input Escape can bubble past the popover's own Cancel action.
+        if self.navigation.open {
+            self.navigation.open = false;
+            cx.notify();
+        } else if self.state.dismiss_palette() {
             cx.notify();
         } else if !self.state.projects.is_empty()
             && self.state.project().tab == Tab::Files
@@ -582,6 +607,11 @@ impl Render for Tervia {
             // their own transient UI has been dismissed.
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &projects::SwitchWorkingDirectory, window, cx| {
+                    this.toggle_directory_picker(!this.navigation.open, window, cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.state.toggle_sidebar();
                 cx.notify();

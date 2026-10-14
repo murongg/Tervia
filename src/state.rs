@@ -224,6 +224,7 @@ struct RepositoryGroup {
 #[derive(Clone, Debug)]
 struct FolderGroup {
     directories: std::collections::BTreeSet<usize>,
+    pinned: std::collections::BTreeSet<usize>,
     children: Vec<usize>,
     active: usize,
     expanded: bool,
@@ -310,7 +311,43 @@ impl Workspace {
                 .starts_with(&self.projects[root].root)
         {
             self.attach_directories(root, &[directory]);
+            if let Some(group) = self.folders.get_mut(&root) {
+                // Only explicit navigation persists; scan results refresh independently.
+                group.pinned.insert(directory);
+            }
         }
+    }
+
+    pub fn working_directories(&self, root: usize) -> Vec<usize> {
+        let mut directories = vec![root];
+        for index in self
+            .folder_children(root)
+            .into_iter()
+            .chain(self.saved_directories(root))
+        {
+            if !directories.contains(&index) {
+                directories.push(index);
+            }
+        }
+        directories
+    }
+
+    pub(crate) fn saved_directories(&self, root: usize) -> Vec<usize> {
+        let mut directories = vec![root];
+        if let Some(group) = self.folders.get(&root) {
+            directories.extend(
+                group
+                    .pinned
+                    .iter()
+                    .copied()
+                    .filter(|index| *index != root && self.project_visible(*index)),
+            );
+        }
+        let active = self.project_target(root);
+        if self.project_visible(active) && !directories.contains(&active) {
+            directories.push(active);
+        }
+        directories
     }
 
     fn attach_directories(&mut self, root: usize, children: &[usize]) -> bool {
@@ -330,6 +367,7 @@ impl Workspace {
             .filter(|index| self.project_visible(*index))
             .collect();
         let mut cached = std::collections::BTreeSet::new();
+        let mut pinned = std::collections::BTreeSet::new();
         for child in &children {
             if *child != root
                 && self.projects[*child]
@@ -338,16 +376,19 @@ impl Workspace {
                 && let Some(previous) = self.folders.remove(child)
             {
                 cached.extend(previous.directories);
+                pinned.extend(previous.pinned);
             }
         }
         let group = self.folders.entry(root).or_insert_with(|| FolderGroup {
             directories: std::collections::BTreeSet::from([root]),
+            pinned: std::collections::BTreeSet::from([root]),
             children: Vec::new(),
             active: root,
             expanded: true,
         });
         // Cached directory owners stay attached after rescans so drafts never reappear as new projects.
         group.directories.extend(cached);
+        group.pinned.extend(pinned);
         group.directories.extend(children.iter().copied());
         if self.folder(self.active_project) == Some(root)
             && let Some(group) = self.folders.get_mut(&root)

@@ -1,6 +1,30 @@
 use tervia::state::{File, FileClose, Tab, Workspace};
 
 #[test]
+fn git_children_are_listed_automatically_and_manual_directories_keep_their_state() {
+    let mut state = Workspace::new("/synthetic/mock-project".into());
+    let scanned = state.register_directory("/synthetic/mock-project/mock-repo".into());
+    state.group_folder(0, &[scanned]);
+    assert_eq!(state.working_directories(0), vec![0, scanned]);
+    let manual = state.register_directory("/synthetic/mock-project/mock-app".into());
+    state.attach_directory(0, manual);
+    state.switch_project(manual);
+    state.new_session();
+    state.set_tab(Tab::Files);
+    state.group_folder(0, &[scanned]);
+    state.switch_project(0);
+    assert_eq!(state.working_directories(0), vec![0, scanned, manual]);
+    assert_eq!(state.project_rows(), vec![0]);
+    assert_eq!(state.project_target(0), 0);
+    state.group_folder(0, &[]);
+    assert_eq!(state.working_directories(0), vec![0, manual]);
+    state.switch_project(manual);
+    assert_eq!(state.project_target(0), manual);
+    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().tab, Tab::Files);
+}
+
+#[test]
 fn preview_tabs_replace_only_clean_previews_and_pin_when_edited_or_explicitly_opened() {
     let mut state = Workspace::new("/synthetic/previews".into());
     for name in ["first.rs", "second.rs", "third.rs"] {
