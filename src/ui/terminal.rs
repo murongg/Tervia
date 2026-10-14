@@ -14,6 +14,37 @@ use super::{
 };
 
 impl Tervia {
+    pub(super) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.change_tab(tervia::state::Tab::Terminal, window, cx);
+        if self.state.project().sessions.len() == 1 {
+            self.new_session(window, cx);
+        }
+        self.state.toggle_split();
+        cx.notify();
+    }
+
+    pub(super) fn clear_terminal(&mut self, cx: &mut Context<Self>) {
+        let project = self.state.active_project;
+        // The focused split pane can differ from the selected session tab.
+        let session = self.state.command_session();
+        if let Some(console) = &self.terminals[project][session] {
+            console.update(cx, |console, cx| console.clear(cx));
+        }
+        cx.notify();
+    }
+
+    pub(super) fn copy_terminal_output(&mut self, cx: &mut Context<Self>) {
+        let project = self.state.active_project;
+        let session = self.state.command_session();
+        let output = self.terminals[project][session]
+            .as_ref()
+            .map(|console| console.read(cx).output())
+            .unwrap_or_default();
+        cx.write_to_clipboard(ClipboardItem::new_string(output));
+        self.state.notice = "copied_output".into();
+        cx.notify();
+    }
+
     pub(super) fn terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let p = self.p();
         let project = self.state.project().clone();
@@ -122,13 +153,7 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("toggle_split"))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    if this.state.project().sessions.len() == 1 {
-                        this.new_session(window, cx);
-                    }
-                    this.state.toggle_split();
-                    cx.notify();
-                })),
+                .on_click(cx.listener(|this, _, window, cx| this.split_terminal(window, cx))),
             )
             .child(separator(p))
             .child(
@@ -140,14 +165,7 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("clear_terminal"))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let project = this.state.active_project;
-                    let session = this.state.command_session();
-                    if let Some(console) = &this.terminals[project][session] {
-                        console.update(cx, |console, cx| console.clear(cx));
-                    }
-                    cx.notify();
-                })),
+                .on_click(cx.listener(|this, _, _, cx| this.clear_terminal(cx))),
             )
             .child(
                 icon_button(
@@ -158,17 +176,7 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("copy_terminal"))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    let project = this.state.active_project;
-                    let session = this.state.command_session();
-                    let output = this.terminals[project][session]
-                        .as_ref()
-                        .map(|console| console.read(cx).output())
-                        .unwrap_or_default();
-                    cx.write_to_clipboard(ClipboardItem::new_string(output));
-                    this.state.notice = "copied_output".into();
-                    cx.notify();
-                })),
+                .on_click(cx.listener(|this, _, _, cx| this.copy_terminal_output(cx))),
             );
         let mut panes = div()
             .flex()

@@ -3,6 +3,7 @@ mod controls;
 mod explorer;
 mod files;
 mod git;
+mod menus;
 mod monitor;
 mod preferences;
 mod projects;
@@ -20,28 +21,17 @@ use gpui_kit::component::input::{EditorState, Escape, InputEvent, InputState, Ta
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use tervia::config::Config;
-use tervia::locale::Language;
 use tervia::platform::Platform;
 use tervia::preferences::Preferences;
 use tervia::state::{Tab, Workspace};
 use tervia::workspace::Store;
 
+pub(crate) use menus::bind_menu_keys;
+use menus::menus;
 use theme::Palette;
 
 pub(crate) fn window_title(title: &str) -> SharedString {
     title.to_owned().into()
-}
-
-pub(crate) fn menus(language: Language) -> Vec<Menu> {
-    vec![Menu {
-        name: "Tervia".into(),
-        items: vec![
-            MenuItem::action(format!("{}…", language.text("settings")), OpenPreferences),
-            MenuItem::separator(),
-            MenuItem::action(format!("{} Tervia", language.text("quit")), Quit),
-        ],
-        disabled: false,
-    }]
 }
 
 gpui_kit::actions!(
@@ -56,6 +46,12 @@ gpui_kit::actions!(
         NewSession,
         TogglePalette,
         OpenPreferences,
+        OpenProject,
+        OpenFile,
+        ToggleTheme,
+        SplitTerminal,
+        ClearTerminal,
+        CopyTerminalOutput,
         CloseFileTab,
         NextFileTab,
         PreviousFileTab,
@@ -569,10 +565,10 @@ impl Render for Tervia {
         div()
             .id("tervia-workspace")
             .relative()
-            .key_context(if self.state.project().tab == Tab::Files {
-                "Tervia FileTabs"
-            } else {
-                "Tervia"
+            .key_context(match self.state.project().tab {
+                Tab::Files => "Tervia FileTabs",
+                Tab::Terminal => "Tervia Terminal",
+                Tab::Git => "Tervia",
             })
             .track_focus(&self.focus)
             .size_full()
@@ -601,26 +597,65 @@ impl Render for Tervia {
                     this.change_tab(Tab::Files, window, cx)
                 }),
             )
-            .on_action(cx.listener(|this, _: &SaveFile, window, cx| this.save(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &OpenProject, window, cx| this.choose_repository(window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.choose_file(window, cx)))
+            .when(self.can_save_file(), |workspace| {
+                workspace
+                    .on_action(cx.listener(|this, _: &SaveFile, window, cx| this.save(window, cx)))
+            })
             .on_action(cx.listener(|this, _: &QuickOpenFile, window, cx| {
                 this.show_file_search(files::search::Mode::Files, window, cx)
             }))
             .on_action(cx.listener(|this, _: &SearchProjectText, window, cx| {
                 this.show_file_search(files::search::Mode::Text, window, cx)
             }))
-            .on_action(cx.listener(|this, _: &CloseFileTab, window, cx| {
-                this.close_active_file_tab(window, cx)
-            }))
+            .when(
+                self.state.project().tab == Tab::Files
+                    && !self.state.project().open_files.is_empty()
+                    && self.can_close_file_tabs(),
+                |workspace| {
+                    workspace.on_action(cx.listener(|this, _: &CloseFileTab, window, cx| {
+                        this.close_active_file_tab(window, cx)
+                    }))
+                },
+            )
             .on_action(cx.listener(|this, _: &NextFileTab, window, cx| {
                 this.cycle_file_tab(false, window, cx)
             }))
             .on_action(cx.listener(|this, _: &PreviousFileTab, window, cx| {
                 this.cycle_file_tab(true, window, cx)
             }))
-            .on_action(cx.listener(|this, _: &ReopenFileTab, window, cx| {
-                this.reopen_file_tab(this.state.active_project, window, cx)
+            .when(
+                self.state.project().tab == Tab::Files
+                    && !self.state.project().closed_files.is_empty()
+                    && !self.file_closing,
+                |workspace| {
+                    workspace.on_action(cx.listener(|this, _: &ReopenFileTab, window, cx| {
+                        this.reopen_file_tab(this.state.active_project, window, cx)
+                    }))
+                },
+            )
+            .on_action(cx.listener(|this, _: &NewSession, window, cx| {
+                this.change_tab(Tab::Terminal, window, cx);
+                this.new_session(window, cx);
             }))
-            .on_action(cx.listener(|this, _: &NewSession, window, cx| this.new_session(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &SplitTerminal, window, cx| this.split_terminal(window, cx)),
+            )
+            .when(self.state.project().tab == Tab::Terminal, |workspace| {
+                workspace
+                    .on_action(
+                        cx.listener(|this, _: &ClearTerminal, _, cx| this.clear_terminal(cx)),
+                    )
+                    .on_action(cx.listener(|this, _: &CopyTerminalOutput, _, cx| {
+                        this.copy_terminal_output(cx)
+                    }))
+            })
+            .on_action(
+                cx.listener(|this, _: &ToggleTheme, window, cx| this.toggle_theme(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &TogglePalette, window, cx| {
                 this.state.palette_open = !this.state.palette_open;
                 this.focus.focus(window, cx);

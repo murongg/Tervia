@@ -277,6 +277,10 @@ impl Tervia {
         }
     }
 
+    pub(super) fn can_close_file_tabs(&self) -> bool {
+        !self.file_closing && !self.saving_file && !self.file_reads.has_reloads()
+    }
+
     fn close_file_tabs(
         &mut self,
         project: usize,
@@ -284,7 +288,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.file_closing || self.saving_file || self.file_reads.has_reloads() {
+        if !self.can_close_file_tabs() {
             return;
         }
         let targets = self.state.projects[project].file_targets(scope);
