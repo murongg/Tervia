@@ -151,8 +151,11 @@ The terminal currently focuses on standard xterm / VT interaction. Image protoco
 
 ## Keyboard shortcuts
 
+The native menu bar includes File, View and Terminal menus for opening folders/files, file and project text search, saving and managing tabs, switching modules/themes, and creating, splitting, clearing or copying terminal output. Menus follow the selected interface language and disable unavailable actions. Clear and Copy Output target the focused terminal pane.
+
 | macOS | Windows / Linux | Action |
 | --- | --- | --- |
+| ⌘O | Ctrl+Shift+O | Open folder |
 | ⌘B | Ctrl+Shift+B | Expand / collapse the project rail |
 | ⌘1 / ⌘2 / ⌘3 | Ctrl+1 / Ctrl+2 / Ctrl+3 | Terminal / Git / Files |
 | ⌘T | Ctrl+Shift+T | New terminal |

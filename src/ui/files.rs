@@ -624,13 +624,21 @@ impl Tervia {
         .detach();
     }
 
+    pub(super) fn can_save_file(&self) -> bool {
+        self.state.project().tab == Tab::Files
+            && !self.git_mutating
+            && !self.saving_file
+            && !self.file_closing
+            && !self.file_reads.has_reloads()
+            && self
+                .state
+                .project()
+                .current_file()
+                .is_some_and(|file| !file.is_image())
+    }
+
     pub(super) fn save_real_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.project().tab != Tab::Files
-            || self.git_mutating
-            || self.saving_file
-            || self.file_closing
-            || self.file_reads.has_reloads()
-        {
+        if !self.can_save_file() {
             return;
         }
         let project = self.state.active_project;

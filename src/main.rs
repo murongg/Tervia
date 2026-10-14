@@ -15,6 +15,7 @@ fn main() {
     application().with_assets(assets::AllAssets).run(|cx| {
         gpui_kit::init(cx);
         ui::console::init(cx);
+        ui::bind_menu_keys(cx);
         cx.bind_keys([
             KeyBinding::new(Platform::CURRENT.quit_key(), Quit, None),
             KeyBinding::new(

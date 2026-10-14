@@ -1,5 +1,5 @@
 use super::{
-    OpenPreferences, Tervia,
+    OpenPreferences, OpenProject, Tervia, ToggleTheme,
     controls::{icon, label_button, titlebar_mouse_down},
     theme,
 };
@@ -133,6 +133,12 @@ impl Tervia {
             .text_color(p.text)
             .font_family(tervia::platform::Platform::CURRENT.ui_font())
             .on_action(cx.listener(|this, _: &OpenPreferences, _, cx| this.open_preferences(cx)))
+            .on_action(
+                cx.listener(|this, _: &OpenProject, window, cx| this.choose_repository(window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &ToggleTheme, window, cx| this.toggle_theme(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
             .child(

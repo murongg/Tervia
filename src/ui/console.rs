@@ -747,6 +747,88 @@ mod tests {
     }
 
     #[gpui_test::test]
+    fn native_menu_output_actions_follow_the_focused_split_pane(cx: &mut TestAppContext) {
+        use super::super::Tervia;
+        use tervia::state::Tab;
+
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+            super::super::bind_menu_keys(cx);
+        });
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let project = view.state.open_directory("/synthetic/menu-output".into());
+                view.init_project(project, window, cx);
+                view.state.set_tab(Tab::Terminal);
+                view.new_session(window, cx);
+                view.state.select_session(0);
+                view.state.toggle_split();
+                view.ensure_console(0, window, cx).update(cx, |console, _| {
+                    console.buffer.feed(b"synthetic-primary");
+                });
+                view.ensure_console(1, window, cx).update(cx, |console, _| {
+                    console.buffer.feed(b"synthetic-secondary");
+                });
+                view
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        // GPUI dispatches focus events only for an active window.
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let second = cx.update(|_, cx| {
+            view.read(cx).terminals[0][1]
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .bounds
+        });
+        cx.simulate_click(second.center(), Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            assert_eq!(view.read(cx).state.command_session(), 1);
+        });
+        for key in ["copy_terminal", "clear_terminal"] {
+            let action = super::super::menus(Language::English)
+                .into_iter()
+                .flat_map(|menu| menu.items)
+                .find_map(|item| match item {
+                    MenuItem::Action { name, action, .. }
+                        if name.as_ref() == Language::English.text(key) =>
+                    {
+                        Some(action)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            cx.update(|window, cx| window.dispatch_action(action, cx));
+        }
+        cx.update(|window, cx| {
+            let view = view.read(cx);
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().unwrap().trim(),
+                "synthetic-secondary"
+            );
+            assert_eq!(view.state.project().active_session, 0);
+            assert_eq!(view.state.command_session(), 1);
+            let primary = view.terminals[0][0].as_ref().unwrap().read(cx);
+            let secondary = view.terminals[0][1].as_ref().unwrap().read(cx);
+            assert_eq!(primary.output().trim(), "synthetic-primary");
+            assert!(secondary.output().trim().is_empty());
+            assert!(primary.transmitted.is_empty());
+            assert_eq!(secondary.transmitted, vec![vec![12]]);
+            assert!(secondary.focus.is_focused(window));
+        });
+    }
+
+    #[gpui_test::test]
     fn clear_shortcut_removes_history_and_viewport_without_stealing_ctrl_k(
         cx: &mut TestAppContext,
     ) {
