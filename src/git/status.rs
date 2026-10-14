@@ -1,3 +1,4 @@
+use super::Error;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,7 +21,7 @@ pub struct Status {
     pub operation: Option<String>,
 }
 
-pub(super) fn path(bytes: &[u8]) -> Result<PathBuf, String> {
+pub(super) fn path(bytes: &[u8]) -> Result<PathBuf, Error> {
     #[cfg(unix)]
     {
         use std::os::unix::ffi::OsStringExt;
@@ -34,7 +35,7 @@ pub(super) fn path(bytes: &[u8]) -> Result<PathBuf, String> {
     }
 }
 
-pub(super) fn parse(bytes: &[u8]) -> Result<Status, String> {
+pub(super) fn parse(bytes: &[u8]) -> Result<Status, Error> {
     let mut status = Status::default();
     let mut records = bytes
         .split(|byte| *byte == 0)
@@ -98,4 +99,17 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Status, String> {
         });
     }
     Ok(status)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_status_keeps_the_original_parser_message() {
+        let error = parse(b"synthetic invalid record\0").unwrap_err();
+        assert_eq!(error.kind(), super::super::ErrorKind::Message);
+        assert_eq!(error.message(), "Unsupported Git status record");
+        assert_eq!(error.details(), "Unsupported Git status record");
+    }
 }

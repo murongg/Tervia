@@ -63,6 +63,12 @@ pub(super) struct Capture {
     oversized: bool,
 }
 impl Capture {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+    pub fn oversized(&self) -> bool {
+        self.oversized
+    }
     pub fn drain(&mut self, pipe: &mut impl OutputPipe) -> io::Result<()> {
         if self.eof {
             return Ok(());

@@ -1,4 +1,4 @@
-use super::Repository;
+use super::{Error, Repository};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
@@ -69,17 +69,17 @@ impl Discovery {
 }
 
 impl Repository {
-    pub fn discover(root: &Path) -> Result<Discovery, String> {
+    pub fn discover(root: &Path) -> Result<Discovery, Error> {
         Ok(Self::scan(root)?.discovery)
     }
 
-    pub fn scan(root: &Path) -> Result<Scan, String> {
+    pub fn scan(root: &Path) -> Result<Scan, Error> {
         scan_with(root, Limits::default())
     }
 }
 
-fn scan_with(root: &Path, limits: Limits) -> Result<Scan, String> {
-    let root = root.canonicalize().map_err(|error| error.to_string())?;
+fn scan_with(root: &Path, limits: Limits) -> Result<Scan, Error> {
+    let root = root.canonicalize().map_err(Error::from)?;
     if !root.is_dir() {
         return Err("Select a project directory".into());
     }
@@ -117,7 +117,7 @@ fn scan_with(root: &Path, limits: Limits) -> Result<Scan, String> {
         }
         let entries = match std::fs::read_dir(&directory) {
             Ok(entries) => entries,
-            Err(error) if directory == root => return Err(error.to_string()),
+            Err(error) if directory == root => return Err(error.into()),
             Err(_) => {
                 notices.insert(ScanLimit::Unreadable);
                 continue;

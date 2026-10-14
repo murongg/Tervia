@@ -1,4 +1,4 @@
-use super::{Repository, status, text};
+use super::{Error, Repository, status, text};
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
@@ -11,12 +11,14 @@ struct Lock {
     owned: bool,
 }
 impl Lock {
-    fn acquire(path: PathBuf, permissions: fs::Permissions) -> Result<Self, String> {
+    fn acquire(path: PathBuf, permissions: fs::Permissions) -> Result<Self, Error> {
         let file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&path)
-            .map_err(|error| format!("Stash is busy or its lock cannot be created: {error}"))?;
+            .map_err(|error| {
+                Error::from(error).context("Stash is busy or its lock cannot be created")
+            })?;
         let lock = Self {
             path,
             file: Some(file),
@@ -26,18 +28,18 @@ impl Lock {
             .as_ref()
             .unwrap()
             .set_permissions(permissions)
-            .map_err(|error| error.to_string())?;
+            .map_err(Error::from)?;
         Ok(lock)
     }
-    fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
+    fn write(&mut self, bytes: &[u8]) -> Result<(), Error> {
         let file = self.file.as_mut().unwrap();
         file.write_all(bytes)
             .and_then(|_| file.sync_all())
-            .map_err(|error| error.to_string())
+            .map_err(Error::from)
     }
-    fn commit(&mut self, destination: &Path) -> Result<(), String> {
+    fn commit(&mut self, destination: &Path) -> Result<(), Error> {
         self.file.take();
-        fs::rename(&self.path, destination).map_err(|error| error.to_string())?;
+        fs::rename(&self.path, destination).map_err(Error::from)?;
         self.owned = false;
         Ok(())
     }
@@ -52,7 +54,7 @@ impl Drop for Lock {
 }
 
 impl Repository {
-    fn stash_directory(&self) -> Result<PathBuf, String> {
+    fn stash_directory(&self) -> Result<PathBuf, Error> {
         let format = self
             .run(&["config", "--get", "extensions.refStorage"])
             .map(text)
@@ -68,8 +70,8 @@ impl Repository {
         &self,
         reference: &str,
         expected: &str,
-        mut after_lock: impl FnMut() -> Result<(), String>,
-    ) -> Result<String, String> {
+        mut after_lock: impl FnMut() -> Result<(), Error>,
+    ) -> Result<String, Error> {
         let index: usize = reference
             .strip_prefix("stash@{")
             .and_then(|value| value.strip_suffix('}'))
@@ -83,9 +85,7 @@ impl Repository {
         let common = self.stash_directory()?;
         let log_path = common.join("logs/refs/stash");
         let ref_path = common.join("refs/stash");
-        let log_permissions = fs::metadata(&log_path)
-            .map_err(|error| error.to_string())?
-            .permissions();
+        let log_permissions = fs::metadata(&log_path).map_err(Error::from)?.permissions();
         let ref_permissions = fs::metadata(&ref_path)
             .map(|metadata| metadata.permissions())
             .unwrap_or_else(|_| log_permissions.clone());
@@ -94,7 +94,7 @@ impl Repository {
         // to stash entries and refuse other stores instead of deleting by a stale number.
         let mut reference_lock = Lock::acquire(common.join("refs/stash.lock"), ref_permissions)?;
         after_lock()?;
-        let original = fs::read(&log_path).map_err(|error| error.to_string())?;
+        let original = fs::read(&log_path).map_err(Error::from)?;
         let mut entries = Vec::new();
         for line in original.split_inclusive(|byte| *byte == b'\n') {
             let mut fields = line.splitn(3, |byte| *byte == b' ');
@@ -148,7 +148,7 @@ impl Repository {
             if let Ok(metadata) = fs::metadata(&packed_path) {
                 let mut packed_lock =
                     Lock::acquire(common.join("packed-refs.lock"), metadata.permissions())?;
-                let packed = fs::read(&packed_path).map_err(|error| error.to_string())?;
+                let packed = fs::read(&packed_path).map_err(Error::from)?;
                 let mut kept = Vec::new();
                 let mut removed = false;
                 let mut skip_peeled = false;
@@ -176,9 +176,9 @@ impl Repository {
             match fs::remove_file(&ref_path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(error.to_string()),
+                Err(error) => return Err(error.into()),
             }
-            fs::remove_file(&log_path).map_err(|error| error.to_string())?;
+            fs::remove_file(&log_path).map_err(Error::from)?;
         } else {
             reference_lock.commit(&ref_path)?;
         }
@@ -190,6 +190,21 @@ impl Repository {
 mod tests {
     use super::super::*;
     use std::fs;
+
+    #[test]
+    fn lock_creation_io_errors_keep_the_busy_guidance() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("synthetic.lock");
+        fs::write(&path, "synthetic existing lock\n").unwrap();
+        let result = super::Lock::acquire(path, fs::metadata(root.path()).unwrap().permissions());
+        let error = result.err().unwrap();
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert!(
+            error
+                .message()
+                .starts_with("Stash is busy or its lock cannot be created:")
+        );
+    }
 
     #[test]
     fn committed_locks_never_remove_the_next_writers_lock() {

@@ -1,4 +1,4 @@
-use super::{Repository, arguments, command, reference, status, text};
+use super::{Error, Repository, arguments, command, reference, status, text};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -38,11 +38,11 @@ pub enum WorktreeOperation {
 }
 
 impl Repository {
-    pub fn common_directory(&self) -> Result<PathBuf, String> {
+    pub fn common_directory(&self) -> Result<PathBuf, Error> {
         Ok(self.common_dir.clone())
     }
 
-    pub fn worktrees(&self) -> Result<Vec<Worktree>, String> {
+    pub fn worktrees(&self) -> Result<Vec<Worktree>, Error> {
         // NUL records preserve literal paths, including newlines and quote characters.
         let mut trees = parse(&self.run(&["worktree", "list", "--porcelain", "-z"])?)?;
         for tree in &mut trees {
@@ -56,7 +56,7 @@ impl Repository {
         Ok(trees)
     }
 
-    pub fn execute_worktree(&self, operation: WorktreeOperation) -> Result<String, String> {
+    pub fn execute_worktree(&self, operation: WorktreeOperation) -> Result<String, Error> {
         let mut args: Vec<OsString>;
         match operation {
             WorktreeOperation::Add { path, checkout } => {
@@ -138,7 +138,7 @@ impl Repository {
         command::run(&self.root, &args).map(text)
     }
 
-    fn worktree_target(&self, expected: &Worktree) -> Result<Worktree, String> {
+    fn worktree_target(&self, expected: &Worktree) -> Result<Worktree, Error> {
         self.worktrees()?
             .into_iter()
             .find(|tree| {
@@ -150,7 +150,7 @@ impl Repository {
     }
 }
 
-fn parse(output: &[u8]) -> Result<Vec<Worktree>, String> {
+fn parse(output: &[u8]) -> Result<Vec<Worktree>, Error> {
     let mut result = Vec::new();
     let mut current = None;
     for field in output.split(|byte| *byte == 0) {

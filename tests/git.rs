@@ -4,7 +4,7 @@ use std::{
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use tervia::git::{Operation, Repository, Side};
+use tervia::git::{ErrorKind, Operation, Repository, Side};
 
 static NEXT: AtomicUsize = AtomicUsize::new(0);
 
@@ -62,6 +62,112 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn probe_accepts_an_ordinary_directory_without_a_repository() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(Repository::probe(root.path()).unwrap().is_none());
+}
+
+#[test]
+fn probe_preserves_invalid_and_empty_git_metadata_errors() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join(".git"), "synthetic invalid gitfile\n").unwrap();
+    assert!(Repository::probe(root.path()).is_err());
+    fs::remove_file(root.path().join(".git")).unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    assert!(Repository::probe(root.path()).is_err());
+}
+
+#[test]
+fn probe_preserves_damaged_ancestor_metadata_and_missing_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let nested = root.path().join("nested/child");
+    fs::create_dir_all(&nested).unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    assert!(Repository::probe(&nested).is_err());
+    assert!(Repository::probe(&root.path().join("synthetic-missing")).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn probe_preserves_broken_git_symlink_errors() {
+    let root = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("synthetic-missing", root.path().join(".git")).unwrap();
+    assert!(Repository::probe(root.path()).is_err());
+}
+
+#[test]
+fn probe_finds_repository_from_a_nested_directory() {
+    let fixture = Fixture::new();
+    let nested = fixture.0.join("nested/child");
+    fs::create_dir_all(&nested).unwrap();
+    assert_eq!(
+        Repository::probe(&nested).unwrap().unwrap().root,
+        fixture.0.canonicalize().unwrap()
+    );
+}
+
+#[test]
+fn probe_finds_the_nearest_nested_repository() {
+    let fixture = Fixture::new();
+    let inner = fixture.0.join("synthetic-inner");
+    fs::create_dir(&inner).unwrap();
+    let repository = Repository::initialize(&inner).unwrap();
+    let nested = inner.join("nested/child");
+    fs::create_dir_all(&nested).unwrap();
+    assert_eq!(
+        Repository::probe(&nested).unwrap().unwrap().root,
+        repository.root
+    );
+}
+
+#[test]
+fn probe_does_not_accept_files_or_missing_gitfile_targets_as_ordinary_directories() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join("synthetic-file");
+    fs::write(&file, "synthetic contents\n").unwrap();
+    assert!(Repository::probe(&file).is_err());
+    fs::write(root.path().join(".git"), "gitdir: synthetic-missing\n").unwrap();
+    let error = Repository::probe(root.path()).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Command);
+    assert!(!error.status().unwrap().success());
+}
+
+#[cfg(unix)]
+#[test]
+fn probe_preserves_inaccessible_paths_and_git_metadata() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o100)).unwrap();
+    let inaccessible = Repository::probe(root.path());
+    fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(inaccessible.is_err());
+    let marker = root.path().join(".git");
+    fs::create_dir(&marker).unwrap();
+    fs::set_permissions(&marker, fs::Permissions::from_mode(0o000)).unwrap();
+    let damaged = Repository::probe(root.path());
+    fs::set_permissions(&marker, fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(damaged.is_err());
+}
+
+#[test]
+fn typed_validation_errors_preserve_actionable_text() {
+    let fixture = Fixture::new();
+    let error = fixture
+        .repo()
+        .execute(Operation::Commit {
+            message: String::new(),
+            amend: false,
+        })
+        .unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::Message);
+    assert_eq!(error.message(), "A commit message is required");
+    assert_eq!(error.to_string(), "A commit message is required");
 }
 
 #[test]
@@ -699,7 +805,7 @@ fn linked_worktree_discovery_and_detached_head_do_not_assume_git_directory() {
     fixture.seed();
     let linked = fixture.0.join("linked");
     fixture.git(&["worktree", "add", "--detach", linked.to_str().unwrap()]);
-    let repo = Repository::open(&linked).unwrap();
+    let repo = Repository::probe(&linked).unwrap().unwrap();
     assert_eq!(repo.root, linked.canonicalize().unwrap());
     assert_eq!(repo.snapshot(50).unwrap().status.branch, "(detached)");
 }
