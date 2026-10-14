@@ -6,7 +6,11 @@ use std::{
 
 use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
 
-use crate::{locale::Language, preferences::Preferences};
+use crate::{
+    locale::Language,
+    preferences::Preferences,
+    updates::{MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES, Settings},
+};
 
 /// The user-owned document and the exact contents last loaded or saved by this instance.
 pub struct Config {
@@ -141,6 +145,7 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
     let empty = Table::new();
     let ui = section(document.get("ui"), "ui", &empty)?;
     let fonts = section(ui.get("fonts"), "ui.fonts", &empty)?;
+    let updates = section(document.get("updates"), "updates", &empty)?;
     let theme = string(ui.get("theme"), "ui.theme", "dark")?;
     let light_theme = match theme {
         "dark" => false,
@@ -178,6 +183,19 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
         )?,
         light_theme,
         language,
+        updates: Settings {
+            auto_check: boolean(
+                updates.get("auto_check"),
+                "updates.auto_check",
+                defaults.updates.auto_check,
+            )?,
+            interval_minutes: integer(
+                updates.get("interval_minutes"),
+                "updates.interval_minutes",
+                defaults.updates.interval_minutes,
+                MIN_INTERVAL_MINUTES..=MAX_INTERVAL_MINUTES,
+            )?,
+        },
     })
 }
 
@@ -203,17 +221,26 @@ fn string<'a>(item: Option<&'a Item>, key: &str, default: &'a str) -> Result<&'a
     }
 }
 
-fn integer(
+fn boolean(item: Option<&Item>, key: &str, default: bool) -> Result<bool, String> {
+    match item {
+        None => Ok(default),
+        Some(item) => item
+            .as_bool()
+            .ok_or_else(|| format!("{key} must be a boolean")),
+    }
+}
+
+fn integer<T: TryFrom<i64> + Ord + Copy + std::fmt::Display>(
     item: Option<&Item>,
     key: &str,
-    default: u8,
-    range: std::ops::RangeInclusive<u8>,
-) -> Result<u8, String> {
+    default: T,
+    range: std::ops::RangeInclusive<T>,
+) -> Result<T, String> {
     match item {
         None => Ok(default),
         Some(item) => item
             .as_integer()
-            .and_then(|value| u8::try_from(value).ok())
+            .and_then(|value| T::try_from(value).ok())
             .filter(|value| range.contains(value))
             .ok_or_else(|| {
                 format!(
@@ -254,6 +281,14 @@ fn write(document: &mut DocumentMut, preferences: &Preferences) {
     ] {
         set(&mut document["ui"]["fonts"][key], value);
     }
+    set(
+        &mut document["updates"]["auto_check"],
+        Value::from(preferences.updates.auto_check),
+    );
+    set(
+        &mut document["updates"]["interval_minutes"],
+        Value::from(i64::from(preferences.updates.interval_minutes)),
+    );
 }
 
 fn set(item: &mut Item, mut value: Value) {
@@ -262,6 +297,10 @@ fn set(item: &mut Item, mut value: Value) {
             .as_str()
             .zip(value.as_str())
             .is_some_and(|(a, b)| a == b)
+            || previous
+                .as_bool()
+                .zip(value.as_bool())
+                .is_some_and(|(a, b)| a == b)
             || previous
                 .as_integer()
                 .zip(value.as_integer())

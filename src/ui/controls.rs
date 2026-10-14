@@ -7,6 +7,15 @@ use gpui_kit::*;
 
 use super::theme::Palette;
 
+pub(super) fn titlebar_mouse_down(event: &MouseDownEvent, window: &mut Window, _: &mut App) {
+    if event.click_count == 2 {
+        window.zoom_window();
+    } else if event.click_count == 1 {
+        // Native dragging can consume subsequent events, so handle the second click first.
+        window.start_window_move();
+    }
+}
+
 pub fn icon(name: IconName, color: Hsla) -> Icon {
     Icon::new(name).size(px(15.0)).text_color(color)
 }

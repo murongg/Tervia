@@ -9,6 +9,7 @@ mod shell;
 mod tabs;
 mod terminal;
 mod theme;
+mod updates;
 mod welcome;
 
 use std::path::PathBuf;
@@ -22,6 +23,7 @@ use tervia::locale::Language;
 use tervia::platform::Platform;
 use tervia::preferences::Preferences;
 use tervia::state::{Tab, Workspace};
+use tervia::workspace::Store;
 
 use theme::Palette;
 
@@ -66,8 +68,11 @@ pub struct Tervia {
     preferences: Entity<Preferences>,
     appearance: Preferences,
     config: Option<Config>,
+    workspace: Option<Store>,
     config_error: Entity<Option<String>>,
     preferences_window: Option<AnyWindowHandle>,
+    updater: Entity<updates::Updater>,
+    update_restarting: bool,
     editors: Vec<Vec<Entity<EditorState>>>,
     explorers: Vec<explorer::Explorer>,
     monitors: Vec<monitor::Monitor>,
@@ -96,7 +101,15 @@ impl Tervia {
 
     #[cfg(all(test, feature = "ui-tests"))]
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::build(Preferences::default(), None, None, window, cx)
+        Self::build(
+            Preferences::default(),
+            None,
+            None,
+            Workspace::empty(),
+            None,
+            window,
+            cx,
+        )
     }
 
     pub fn configured(
@@ -114,30 +127,48 @@ impl Tervia {
             }
             Err(error) => (Preferences::default(), None, Some(error)),
         };
-        Self::build(appearance, config, error, window, cx)
+        let mut workspace = config
+            .as_ref()
+            .map(|config| Store::new(config.path().with_file_name("workspace.json")));
+        let state = workspace.as_mut().map(Store::load).transpose();
+        let state = match state {
+            Ok(state) => state.unwrap_or_else(Workspace::empty),
+            Err(error) => {
+                let mut state = Workspace::empty();
+                state.notice = format!("{}\n{error}", appearance.language.text("workspace_error"));
+                state
+            }
+        };
+        Self::build(appearance, config, error, state, workspace, window, cx)
     }
 
     fn build(
         appearance: Preferences,
         config: Option<Config>,
         error: Option<String>,
+        mut state: Workspace,
+        workspace: Option<Store>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         preferences::apply(&appearance, cx);
         let language = appearance.language;
-        let mut state = Workspace::empty();
         if let Some(error) = &error {
             state.notice = format!("{}\n{error}", language.text("config_error"));
         }
+        let preferences = cx.new(|_| appearance.clone());
+        let updater = cx.new(|cx| updates::Updater::new(preferences.clone(), cx));
         let mut view = Self {
             focus: cx.focus_handle(),
             state,
-            preferences: cx.new(|_| appearance.clone()),
+            preferences,
             appearance,
             config,
+            workspace,
             config_error: cx.new(|_| error),
             preferences_window: None,
+            updater,
+            update_restarting: false,
             editors: Vec::new(),
             explorers: Vec::new(),
             monitors: Vec::new(),
@@ -155,6 +186,17 @@ impl Tervia {
             files_active: window.is_window_active(),
             subscriptions: Vec::new(),
         };
+        view.subscriptions.push(cx.subscribe_in(
+            &view.updater,
+            window,
+            |this, _, _: &updates::Restart, window, cx| this.restart_after_update(window, cx),
+        ));
+        view.subscriptions
+            .push(cx.observe(&view.updater, |_, _, cx| cx.notify()));
+        if !cfg!(test) {
+            view.updater
+                .update(cx, |updater, cx| updater.start_automatic(cx));
+        }
         view.subscriptions
             .push(cx.subscribe(&view.welcome_url, |_, _, _: &InputEvent, cx| cx.notify()));
         view.subscriptions
@@ -183,6 +225,21 @@ impl Tervia {
         for index in 0..view.state.projects.len() {
             view.init_project(index, window, cx);
         }
+        for index in 0..view.state.projects.len() {
+            view.refresh_git(index, window, cx);
+            let root = &view.state.projects[index].root;
+            // Separate child scans would replace the enclosing workspace's repository grouping.
+            if !view
+                .state
+                .projects
+                .iter()
+                .any(|project| project.root != *root && root.starts_with(&project.root))
+            {
+                view.rescan_repositories(index, window, cx);
+            }
+        }
+        view.subscriptions
+            .push(cx.observe_self(|this, cx| this.persist_workspace(cx)));
         view.git_poll = Some(cx.spawn_in(window, async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -314,8 +371,19 @@ impl Tervia {
     }
 
     pub(crate) fn shutdown_terminals(&mut self, cx: &mut Context<Self>) {
+        self.persist_workspace(cx);
         for console in self.terminals.iter().flatten().flatten() {
             console.update(cx, |console, _| console.shutdown());
+        }
+    }
+
+    fn persist_workspace(&mut self, cx: &mut Context<Self>) {
+        if let Some(workspace) = &mut self.workspace
+            && let Err(error) = workspace.save(&self.state)
+            && self.state.notice.is_empty()
+        {
+            self.state.notice = format!("{}\n{error}", self.t("workspace_error"));
+            cx.notify();
         }
     }
 
@@ -389,7 +457,7 @@ impl Tervia {
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.state.dismiss_palette() {
             cx.notify();
-        } else {
+        } else if self.try_quit(cx) {
             window.remove_window();
         }
     }
@@ -412,6 +480,7 @@ impl Tervia {
         let preferences = self.preferences.clone();
         let config_path = self.config.as_ref().map(|config| config.path().to_owned());
         let config_error = self.config_error.clone();
+        let updater = self.updater.clone();
         let bounds = Bounds::centered(None, size(px(760.0), px(640.0)), cx);
         match gpui_kit::open_window(
             WindowOptions {
@@ -432,6 +501,7 @@ impl Tervia {
                         preferences,
                         config_path,
                         config_error,
+                        updater,
                         window,
                         cx,
                     )

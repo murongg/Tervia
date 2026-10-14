@@ -1,40 +1,50 @@
 use super::{
     OpenPreferences, Tervia,
-    controls::{icon, label_button},
+    controls::{icon, label_button, titlebar_mouse_down},
     theme,
 };
 use gpui_kit::assets::IconName;
+use gpui_kit::base::actions::Cancel;
 use gpui_kit::component::{
     Disableable as _,
     button::{Button, ButtonVariants},
-    input::Input,
+    input::{Escape, Input},
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::sync::Arc;
 
 impl Tervia {
     pub(super) fn welcome(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = theme::Palette::workbench(self.appearance.light_theme);
+        let update = self.workspace_update(cx);
         let introduction = div()
-            .w(px(260.0))
+            .w(px(232.0))
             .flex_shrink_0()
-            .p(px(28.0))
+            .p(px(24.0))
             .bg(p.sidebar)
             .flex()
             .flex_col()
             .gap(px(16.0))
             .child(
-                img(Arc::new(Image::from_bytes(
-                    ImageFormat::Svg,
-                    include_bytes!("../../assets/tervia.svg").to_vec(),
-                )))
-                .size(px(48.0)),
-            )
-            .child(
                 div()
-                    .text_size(px(26.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child("Tervia"),
+                    .flex()
+                    .items_center()
+                    .gap(px(12.0))
+                    .child(
+                        img(Arc::new(Image::from_bytes(
+                            ImageFormat::Svg,
+                            include_bytes!("../../assets/tervia.svg").to_vec(),
+                        )))
+                        .size(px(40.0))
+                        .flex_shrink_0(),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(22.0))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child("Tervia"),
+                    ),
             )
             .child(
                 div()
@@ -52,16 +62,10 @@ impl Tervia {
             div()
                 .flex_1()
                 .min_w_0()
-                .p(px(28.0))
+                .p(px(24.0))
                 .flex()
                 .flex_col()
                 .gap(px(12.0))
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(self.t("git_open_repository")),
-                )
                 .child(
                     Button::new("welcome-open")
                         .primary()
@@ -70,13 +74,13 @@ impl Tervia {
                         .label(self.t("git_open_repository"))
                         .icon(icon(IconName::FolderOpen, p.on_accent))
                         .w_full()
-                        .h(px(34.0))
+                        .h(px(32.0))
                         .disabled(self.git_mutating)
                         .on_click(
                             cx.listener(|this, _, window, cx| this.choose_repository(window, cx)),
                         ),
                 )
-                .child(div().h(px(1.0)).bg(p.border).my(px(10.0)))
+                .child(div().h(px(1.0)).bg(p.border).my(px(8.0)))
                 .child(
                     div()
                         .text_size(px(13.0))
@@ -113,31 +117,65 @@ impl Tervia {
             .flex_col()
             .track_focus(&self.focus)
             .key_context("Tervia")
-            .bg(theme::workspace_background(self.appearance.light_theme))
+            .bg(p.background.alpha(1.0))
             .text_color(p.text)
             .font_family(tervia::platform::Platform::CURRENT.ui_font())
             .on_action(cx.listener(|this, _: &OpenPreferences, _, cx| this.open_preferences(cx)))
+            .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
+            .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
             .child(
                 div()
                     .h(px(48.0))
                     .flex_shrink_0()
                     .flex()
                     .items_center()
-                    .justify_center()
+                    .px(px(16.0))
                     .text_size(px(12.0))
-                    .child("Tervia")
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+                    .child(div().w(px(72.0)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("Tervia")
+                            .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
+                    )
+                    .child(
+                        div()
+                            .w(px(72.0))
+                            .flex()
+                            .justify_end()
+                            .when_some(update, |slot, update| slot.child(update)),
+                    ),
             )
             .child(
                 div().flex_1().flex().items_center().justify_center().child(
                     div()
-                        .w(px(650.0))
+                        .w(px(608.0))
                         .flex()
                         .rounded(px(8.0))
                         .overflow_hidden()
-                        .border_1()
-                        .border_color(p.border)
-                        .bg(p.background)
+                        // An opaque surface keeps the shadow from showing through the card.
+                        .bg(p.toolbar.alpha(1.0))
+                        .shadow(vec![
+                            BoxShadow::new(
+                                px(0.0),
+                                px(4.0),
+                                hsla(
+                                    0.0,
+                                    0.0,
+                                    0.0,
+                                    if self.appearance.light_theme {
+                                        0.06
+                                    } else {
+                                        0.12
+                                    },
+                                ),
+                            )
+                            .blur_radius(px(16.0)),
+                        ])
                         .child(introduction)
                         .child(actions),
                 ),

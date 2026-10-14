@@ -10,12 +10,93 @@ use tervia::state::Tab;
 
 use super::{
     Tervia,
-    controls::{badge, icon, icon_button, label_button, separator},
+    controls::{badge, icon, icon_button, label_button, separator, titlebar_mouse_down},
 };
+
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use gpui_test::TestAppContext;
+
+    #[gpui_test::test]
+    fn update_status_keeps_the_fixed_titlebar_actions_in_place(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let project = view.state.open_directory("/synthetic/titlebar".into());
+                view.init_project(project, window, cx);
+                view.state.set_tab(Tab::Files);
+                view
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        let target = tervia::updates::Target::current().unwrap();
+        let release = self_update::Release::builder()
+            .version("9.0.0")
+            .asset(
+                self_update::ReleaseAsset::new(
+                    target.asset_name("9.0.0"),
+                    "https://example.test/synthetic.zip",
+                )
+                .with_digest(format!("sha256:{}", "ab".repeat(32))),
+            )
+            .build()
+            .unwrap();
+        let candidate = tervia::updates::Candidate::from_release(release, "1.0.0", target)
+            .unwrap()
+            .unwrap();
+        for light in [false, true] {
+            cx.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    view.preferences.update(cx, |preferences, cx| {
+                        preferences.light_theme = light;
+                        cx.notify();
+                    })
+                })
+            });
+            for width in [880.0, 1220.0] {
+                cx.simulate_resize(size(px(width), px(560.0)));
+                view.update(cx, |view, cx| {
+                    view.updater.update(cx, |updater, cx| {
+                        updater.state = super::super::updates::State::Latest;
+                        cx.notify();
+                    })
+                });
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                let quick = cx.debug_bounds("titlebar-quick-actions").unwrap();
+                let theme = cx.debug_bounds("titlebar-theme").unwrap();
+                for state in [
+                    super::super::updates::State::Available(candidate.clone()),
+                    super::super::updates::State::Installing,
+                    super::super::updates::State::Latest,
+                ] {
+                    view.update(cx, |view, cx| {
+                        view.updater.update(cx, |updater, cx| {
+                            updater.state = state;
+                            cx.notify();
+                        })
+                    });
+                    cx.update(|window, cx| window.draw(cx).clear(cx));
+                    assert_eq!(cx.debug_bounds("titlebar-quick-actions").unwrap(), quick);
+                    assert_eq!(cx.debug_bounds("titlebar-theme").unwrap(), theme);
+                    if let Some(update) = cx.debug_bounds("workspace-update") {
+                        assert!(update.right() + px(8.0) <= quick.left());
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl Tervia {
     pub(super) fn titlebar(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p();
+        let update = self.workspace_update(cx);
         div()
             .h(px(48.0))
             .flex_shrink_0()
@@ -48,6 +129,7 @@ impl Tervia {
                     .items_center()
                     .gap(px(7.0))
                     .ml(px(8.0))
+                    .on_mouse_down(MouseButton::Left, titlebar_mouse_down)
                     .child(icon(IconName::Folder, p.secondary))
                     .child(
                         div()
@@ -60,10 +142,15 @@ impl Tervia {
                 div()
                     .flex_1()
                     .h_full()
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+                    .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
             )
+            // Keep transient actions before the fixed controls so their click targets never move.
+            .when_some(update, |titlebar, update| {
+                titlebar.child(div().mr(px(8.0)).child(update))
+            })
             .child(
                 label_button("open-palette", self.t("quick_actions"), p)
+                    .debug_selector(|| "titlebar-quick-actions".into())
                     .icon(icon(IconName::Command, p.secondary))
                     .tooltip(Platform::CURRENT.hint(self.t("quick_actions_shortcut")))
                     .on_click(cx.listener(|this, _, window, cx| {
@@ -85,6 +172,7 @@ impl Tervia {
                         p,
                         cx,
                     )
+                    .debug_selector(|| "titlebar-theme".into())
                     .accessibility_label(self.t("toggle_theme"))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_theme(window, cx))),
                 ),

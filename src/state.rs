@@ -301,13 +301,20 @@ impl Workspace {
 
     pub fn project_label(&self, index: usize) -> String {
         let project = &self.projects[index];
+        self.project_root(index)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| project.name.clone())
+    }
+
+    pub fn project_root(&self, index: usize) -> &PathBuf {
+        let project = &self.projects[index];
         project
             .repository
             .as_ref()
             .and_then(|identity| self.repositories.get(identity))
-            .and_then(|group| group.root.file_name())
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| project.name.clone())
+            .map(|group| &group.root)
+            .unwrap_or(&project.root)
     }
 
     pub fn retire_project(&mut self, index: usize) {

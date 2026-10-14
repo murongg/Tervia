@@ -52,6 +52,14 @@ fn main() {
             |window, cx| cx.new(|cx| Tervia::configured(Config::discover(), window, cx)),
         )
         .expect("Unable to open Tervia's native window");
+        let guarded_view = view.clone();
+        workspace_window
+            .update(cx, |_, window, cx| {
+                window.on_window_should_close(cx, move |_, cx| {
+                    guarded_view.update(cx, |view, cx| view.try_quit(cx))
+                });
+            })
+            .expect("Unable to register the update close guard");
         // The application has one workspace: do not leave an orphaned Settings-only app.
         let closing_view = view.clone();
         cx.on_window_closed(move |cx, closed| {
@@ -63,6 +71,9 @@ fn main() {
         .detach();
         let quitting_view = view.clone();
         cx.on_action(move |_: &Quit, cx| {
+            if !quitting_view.update(cx, |view, cx| view.try_quit(cx)) {
+                return;
+            }
             quitting_view.update(cx, |view, cx| view.shutdown_terminals(cx));
             cx.quit();
         });
