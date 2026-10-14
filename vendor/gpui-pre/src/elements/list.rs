@@ -71,6 +71,7 @@ struct StateInner {
     scroll_handler: Option<Box<dyn FnMut(&ListScrollEvent, &mut Window, &mut App)>>,
     scrollbar_drag_start_height: Option<Pixels>,
     measuring_behavior: ListMeasuringBehavior,
+    uniform_item_height: Option<Pixels>,
     pending_scroll: Option<PendingScroll>,
     follow_state: FollowState,
 }
@@ -323,6 +324,7 @@ impl ListState {
             reset: false,
             scrollbar_drag_start_height: None,
             measuring_behavior: ListMeasuringBehavior::default(),
+            uniform_item_height: None,
             pending_scroll: None,
             follow_state: FollowState::default(),
         })));
@@ -344,6 +346,7 @@ impl ListState {
     /// As items are actually rendered their real heights replace the hint, so the scrollbar
     /// converges to the exact size over time. This is a cheaper alternative to [`Self::measure_all`]
     /// for lists where items have roughly uniform heights (e.g. table rows).
+    /// The hint is retained when width changes invalidate measured heights.
     pub fn with_uniform_item_height(self, height: Pixels) -> Self {
         self.apply_uniform_item_height(height);
         self
@@ -380,6 +383,7 @@ impl ListState {
             height,
         };
         let mut state = self.0.borrow_mut();
+        state.uniform_item_height = Some(height);
         let new_items = state
             .items
             .iter()
@@ -1540,14 +1544,15 @@ impl Element for List {
 
         let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
 
-        // If the width of the list has changed, invalidate all cached item heights
+        // Width-dependent measurements must be invalidated, but the uniform estimate
+        // keeps off-screen rows scrollable before their new heights are measured.
         if state
             .last_layout_bounds
             .is_none_or(|last_bounds| last_bounds.size.width != bounds.size.width)
         {
             let new_items = SumTree::from_iter(
                 state.items.iter().map(|item| ListItem::Unmeasured {
-                    size_hint: None,
+                    size_hint: state.uniform_item_height.map(|height| size(px(0.), height)),
                     focus_handle: item.focus_handle(),
                 }),
                 (),
