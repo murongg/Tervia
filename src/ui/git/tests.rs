@@ -364,6 +364,52 @@ fn review_open_full_file_and_return_keeps_the_diff_and_selection(cx: &mut TestAp
 }
 
 #[gpui_test::test]
+fn git_probes_treat_plain_folders_as_empty_states_and_preserve_real_errors(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    for (broken, initialize, expect_error) in [
+        (false, false, false),
+        (true, false, true),
+        (true, true, true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        if broken {
+            fs::write(root.path().join(".git"), "synthetic invalid git file\n").unwrap();
+        }
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut this = Tervia::new(window, cx);
+                let project = this
+                    .state
+                    .open_directory(root.path().canonicalize().unwrap());
+                this.init_project(project, window, cx);
+                this.state.set_tab(tervia::state::Tab::Git);
+                this.git_job(project, None, initialize, window, cx);
+                this
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        cx.run_until_parked();
+        view.unwrap().update(cx, |this, _| {
+            let ui = &this.git_states[this.state.active_project];
+            assert!(!ui.busy, "Git detection completed");
+            assert!(ui.repository.is_none());
+            assert!(ui.snapshot.is_none());
+            assert_eq!(
+                !ui.error.is_empty(),
+                expect_error,
+                "Only ordinary non-repository detection is silent: {}",
+                ui.error
+            );
+            assert!(!this.git_mutating);
+        });
+    }
+}
+
+#[gpui_test::test]
 fn commit_file_navigation_selects_the_target_and_full_metadata_can_be_expanded(
     cx: &mut TestAppContext,
 ) {
