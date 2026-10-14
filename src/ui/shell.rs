@@ -475,14 +475,21 @@ impl Tervia {
                         .to_string(),
                 )],
             ),
-            Tab::Files => format!(
-                "{}  ·  UTF-8  ·  LF",
-                project
-                    .files
-                    .get(project.active_file)
-                    .map(|file| file.language.to_uppercase())
-                    .unwrap_or_default()
-            ),
+            Tab::Files => project.current_file().map_or_else(String::new, |file| {
+                if file.is_image() {
+                    format!(
+                        "{}  ·  {}",
+                        file.disk_path
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            .unwrap_or("image")
+                            .to_uppercase(),
+                        self.t("preview")
+                    )
+                } else {
+                    format!("{}  ·  UTF-8  ·  LF", file.language.to_uppercase())
+                }
+            }),
         };
         let path = if project.tab == Tab::Terminal {
             self.terminals[self.state.active_project][self.state.command_session()]

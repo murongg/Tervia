@@ -5,6 +5,7 @@ mod graph;
 mod history;
 mod navigation;
 mod remotes;
+mod review;
 mod scans;
 pub(super) use scans::Scans;
 mod sidebar;
@@ -88,6 +89,7 @@ pub(super) struct GitUi {
     second: Entity<InputState>,
     message: Entity<TextareaState>,
     diff: Entity<DiffState>,
+    review: review::Review,
 }
 
 impl GitUi {
@@ -108,6 +110,7 @@ impl GitUi {
             .as_ref()
             .is_some_and(|previous| previous.status.files == snapshot.status.files)
         {
+            self.review.files = review::files(snapshot);
             self.change_rows = changes::change_rows(
                 &snapshot.status.files,
                 &self.collapsed_changes,
@@ -125,6 +128,7 @@ impl GitUi {
     }
 
     fn clear_detail(&mut self, cx: &mut Context<Tervia>) {
+        self.prepare_diff(None, cx);
         self.generation += 1;
         self.selected = None;
         self.detail.clear();
@@ -133,16 +137,15 @@ impl GitUi {
         self.commit = None;
         self.commit_file = None;
         self.detail_loading = false;
-        self.diff.update(cx, |state, cx| state.set_files([], cx));
     }
     fn begin_detail(&mut self, detail: Detail, cx: &mut Context<Tervia>) -> usize {
         if self.selected.as_ref() != Some(&detail) {
+            self.prepare_diff(Some(&detail), cx);
             self.detail.clear();
             self.raw_lines = Arc::from([]);
             self.metadata_lines = Arc::from([]);
             self.commit = None;
             self.commit_file = None;
-            self.diff.update(cx, |state, cx| state.set_files([], cx));
         }
         if let Detail::Commit(hash) = &detail
             && let Some(commit) = self
@@ -180,8 +183,24 @@ impl GitUi {
             Ok(detail) => {
                 if self.detail != detail {
                     let files = DiffFile::parse(&detail).unwrap_or_default();
-                    self.commit_file = files.first().map(|file| file.path().clone());
-                    self.diff.update(cx, |state, cx| state.set_files(files, cx));
+                    // Reuse a position only after the fresh patch matches its saved document.
+                    if let Some(saved) = self
+                        .review
+                        .restore
+                        .take()
+                        .filter(|saved| saved.patch == detail)
+                    {
+                        let mode = self.diff.read(cx).mode();
+                        self.diff = saved.diff;
+                        self.diff.update(cx, |state, cx| state.set_mode(mode, cx));
+                        self.observe_diff(cx);
+                        self.commit_file = saved.file;
+                        self.review.range = saved.range;
+                    } else {
+                        self.review.range = None;
+                        self.commit_file = files.first().map(|file| file.path().clone());
+                        self.diff.update(cx, |state, cx| state.set_files(files, cx));
+                    }
                     let commit = matches!(self.selected, Some(Detail::Commit(_)));
                     let body = if commit {
                         viewer::commit_patch(&detail)
@@ -210,6 +229,7 @@ impl GitUi {
                 }
             }
             Err(error) => {
+                self.review.range = None;
                 self.detail.clear();
                 self.raw_lines = Arc::from([]);
                 self.metadata_lines = Arc::from([]);
@@ -226,7 +246,7 @@ impl GitUi {
         subscriptions.push(cx.subscribe(&self.message, |_, _, _: &InputEvent, cx| cx.notify()));
     }
     pub fn new(window: &mut Window, cx: &mut Context<Tervia>) -> Self {
-        Self {
+        let mut ui = Self {
             snapshot: None,
             workspace: None,
             changes_scroll: UniformListScrollHandle::new(),
@@ -268,7 +288,10 @@ impl GitUi {
                     .placeholder(tervia::locale::Language::System.text("commit_message"))
             }),
             diff: cx.new(|cx| DiffState::new([], cx)),
-        }
+            review: review::Review::default(),
+        };
+        ui.observe_diff(cx);
+        ui
     }
 }
 
@@ -498,6 +521,7 @@ impl Tervia {
         &mut self,
         project: usize,
         path: PathBuf,
+        range: Option<gpui_kit::component::diff::DiffLineRange>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -512,7 +536,8 @@ impl Tervia {
         } else {
             project
         };
-        self.open_real_file(owner, path, window, cx);
+        self.open_real_file(owner, path.clone(), window, cx);
+        self.remember_git_file_jump(project, owner, path, range);
     }
 
     pub(super) fn refresh_git(

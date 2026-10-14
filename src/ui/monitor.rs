@@ -300,6 +300,7 @@ impl Tervia {
             .files
             .iter()
             .enumerate()
+            .filter(|(_, file)| !file.is_image())
             .map(|(index, file)| (index, file.disk_path.clone()))
             .collect();
         if files.is_empty() {

@@ -2,7 +2,7 @@ use super::{Detail, FileStatus, Mode, Side, Snapshot, Tervia};
 use core::prelude::v1::test;
 use gpui_kit::AppContext as _;
 use gpui_test::TestAppContext;
-use std::fs;
+use std::{fs, path::Path};
 
 fn synthetic_commit(hash: &str, parents: &str) -> tervia::git::Commit {
     tervia::git::Commit {
@@ -13,6 +13,354 @@ fn synthetic_commit(hash: &str, parents: &str) -> tervia::git::Commit {
         message: "Synthetic commit".into(),
         refs: String::new(),
     }
+}
+
+fn review_patch(path: &str) -> String {
+    format!(
+        "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,3 +1,3 @@\n synthetic first\n-synthetic old\n+synthetic new\n synthetic third\n@@ -30,2 +30,2 @@\n-synthetic old end\n+synthetic new end\n synthetic last\n"
+    )
+}
+
+#[gpui_test::test]
+fn review_working_copy_navigation_reveals_folded_files(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let nested_path = Path::new("nested").join("second.txt");
+    fs::create_dir(root.path().join("nested")).unwrap();
+    fs::write(root.path().join("first.txt"), "synthetic first\n").unwrap();
+    fs::write(root.path().join(&nested_path), "synthetic second\n").unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| view.update(cx, |this, cx| {
+        let project = this.state.open_directory(root.path().canonicalize().unwrap());
+        this.init_project(project, window, cx);
+        this.state.set_tab(tervia::state::Tab::Git);
+        let snapshot = repo.snapshot(10).unwrap();
+        let first = snapshot.status.files.iter().find(|file| file.path == nested_path).unwrap().clone();
+        let ui = &mut this.git_states[project];
+        ui.repository = Some(repo);
+        ui.collapsed_changes.insert(1);
+        ui.collapsed_changes.insert(3);
+        ui.collapsed_folders.insert((3, "nested".into()));
+        ui.reconcile_snapshot(&snapshot, cx);
+        ui.snapshot = Some(std::sync::Arc::new(snapshot));
+        let generation = ui.begin_detail(Detail::File(first, Side::Worktree), cx);
+        ui.install_detail(generation, Ok(review_patch("nested/second.txt")), cx);
+        this.navigate_git_file(project, true, window, cx);
+        let ui = &this.git_states[project];
+        assert!(matches!(&ui.selected, Some(Detail::File(file, Side::Worktree)) if file.path == Path::new("first.txt")));
+        assert!(!ui.collapsed_changes.contains(&3), "Navigation reveals the selected untracked file in its list");
+        assert!(ui.collapsed_changes.contains(&1), "Navigation preserves unrelated collapsed groups");
+        this.navigate_git_file(project, false, window, cx);
+        let ui = &this.git_states[project];
+        assert!(matches!(&ui.selected, Some(Detail::File(file, Side::Worktree)) if file.path == nested_path));
+        assert!(!ui.collapsed_folders.contains(&(3, "nested".into())), "Navigation reveals the destination's ancestor folder");
+    }));
+}
+
+#[gpui_test::test]
+fn review_returning_to_a_file_reuses_its_view_only_while_the_patch_is_unchanged(
+    cx: &mut TestAppContext,
+) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this
+                .state
+                .open_directory("/synthetic/review-position".into());
+            this.init_project(project, window, cx);
+            let detail = |path: &str| {
+                Detail::File(
+                    FileStatus {
+                        path: path.into(),
+                        original: None,
+                        index: '.',
+                        worktree: 'M',
+                        conflicted: false,
+                    },
+                    Side::Worktree,
+                )
+            };
+            let ui = &mut this.git_states[project];
+            let first = ui.begin_detail(detail("first.txt"), cx);
+            ui.install_detail(first, Ok(review_patch("first.txt")), cx);
+            let saved = ui.diff.clone();
+            ui.diff.update(cx, |state, cx| {
+                state.set_selected_lines(
+                    Some(DiffLineRange::new("first.txt", DiffSide::Modified, 30, 30)),
+                    cx,
+                )
+            });
+            let second = ui.begin_detail(detail("second.txt"), cx);
+            ui.install_detail(second, Ok(review_patch("second.txt")), cx);
+            let back = ui.begin_detail(detail("first.txt"), cx);
+            ui.install_detail(second, Ok(review_patch("second.txt")), cx);
+            ui.install_detail(back, Ok(review_patch("first.txt")), cx);
+            assert_eq!(
+                ui.diff, saved,
+                "The same viewer retains exact scroll, selection and expansion state"
+            );
+            assert_eq!(
+                ui.diff.read(cx).selected_lines(),
+                Some(DiffLineRange::new("first.txt", DiffSide::Modified, 30, 30))
+            );
+            let changed = ui.begin_detail(detail("first.txt"), cx);
+            ui.install_detail(
+                changed,
+                Ok(review_patch("first.txt").replace("synthetic new", "synthetic changed")),
+                cx,
+            );
+            assert!(
+                ui.diff.read(cx).selected_lines().is_none(),
+                "A changed patch must not keep an obsolete selection"
+            );
+        })
+    });
+}
+
+#[gpui_test::test]
+fn review_commit_form_starts_collapsed_retains_drafts_and_diff_can_fill_the_workspace(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/review".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let file = FileStatus {
+                path: "mock.txt".into(),
+                original: None,
+                index: 'M',
+                worktree: '.',
+                conflicted: false,
+            };
+            let mut snapshot = Snapshot::default();
+            snapshot.status.files.push(file.clone());
+            let ui = &mut this.git_states[project];
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            let generation = ui.begin_detail(Detail::File(file, Side::Index), cx);
+            ui.install_detail(generation, Ok(review_patch("mock.txt")), cx);
+            ui.message.update(cx, |input, cx| {
+                input.set_value("Synthetic draft", window, cx)
+            });
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-commit-form").is_none(),
+        "Reviewing does not show a commit form by default"
+    );
+    let toggle = cx
+        .debug_bounds("git-toggle-commit")
+        .expect("Commit remains discoverable");
+    cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-commit-form").is_some());
+    let toggle = cx.debug_bounds("git-toggle-commit").unwrap();
+    cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-commit-form").is_none());
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(
+                this.git_states[0].message.read(cx).value().as_str(),
+                "Synthetic draft"
+            );
+        })
+    });
+    let before = cx.debug_bounds("git-diff-viewer").unwrap();
+    let focus = cx.debug_bounds("git-focus-diff").unwrap();
+    cx.simulate_click(focus.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-diff-viewer").unwrap().size.width > before.size.width);
+    let focus = cx.debug_bounds("git-focus-diff").unwrap();
+    cx.simulate_click(focus.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("git-diff-viewer").unwrap().size.width,
+        before.size.width
+    );
+}
+
+#[gpui_test::test]
+fn review_file_navigation_tracks_commit_files_and_exposes_change_navigation(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this
+                .state
+                .open_directory("/synthetic/review-history".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let ui = &mut this.git_states[project];
+            ui.mode = Mode::History;
+            ui.snapshot = Some(std::sync::Arc::new(Snapshot::default()));
+            let generation = ui.begin_detail(Detail::Commit("mock-commit".into()), cx);
+            ui.install_detail(
+                generation,
+                Ok(format!(
+                    "commit mock-commit\n\n{}{}",
+                    review_patch("first.txt"),
+                    review_patch("second.txt")
+                )),
+                cx,
+            );
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let next = cx
+        .debug_bounds("git-next-file")
+        .expect("Next file is available in the viewer");
+    cx.simulate_click(next.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, _| {
+            assert_eq!(
+                this.git_states[0].commit_file.as_ref().unwrap().as_str(),
+                "second.txt"
+            );
+        })
+    });
+    let previous = cx.debug_bounds("git-previous-file").unwrap();
+    cx.simulate_click(previous.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, _| {
+            assert_eq!(
+                this.git_states[0].commit_file.as_ref().unwrap().as_str(),
+                "first.txt"
+            );
+        })
+    });
+    assert!(cx.debug_bounds("git-next-change").is_some());
+    assert!(cx.debug_bounds("git-previous-change").is_some());
+}
+
+#[gpui_test::test]
+fn review_open_full_file_and_return_keeps_the_diff_and_selection(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("mock.txt"),
+        "synthetic first\nsynthetic new\nsynthetic third\n",
+    )
+    .unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    let mut original_diff = None;
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = repo.snapshot(10).unwrap();
+            let file = snapshot.status.files[0].clone();
+            let patch = repo.diff(&file, Side::Worktree).unwrap();
+            let ui = &mut this.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            let generation = ui.begin_detail(Detail::File(file, Side::Worktree), cx);
+            ui.install_detail(generation, Ok(patch), cx);
+            ui.diff.update(cx, |state, cx| {
+                state.set_selected_lines(
+                    Some(DiffLineRange::new("mock.txt", DiffSide::Modified, 2, 2)),
+                    cx,
+                )
+            });
+            original_diff = Some(ui.diff.clone());
+            assert_eq!(
+                ui.diff.read(cx).selected_lines(),
+                Some(DiffLineRange::new("mock.txt", DiffSide::Modified, 2, 2)),
+                "The synthetic diff contains the selected source line"
+            );
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(
+                this.git_states[0].diff.read(cx).selected_lines(),
+                Some(DiffLineRange::new("mock.txt", DiffSide::Modified, 2, 2)),
+                "Drawing retains the source selection before opening the file"
+            );
+        })
+    });
+    let open = cx
+        .debug_bounds("git-open-full-file")
+        .expect("Full file can be opened from a diff");
+    cx.simulate_click(open.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.project().tab, tervia::state::Tab::Files);
+            assert_eq!(this.editors[0][0].read(cx).cursor_position().line, 1);
+        })
+    });
+    let back = cx
+        .debug_bounds("git-return-to-diff")
+        .expect("Opening a full file provides a return path");
+    cx.simulate_click(back.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.project().tab, tervia::state::Tab::Git);
+            assert_eq!(this.git_states[0].diff, original_diff.clone().unwrap());
+            assert_eq!(
+                this.git_states[0].diff.read(cx).selected_lines(),
+                Some(DiffLineRange::new("mock.txt", DiffSide::Modified, 2, 2))
+            );
+        })
+    });
 }
 
 #[gpui_test::test]

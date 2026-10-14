@@ -1,5 +1,6 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
+    Disableable as _,
     input::{Editor, EditorState, InputEvent},
     resizable::{h_resizable, resizable_panel},
 };
@@ -13,6 +14,20 @@ use super::{
     Tervia,
     controls::{icon, icon_button, label_button},
 };
+mod preview;
+pub(in crate::ui) mod search;
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests;
+pub(super) use preview::Previews;
+pub(super) use search::Finder;
+
+#[derive(Clone, Copy)]
+enum Open {
+    Pinned,
+    Preview,
+    Reload,
+    Match { line: usize, column: usize },
+}
 #[cfg(all(test, feature = "ui-tests"))]
 use core::prelude::v1::test;
 
@@ -228,6 +243,10 @@ impl Tervia {
             .gap(px(7.0))
             .text_size(px(11.0))
             .text_color(p.secondary)
+            .when_some(self.git_return_button(cx), |bar, button| bar.child(button))
+            .when(file.language == "markdown", |bar| {
+                bar.child(self.source_toggle(owner, active, cx))
+            })
             .child(icon(IconName::FileCode, p.muted))
             .child(
                 div().flex_1().min_w_0().text_ellipsis().child(
@@ -251,18 +270,23 @@ impl Tervia {
             )
             .child(
                 label_button("find-in-file", self.t("find"), p)
+                    .debug_selector(|| "find-in-file".into())
+                    .disabled(file.is_image())
                     .icon(icon(IconName::Search, p.secondary))
                     .tooltip(tervia::platform::Platform::CURRENT.hint(self.t("find_shortcut")))
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.editors[this.state.active_project][this.state.project().active_file]
-                            .update(cx, |editor, cx| {
-                                editor.focus(window, cx);
-                                editor.open_search(false, cx);
-                            });
+                        let project = this.state.active_project;
+                        let index = this.state.project().active_file;
+                        this.show_file_source(project, index);
+                        this.editors[project][index].update(cx, |editor, cx| {
+                            editor.focus(window, cx);
+                            editor.open_search(false, cx);
+                        });
                     })),
             )
             .child(
                 label_button("save-file", self.t("save"), p)
+                    .disabled(file.is_image() || !file.dirty())
                     .icon(icon(IconName::Save, p.accent))
                     .tooltip(tervia::platform::Platform::CURRENT.hint(self.t("save_shortcut")))
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
@@ -290,8 +314,10 @@ impl Tervia {
                             .child(self.t(external.unwrap())),
                     )
                 })
-                .child(
-                    div().flex_1().min_h_0().overflow_hidden().child(
+                .child(div().flex_1().min_h_0().overflow_hidden().child(
+                    if let Some(preview) = self.file_preview(owner, active) {
+                        preview
+                    } else {
                         Editor::new(editor)
                             .h(relative(1.0))
                             .w_full()
@@ -299,9 +325,10 @@ impl Tervia {
                             .bordered(false)
                             .aria_label(self.f("code_editor", &[("path", &file.path)]))
                             .font_family(self.appearance.font_family.clone())
-                            .text_size(px(self.appearance.code_size as f32)),
-                    ),
-                ),
+                            .text_size(px(self.appearance.code_size as f32))
+                            .into_any_element()
+                    },
+                )),
         )
     }
     pub(super) fn open_real_file(
@@ -311,7 +338,29 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.read_real_file(project, path, false, window, cx);
+        self.read_real_file(project, path, Open::Pinned, window, cx);
+    }
+
+    pub(super) fn open_preview_file(
+        &mut self,
+        project: usize,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_real_file(project, path, Open::Preview, window, cx);
+    }
+
+    pub(super) fn open_file_match(
+        &mut self,
+        project: usize,
+        path: PathBuf,
+        line: usize,
+        column: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_real_file(project, path, Open::Match { line, column }, window, cx);
     }
 
     pub(super) fn select_open_file(
@@ -332,9 +381,9 @@ impl Tervia {
             return;
         }
         self.file_reads.select(project);
-        self.state.open_file(index);
+        self.state.projects[project].active_file = index;
         self.reveal_file_tab(project);
-        self.editors[project][index].update(cx, |editor, cx| editor.focus(window, cx));
+        self.focus_file_document(project, index, window, cx);
         cx.notify();
     }
 
@@ -377,7 +426,7 @@ impl Tervia {
         };
         let path = file.disk_path.clone();
         if !file.dirty() {
-            self.read_real_file(project, path, true, window, cx);
+            self.read_real_file(project, path, Open::Reload, window, cx);
             return;
         }
         let receiver = window.prompt(
@@ -393,7 +442,7 @@ impl Tervia {
             let _ = weak.update_in(cx, |this, window, cx| {
                 this.saving_file = false;
                 if accepted {
-                    this.read_real_file(project, path, true, window, cx);
+                    this.read_real_file(project, path, Open::Reload, window, cx);
                 }
                 cx.notify();
             });
@@ -406,10 +455,11 @@ impl Tervia {
         &mut self,
         project: usize,
         path: PathBuf,
-        reload: bool,
+        open: Open,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let reload = matches!(open, Open::Reload);
         self.invalidate_disk_sync(project);
         let root = self.state.projects[project].root.clone();
         if !self.state.project_visible(project) || self.worktree_removing(&root.join(&path)) {
@@ -432,7 +482,7 @@ impl Tervia {
             let read_root = root.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { tervia::files::text(&read_root, &read_path) })
+                .spawn(async move { preview::load(&read_root, &read_path) })
                 .await;
             let _ = weak.update_in(cx, |this, window, cx| {
                 let draft = this.state.projects[project]
@@ -455,7 +505,11 @@ impl Tervia {
                     tervia::files::ReadOutcome::Apply => {}
                 }
                 match result {
-                    Ok(contents) => {
+                    Ok(content) => {
+                        let (contents, image) = match content {
+                            preview::Content::Text(text) => (text, None),
+                            preview::Content::Image(image) => (String::new(), Some(image)),
+                        };
                         if !this.state.project_visible(project)
                             || this.worktree_removing(&root.join(&path))
                         {
@@ -469,7 +523,9 @@ impl Tervia {
                         let index = existing.unwrap_or(this.state.projects[project].files.len());
                         if existing.is_none() {
                             this.invalidate_disk_sync(project);
-                            let language =
+                            let language = if image.is_some() {
+                                "image"
+                            } else {
                                 match path.extension().and_then(|extension| extension.to_str()) {
                                     Some("rs") => "rust",
                                     Some("toml") => "toml",
@@ -477,7 +533,8 @@ impl Tervia {
                                     Some("ts" | "tsx" | "js" | "jsx") => "typescript",
                                     _ => "plaintext",
                                 }
-                                .to_owned();
+                            }
+                            .to_owned();
                             this.state.projects[project].files.push(File {
                                 path: path.to_string_lossy().into_owned(),
                                 disk_path: path,
@@ -498,6 +555,9 @@ impl Tervia {
                                     if matches!(event, InputEvent::Change) {
                                         this.state.projects[project].files[index].draft =
                                             editor.read(cx).value().to_string();
+                                        if this.state.projects[project].files[index].dirty() {
+                                            this.state.projects[project].pin_file(index);
+                                        }
                                         cx.notify();
                                     }
                                 },
@@ -509,16 +569,36 @@ impl Tervia {
                             this.editors[project][index]
                                 .update(cx, |editor, cx| editor.set_value(contents, window, cx));
                         }
+                        if let Some(image) = image {
+                            this.install_image(project, index, image);
+                        }
                         this.register_directory(project, directory, window, cx);
                         // A slower read may populate its document, but cannot steal a newer selection.
                         if this.state.active_project == project
                             && this.file_reads.selected(project, selection)
                         {
-                            this.state.open_file(index);
+                            if matches!(open, Open::Preview) {
+                                this.state.projects[project].preview_file(index);
+                            } else if !reload {
+                                this.state.open_file(index);
+                            }
                             this.reveal_file_tab(project);
                             this.change_tab(Tab::Files, window, cx);
-                            this.editors[project][index]
-                                .update(cx, |editor, cx| editor.focus(window, cx));
+                            this.focus_file_document(project, index, window, cx);
+                            this.reveal_git_file(project, selection, index, window, cx);
+                            if let Open::Match { line, column } = open {
+                                this.show_file_source(project, index);
+                                this.editors[project][index].update(cx, |editor, cx| {
+                                    editor.set_cursor_position(
+                                        gpui_kit::component::input::Position::new(
+                                            line.saturating_sub(1) as u32,
+                                            column as u32,
+                                        ),
+                                        window,
+                                        cx,
+                                    )
+                                });
+                            }
                         }
                     }
                     Err(error) => {
@@ -528,6 +608,7 @@ impl Tervia {
                         this.git_states[project].error = error;
                     }
                 }
+                this.prune_previews(project);
                 cx.notify();
             });
         })
@@ -548,6 +629,9 @@ impl Tervia {
         let Some(file) = self.state.project().current_file() else {
             return;
         };
+        if file.is_image() {
+            return;
+        }
         let path = file.disk_path.clone();
         let root = self.state.projects[project].root.clone();
         let draft = file.draft.clone();

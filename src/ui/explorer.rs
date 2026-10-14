@@ -9,18 +9,36 @@ use super::{
     theme::Palette,
 };
 
-#[derive(Default)]
 pub(super) struct Explorer {
     pub tree: Tree,
     scroll: UniformListScrollHandle,
     pub tabs_scroll: ScrollHandle,
+    pub previews: super::files::Previews,
+    pub finder: super::files::Finder,
     #[cfg(all(test, feature = "ui-tests"))]
     pub rendered_rows: std::cell::Cell<usize>,
+}
+
+impl Explorer {
+    pub(super) fn new(window: &mut Window, cx: &mut Context<Tervia>) -> Self {
+        Self {
+            tree: Tree::default(),
+            scroll: UniformListScrollHandle::new(),
+            tabs_scroll: ScrollHandle::new(),
+            previews: Default::default(),
+            finder: super::files::Finder::new(window, cx),
+            #[cfg(all(test, feature = "ui-tests"))]
+            rendered_rows: std::cell::Cell::new(0),
+        }
+    }
 }
 
 impl Tervia {
     pub(super) fn file_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let project = self.state.active_project;
+        if self.explorers[project].finder.mode != super::files::search::Mode::Browse {
+            return self.search_sidebar(cx);
+        }
         let ui = &self.explorers[project];
         let p = Palette::workbench(self.appearance.light_theme);
         let rows = ui.tree.rows();
@@ -47,6 +65,32 @@ impl Tervia {
                             .text_ellipsis()
                             .font_weight(FontWeight::MEDIUM)
                             .child(self.t("file_explorer")),
+                    )
+                    .child(
+                        icon_button(
+                            "files-quick-open",
+                            IconName::FileSearch,
+                            self.t("files_find_name"),
+                            p,
+                            cx,
+                        )
+                        .accessibility_label(self.t("files_find_name"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.show_file_search(super::files::search::Mode::Files, window, cx)
+                        })),
+                    )
+                    .child(
+                        icon_button(
+                            "files-project-search",
+                            IconName::Search,
+                            self.t("files_search_text"),
+                            p,
+                            cx,
+                        )
+                        .accessibility_label(self.t("files_search_text"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.show_file_search(super::files::search::Mode::Text, window, cx)
+                        })),
                     )
                     .child(
                         icon_button(
@@ -146,6 +190,10 @@ impl Tervia {
                             }
                         } else if entry.kind == EntryKind::Symlink {
                             IconName::Link
+                        } else if tervia::files::image_mime(&path).is_some() {
+                            IconName::Image
+                        } else if path.extension().is_some_and(|ext| ext == "md") {
+                            IconName::FileText
                         } else {
                             IconName::FileCode
                         },
@@ -190,11 +238,15 @@ impl Tervia {
                             .accessibility_label(description)
                             .tooltip(path.to_string_lossy().into_owned())
                             .child(content)
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                                 if folder {
                                     this.toggle_directory(project, path.clone(), window, cx);
                                 } else {
-                                    this.open_tree_file(project, path.clone(), window, cx);
+                                    if event.click_count() >= 2 {
+                                        this.open_real_file(project, path.clone(), window, cx);
+                                    } else {
+                                        this.open_preview_file(project, path.clone(), window, cx);
+                                    }
                                 }
                             })),
                     )
@@ -304,31 +356,6 @@ impl Tervia {
     ) {
         for (path, token) in self.explorers[project].tree.refresh() {
             self.request_directory(project, path, token, window, cx);
-        }
-    }
-
-    fn open_tree_file(
-        &mut self,
-        project: usize,
-        path: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.state.active_project != project {
-            return;
-        }
-        if let Some(index) = self.state.projects[project]
-            .files
-            .iter()
-            .position(|file| file.disk_path == path)
-        {
-            if self.state.projects[project].open_files.contains(&index) {
-                self.select_open_file(project, index, window, cx);
-            } else {
-                self.open_real_file(project, path, window, cx);
-            }
-        } else {
-            self.open_real_file(project, path, window, cx);
         }
     }
 }

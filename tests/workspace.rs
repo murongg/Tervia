@@ -1,5 +1,40 @@
 use tervia::state::{File, FileClose, Tab, Workspace};
 
+#[test]
+fn preview_tabs_replace_only_clean_previews_and_pin_when_edited_or_explicitly_opened() {
+    let mut state = Workspace::new("/synthetic/previews".into());
+    for name in ["first.rs", "second.rs", "third.rs"] {
+        state.project_mut().files.push(File {
+            path: name.into(),
+            disk_path: name.into(),
+            language: "rust".into(),
+            saved: "synthetic".into(),
+            draft: "synthetic".into(),
+        });
+    }
+    let project = state.project_mut();
+    project.preview_file(0);
+    project.preview_file(1);
+    assert_eq!(project.open_files, vec![1]);
+    assert_eq!(project.preview_file, Some(1));
+    project.files[1].draft = "synthetic edit".into();
+    project.preview_file(2);
+    assert_eq!(project.open_files, vec![1, 2]);
+    project.open_file(2);
+    assert_eq!(project.preview_file, None);
+    project.preview_file(0);
+    project.preview_file(2);
+    assert_eq!(project.open_files, vec![1, 2, 0]);
+    assert_eq!(
+        project.preview_file,
+        Some(0),
+        "An existing pinned tab does not become replaceable"
+    );
+    project.close_files(&[0]);
+    assert_eq!(project.preview_file, None);
+    assert!(project.files[1].dirty());
+}
+
 fn workspace() -> Workspace {
     let mut workspace = Workspace::new("/synthetic/project-a".into());
     workspace.new_session();

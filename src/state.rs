@@ -30,6 +30,9 @@ pub struct File {
     pub draft: String,
 }
 impl File {
+    pub fn is_image(&self) -> bool {
+        self.language == "image"
+    }
     pub fn dirty(&self) -> bool {
         self.saved != self.draft
     }
@@ -51,6 +54,7 @@ pub struct Project {
     pub files: Vec<File>,
     pub open_files: Vec<usize>,
     pub active_file: usize,
+    pub preview_file: Option<usize>,
     pub closed_files: Vec<usize>,
 }
 
@@ -70,6 +74,37 @@ impl Project {
         }
         self.closed_files.retain(|file| *file != index);
         self.active_file = index;
+        self.pin_file(index);
+    }
+
+    pub fn pin_file(&mut self, index: usize) {
+        if self.preview_file == Some(index) {
+            self.preview_file = None;
+        }
+    }
+
+    pub fn preview_file(&mut self, index: usize) {
+        if index >= self.files.len() {
+            return;
+        }
+        if self.open_files.contains(&index) {
+            self.active_file = index;
+            return;
+        }
+        let position = self.preview_file.take().and_then(|previous| {
+            // A draft is never discarded by browsing, even before its input event pins the tab.
+            if self.files[previous].dirty() {
+                return None;
+            }
+            let position = self.open_files.iter().position(|file| *file == previous)?;
+            self.open_files.remove(position);
+            Some(position)
+        });
+        self.open_files
+            .insert(position.unwrap_or(self.open_files.len()), index);
+        self.preview_file = Some(index);
+        self.active_file = index;
+        self.closed_files.retain(|file| *file != index);
     }
 
     pub fn file_targets(&self, scope: FileClose) -> Vec<usize> {
@@ -121,6 +156,12 @@ impl Project {
         }
         // Document indices stay stable for editors and in-flight reads; only tab membership changes.
         self.open_files.retain(|file| !removed.contains(file));
+        if self
+            .preview_file
+            .is_some_and(|file| removed.contains(&file))
+        {
+            self.preview_file = None;
+        }
         if !self.open_files.contains(&self.active_file) {
             self.active_file = self
                 .open_files
@@ -578,6 +619,7 @@ impl Workspace {
             files: Vec::new(),
             open_files: Vec::new(),
             active_file: 0,
+            preview_file: None,
             closed_files: Vec::new(),
         });
         index
