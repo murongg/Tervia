@@ -601,7 +601,17 @@ impl Tervia {
                         ui.snapshot = Some(Arc::new(snapshot));
                     }
                     Err(error) => {
-                        ui.error = error;
+                        // A passive probe outside a worktree is an empty state, not an error.
+                        ui.error = if !mutating
+                            && ui.repository.is_none()
+                            && error.starts_with(
+                                "git rev-parse: fatal: not a git repository (or any of the parent directories):",
+                            )
+                        {
+                            String::new()
+                        } else {
+                            error
+                        };
                         ui.snapshot = None;
                     }
                 }
