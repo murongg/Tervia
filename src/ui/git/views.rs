@@ -287,7 +287,6 @@ impl Tervia {
                             .child(self.git_viewer(cx)),
                     )
                     .into_any_element(),
-                Mode::Branches => self.git_branches(snapshot, cx).into_any_element(),
                 Mode::Remotes => self.git_remotes(snapshot, cx).into_any_element(),
                 Mode::Worktrees => self.git_worktrees(snapshot, cx).into_any_element(),
             }

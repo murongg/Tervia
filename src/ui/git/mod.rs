@@ -38,7 +38,6 @@ use tervia::state::Tab;
 enum Mode {
     Changes,
     History,
-    Branches,
     Remotes,
     Stash,
     Worktrees,
@@ -57,9 +56,9 @@ pub(super) struct GitUi {
     workspace: Option<Arc<tervia::git::Discovery>>,
     changes_scroll: UniformListScrollHandle,
     history_scroll: UniformListScrollHandle,
-    history_graph: Arc<tervia::git::graph::Graph>,
+    history: history::History,
+    reference_form: branches::ReferenceForm,
     sidebar_scroll: UniformListScrollHandle,
-    branches_scroll: UniformListScrollHandle,
     raw_scroll: UniformListScrollHandle,
     metadata_scroll: UniformListScrollHandle,
     commit_files_scroll: UniformListScrollHandle,
@@ -74,7 +73,6 @@ pub(super) struct GitUi {
     pub(super) repository: Option<Repository>,
     plain_directory: bool,
     mode: Mode,
-    branch: Option<String>,
     busy: bool,
     pub(super) error: error::ErrorState,
     output: String,
@@ -96,16 +94,17 @@ pub(super) struct GitUi {
 
 impl GitUi {
     fn reconcile_snapshot(&mut self, snapshot: &Snapshot, cx: &mut Context<Tervia>) {
-        if !self.snapshot.as_ref().is_some_and(|previous| {
-            previous.commits.len() == snapshot.commits.len()
-                && previous
-                    .commits
-                    .iter()
-                    .zip(&snapshot.commits)
-                    .all(|(old, new)| old.hash == new.hash && old.parents == new.parents)
-        }) {
-            // Lay out the whole loaded DAG once; viewport boundaries must not reset its lanes.
-            self.history_graph = Arc::new(tervia::git::graph::Graph::new(&snapshot.commits));
+        if self
+            .history
+            .target
+            .as_ref()
+            .is_some_and(|target| !target.exists(snapshot))
+        {
+            self.history.select(None);
+            self.clear_detail(cx);
+        }
+        if self.history.target.is_none() {
+            self.history.install(snapshot.commits.clone());
         }
         if !self
             .snapshot
@@ -120,7 +119,16 @@ impl GitUi {
             )
             .into();
         }
-        let selected = navigation::choose_detail(self.mode, self.selected.as_ref(), snapshot);
+        let selected = if self.mode == Mode::History && self.history.target.is_some() {
+            self.selected.clone().or_else(|| {
+                self.history
+                    .commits
+                    .first()
+                    .map(|commit| Detail::Commit(commit.hash.clone()))
+            })
+        } else {
+            navigation::choose_detail(self.mode, self.selected.as_ref(), snapshot)
+        };
         if selected != self.selected {
             // Invalidate before assigning an automatic replacement; otherwise begin_detail
             // would mistake the new selection for the owner of the previous patch.
@@ -264,7 +272,7 @@ impl GitUi {
     }
     pub fn subscribe(&self, subscriptions: &mut Vec<Subscription>, cx: &mut Context<Tervia>) {
         self.worktrees.subscribe(subscriptions, cx);
-        for input in [&self.first, &self.second] {
+        for input in [&self.first, &self.second, &self.reference_form.input] {
             subscriptions.push(cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify()));
         }
         subscriptions.push(cx.subscribe(&self.message, |_, _, _: &InputEvent, cx| cx.notify()));
@@ -275,9 +283,9 @@ impl GitUi {
             workspace: None,
             changes_scroll: UniformListScrollHandle::new(),
             history_scroll: UniformListScrollHandle::new(),
-            history_graph: Arc::new(tervia::git::graph::Graph::default()),
+            history: history::History::default(),
+            reference_form: branches::ReferenceForm::new(window, cx),
             sidebar_scroll: UniformListScrollHandle::new(),
-            branches_scroll: UniformListScrollHandle::new(),
             raw_scroll: UniformListScrollHandle::new(),
             metadata_scroll: UniformListScrollHandle::new(),
             commit_files_scroll: UniformListScrollHandle::new(),
@@ -292,7 +300,6 @@ impl GitUi {
             repository: None,
             plain_directory: false,
             mode: Mode::Changes,
-            branch: None,
             busy: false,
             error: error::ErrorState::default(),
             output: String::new(),
@@ -586,6 +593,14 @@ impl Tervia {
         }
         let mutating = operation.is_some() || initialize;
         let commit = matches!(operation, Some(Operation::Commit { .. }));
+        let reference_edit = matches!(
+            operation,
+            Some(
+                Operation::CreateBranch(_)
+                    | Operation::CreateTag(_)
+                    | Operation::RenameBranch { .. }
+            )
+        );
         let limit = self.git_states[project].limit;
         self.git_states[project].busy = true;
         if mutating {
@@ -669,12 +684,20 @@ impl Tervia {
                         ui.fail_snapshot(error, origin);
                     }
                 }
+                if reference_edit && success {
+                    ui.reference_form.action = None;
+                }
                 if commit && success {
                     ui.message
                         .update(cx, |input, cx| input.set_value("", window, cx));
                 }
                 if let Some(detail) = ui.selected.clone() {
                     this.read_git_detail(project, detail, error::Origin::Probe, window, cx);
+                }
+                if this.git_states[project].mode == Mode::History
+                    && this.git_states[project].history.target.is_some()
+                {
+                    this.load_git_history(project, window, cx);
                 }
                 cx.notify();
             });
@@ -795,6 +818,34 @@ impl Tervia {
         operation: Operation,
         cx: &mut Context<Self>,
     ) -> Button {
+        button
+            .custom(icon_style(self.git_p(), cx))
+            .disabled(
+                self.git_states[project].busy
+                    || self.git_mutating
+                    || self.saving_file
+                    || self.file_reads.has_reloads(),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.run_git_action(project, key, operation.clone(), window, cx)
+            }))
+    }
+
+    pub(super) fn run_git_action(
+        &mut self,
+        project: usize,
+        key: &'static str,
+        operation: Operation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.git_states[project].busy
+            || self.git_mutating
+            || self.saving_file
+            || self.file_reads.has_reloads()
+        {
+            return;
+        }
         let confirm = matches!(
             operation,
             Operation::DeleteBranch(_)
@@ -814,41 +865,31 @@ impl Tervia {
             } => format!("{} · {}", reference, &expected[..expected.len().min(12)]),
             _ => self.state.projects[project].branch.clone(),
         };
-        button
-            .custom(icon_style(self.git_p(), cx))
-            .disabled(
-                self.git_states[project].busy
-                    || self.git_mutating
-                    || self.saving_file
-                    || self.file_reads.has_reloads(),
-            )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if confirm {
-                    let receiver = window.prompt(
-                        PromptLevel::Warning,
-                        &format!("{}: {}", this.t(key), target),
-                        Some(this.t("git_confirm_hint")),
-                        &[this.t("git_cancel"), this.t("git_confirm")],
-                        cx,
-                    );
-                    let operation = operation.clone();
-                    this.git_mutating = true;
-                    cx.spawn_in(window, async move |weak, cx| {
-                        let accepted = receiver.await == Ok(1);
-                        let _ = weak.update_in(cx, |this, window, cx| {
-                            this.git_mutating = false;
-                            if accepted {
-                                this.git_job(project, Some(operation), false, window, cx);
-                            }
-                            cx.notify();
-                        });
-                    })
-                    .detach();
+        if confirm {
+            let receiver = window.prompt(
+                PromptLevel::Warning,
+                &format!("{}: {}", self.t(key), target),
+                Some(self.t("git_confirm_hint")),
+                &[self.t("git_cancel"), self.t("git_confirm")],
+                cx,
+            );
+            let operation = operation.clone();
+            self.git_mutating = true;
+            cx.spawn_in(window, async move |weak, cx| {
+                let accepted = receiver.await == Ok(1);
+                let _ = weak.update_in(cx, |this, window, cx| {
+                    this.git_mutating = false;
+                    if accepted {
+                        this.git_job(project, Some(operation), false, window, cx);
+                    }
                     cx.notify();
-                } else {
-                    this.git_job(project, Some(operation.clone()), false, window, cx);
-                }
-            }))
+                });
+            })
+            .detach();
+            cx.notify();
+        } else {
+            self.git_job(project, Some(operation.clone()), false, window, cx);
+        }
     }
 
     fn clone_repository(&mut self, project: usize, window: &mut Window, cx: &mut Context<Self>) {

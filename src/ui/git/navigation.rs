@@ -67,19 +67,8 @@ pub(super) fn choose_detail(
             .stashes
             .first()
             .map(|stash| Detail::Stash(stash.hash.clone())),
-        Mode::Branches | Mode::Remotes | Mode::Worktrees => None,
+        Mode::Remotes | Mode::Worktrees => None,
     }
-}
-
-pub(super) fn branch_target<'a>(
-    selected: Option<&str>,
-    snapshot: &'a Snapshot,
-) -> Option<&'a tervia::git::Branch> {
-    snapshot
-        .branches
-        .iter()
-        .find(|branch| Some(branch.name.as_str()) == selected)
-        .or_else(|| snapshot.branches.iter().find(|branch| branch.current))
 }
 
 impl Tervia {
@@ -93,7 +82,14 @@ impl Tervia {
         let ui = &mut self.git_states[project];
         // Even reselecting the current view supersedes a pending asynchronous directory open.
         ui.cancel_worktree_navigation();
-        if ui.mode == mode {
+        let scope_changed = mode == Mode::History && ui.history.select(None);
+        if mode != Mode::History {
+            ui.history.cancel();
+        }
+        if scope_changed && let Some(snapshot) = &ui.snapshot {
+            ui.history.install(snapshot.commits.clone());
+        }
+        if ui.mode == mode && !scope_changed {
             return;
         }
         ui.mode = mode;
@@ -103,7 +99,6 @@ impl Tervia {
             input.set_value("", window, cx);
             input.set_placeholder(
                 language.text(match mode {
-                    Mode::Branches => "git_name",
                     Mode::Remotes => "git_remote_name",
                     Mode::Stash => "git_stash_message",
                     _ => "git_filter",

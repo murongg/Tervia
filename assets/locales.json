@@ -318,7 +318,12 @@
     "working_directory_add": "添加工作目录…",
     "working_directory_set": "设为工作目录",
     "working_directory_outside": "请选择当前项目内的文件夹。",
-    "working_directory_shortcut": "切换工作目录 · ⌘⌥O"
+    "working_directory_shortcut": "切换工作目录 · ⌘⌥O",
+    "git_switch_to_branch": "切换到此分支",
+    "git_current_branch": "当前分支",
+    "git_reference_actions": "分支或标签操作",
+    "git_history_failed": "无法加载提交历史",
+    "git_reference_base": "基于当前检出位置：{branch}"
   },
   "en": {
     "menu_file": "File",
@@ -639,7 +644,12 @@
     "working_directory_add": "Add working directory…",
     "working_directory_set": "Set as working directory",
     "working_directory_outside": "Choose a folder inside the current project.",
-    "working_directory_shortcut": "Switch working directory · ⌘⌥O"
+    "working_directory_shortcut": "Switch working directory · ⌘⌥O",
+    "git_switch_to_branch": "Switch to this branch",
+    "git_current_branch": "Current branch",
+    "git_reference_actions": "Branch or tag actions",
+    "git_history_failed": "Unable to load commit history",
+    "git_reference_base": "From the current checkout: {branch}"
   },
   "ja": {
     "menu_file": "ファイル",
@@ -960,7 +970,12 @@
     "working_directory_add": "作業ディレクトリを追加…",
     "working_directory_set": "作業ディレクトリに設定",
     "working_directory_outside": "現在のプロジェクト内のフォルダを選択してください。",
-    "working_directory_shortcut": "作業ディレクトリを切り替え · ⌘⌥O"
+    "working_directory_shortcut": "作業ディレクトリを切り替え · ⌘⌥O",
+    "git_switch_to_branch": "このブランチに切り替え",
+    "git_current_branch": "現在のブランチ",
+    "git_reference_actions": "ブランチ・タグの操作",
+    "git_history_failed": "コミット履歴を読み込めません",
+    "git_reference_base": "現在のチェックアウトから作成：{branch}"
   },
   "ko": {
     "menu_file": "파일",
@@ -1281,7 +1296,12 @@
     "working_directory_add": "작업 디렉터리 추가…",
     "working_directory_set": "작업 디렉터리로 설정",
     "working_directory_outside": "현재 프로젝트 안의 폴더를 선택하세요.",
-    "working_directory_shortcut": "작업 디렉터리 전환 · ⌘⌥O"
+    "working_directory_shortcut": "작업 디렉터리 전환 · ⌘⌥O",
+    "git_switch_to_branch": "이 브랜치로 전환",
+    "git_current_branch": "현재 브랜치",
+    "git_reference_actions": "브랜치 또는 태그 작업",
+    "git_history_failed": "커밋 기록을 불러올 수 없습니다",
+    "git_reference_base": "현재 체크아웃 위치에서 생성: {branch}"
   },
   "fr": {
     "menu_file": "Fichier",
@@ -1602,7 +1622,12 @@
     "working_directory_add": "Ajouter un dossier de travail…",
     "working_directory_set": "Définir comme dossier de travail",
     "working_directory_outside": "Choisissez un dossier dans le projet actuel.",
-    "working_directory_shortcut": "Changer de dossier de travail · ⌘⌥O"
+    "working_directory_shortcut": "Changer de dossier de travail · ⌘⌥O",
+    "git_switch_to_branch": "Basculer vers cette branche",
+    "git_current_branch": "Branche actuelle",
+    "git_reference_actions": "Actions de branche ou de tag",
+    "git_history_failed": "Impossible de charger l’historique",
+    "git_reference_base": "Depuis la position actuelle : {branch}"
   },
   "de": {
     "menu_file": "Datei",
@@ -1923,7 +1948,12 @@
     "working_directory_add": "Arbeitsverzeichnis hinzufügen…",
     "working_directory_set": "Als Arbeitsverzeichnis festlegen",
     "working_directory_outside": "Wählen Sie einen Ordner im aktuellen Projekt.",
-    "working_directory_shortcut": "Arbeitsverzeichnis wechseln · ⌘⌥O"
+    "working_directory_shortcut": "Arbeitsverzeichnis wechseln · ⌘⌥O",
+    "git_switch_to_branch": "Zu diesem Branch wechseln",
+    "git_current_branch": "Aktueller Branch",
+    "git_reference_actions": "Branch- oder Tag-Aktionen",
+    "git_history_failed": "Commit-Verlauf konnte nicht geladen werden",
+    "git_reference_base": "Vom aktuellen Checkout: {branch}"
   },
   "es": {
     "menu_file": "Archivo",
@@ -2244,7 +2274,12 @@
     "working_directory_add": "Añadir directorio de trabajo…",
     "working_directory_set": "Establecer como directorio de trabajo",
     "working_directory_outside": "Elige una carpeta dentro del proyecto actual.",
-    "working_directory_shortcut": "Cambiar directorio de trabajo · ⌘⌥O"
+    "working_directory_shortcut": "Cambiar directorio de trabajo · ⌘⌥O",
+    "git_switch_to_branch": "Cambiar a esta rama",
+    "git_current_branch": "Rama actual",
+    "git_reference_actions": "Acciones de rama o etiqueta",
+    "git_history_failed": "No se pudo cargar el historial",
+    "git_reference_base": "Desde la posición actual: {branch}"
   },
   "pt": {
     "menu_file": "Arquivo",
@@ -2565,7 +2600,12 @@
     "working_directory_add": "Adicionar diretório de trabalho…",
     "working_directory_set": "Definir como diretório de trabalho",
     "working_directory_outside": "Escolha uma pasta dentro do projeto atual.",
-    "working_directory_shortcut": "Alternar diretório de trabalho · ⌘⌥O"
+    "working_directory_shortcut": "Alternar diretório de trabalho · ⌘⌥O",
+    "git_switch_to_branch": "Mudar para este branch",
+    "git_current_branch": "Branch atual",
+    "git_reference_actions": "Ações de branch ou tag",
+    "git_history_failed": "Não foi possível carregar o histórico",
+    "git_reference_base": "A partir do checkout atual: {branch}"
   },
   "ru": {
     "menu_file": "Файл",
@@ -2886,7 +2926,12 @@
     "working_directory_add": "Добавить рабочий каталог…",
     "working_directory_set": "Сделать рабочим каталогом",
     "working_directory_outside": "Выберите папку внутри текущего проекта.",
-    "working_directory_shortcut": "Сменить рабочий каталог · ⌘⌥O"
+    "working_directory_shortcut": "Сменить рабочий каталог · ⌘⌥O",
+    "git_switch_to_branch": "Переключиться на эту ветку",
+    "git_current_branch": "Текущая ветка",
+    "git_reference_actions": "Действия с веткой или тегом",
+    "git_history_failed": "Не удалось загрузить историю коммитов",
+    "git_reference_base": "От текущей рабочей версии: {branch}"
   },
   "zh-TW": {
     "menu_file": "檔案",
@@ -3207,6 +3252,11 @@
     "working_directory_add": "加入工作目錄…",
     "working_directory_set": "設為工作目錄",
     "working_directory_outside": "請選擇目前專案內的資料夾。",
-    "working_directory_shortcut": "切換工作目錄 · ⌘⌥O"
+    "working_directory_shortcut": "切換工作目錄 · ⌘⌥O",
+    "git_switch_to_branch": "切換至此分支",
+    "git_current_branch": "目前分支",
+    "git_reference_actions": "分支或標籤操作",
+    "git_history_failed": "無法載入提交歷史",
+    "git_reference_base": "基於目前簽出位置：{branch}"
   }
 }

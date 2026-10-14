@@ -298,7 +298,12 @@ impl Repository {
             let parts: Vec<_> = line.split('\0').collect();
             // Remote HEAD is an alias, so it must never become a checkout or merge target.
             (parts.len() == 5 && parts[4].is_empty()).then(|| Branch {
-                name: parts[0].into(),
+                // Git's :short adds heads/ or remotes/ when a tag shares the name.
+                name: parts[3]
+                    .strip_prefix("refs/heads/")
+                    .or_else(|| parts[3].strip_prefix("refs/remotes/"))
+                    .unwrap_or(parts[0])
+                    .into(),
                 current: parts[1] == "*",
                 upstream: parts[2].into(),
                 remote: parts[3].starts_with("refs/remotes/"),
@@ -369,6 +374,18 @@ impl Repository {
             "--date-order",
             &format!("--max-count={}", limit.min(2000)),
             COMMIT_FORMAT,
+        ])?;
+        Ok(parse_commits(&output))
+    }
+    pub fn history_for(&self, target: &str, limit: usize) -> Result<Vec<Commit>, Error> {
+        // Callers qualify refs so a branch, tag, or working file with the same name cannot redirect history.
+        let output = self.run(&[
+            "log",
+            "--date-order",
+            &format!("--max-count={}", limit.min(2000)),
+            COMMIT_FORMAT,
+            reference(target)?,
+            "--",
         ])?;
         Ok(parse_commits(&output))
     }
