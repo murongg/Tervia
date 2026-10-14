@@ -1,23 +1,7 @@
 name: Native desktop builds
 on:
   push:
-    branches: ['**']
-  pull_request:
-  workflow_dispatch:
-    inputs:
-      platform:
-        description: Build all platforms or validate one platform.
-        type: choice
-        default: all
-        options:
-          - all
-          - macos-latest
-          - ubuntu-latest
-          - windows-latest
-      sign-macos:
-        description: Validate Developer ID signing and Apple notarization.
-        type: boolean
-        default: false
+    branches: [main]
   workflow_call:
     inputs:
       sign-macos:
@@ -42,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ inputs.platform && inputs.platform != 'all' && fromJSON(format('["{0}"]', inputs.platform)) || fromJSON('["macos-latest","ubuntu-latest","windows-latest"]') }}
+        os: [macos-latest, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
