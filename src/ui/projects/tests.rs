@@ -10,7 +10,14 @@ fn ordinary_folders_follow_the_real_hierarchy_and_do_not_share_repository_select
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();
     let directory = root.path().canonicalize().unwrap();
-    std::fs::create_dir_all(directory.join("mock-src/mock-nested")).unwrap();
+    let nested_path = Path::new("mock-src").join("mock-nested");
+    // GPUI requires a static selector; mirror the native separator used by directory listings.
+    let nested_selector = if cfg!(windows) {
+        r"directory-0-mock-src\mock-nested"
+    } else {
+        "directory-0-mock-src/mock-nested"
+    };
+    std::fs::create_dir_all(directory.join(&nested_path)).unwrap();
     std::fs::create_dir(directory.join("mock-docs")).unwrap();
     let mut entity = None;
     let (_, cx) = cx.add_window_view(|window, cx| {
@@ -33,15 +40,12 @@ fn ordinary_folders_follow_the_real_hierarchy_and_do_not_share_repository_select
     let src = cx
         .debug_bounds("directory-0-mock-src")
         .expect("Ordinary directory is visible without Git");
-    assert!(
-        cx.debug_bounds("directory-0-mock-src/mock-nested")
-            .is_none()
-    );
+    assert!(cx.debug_bounds(nested_selector).is_none());
     let fold = cx.debug_bounds("directory-fold-0-mock-src").unwrap();
     cx.simulate_click(fold.center(), Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    let nested = cx.debug_bounds("directory-0-mock-src/mock-nested").unwrap();
+    let nested = cx.debug_bounds(nested_selector).unwrap();
     assert!(
         nested.left() > src.left(),
         "Hierarchy uses actual parent indentation"
@@ -50,10 +54,7 @@ fn ordinary_folders_follow_the_real_hierarchy_and_do_not_share_repository_select
     cx.simulate_click(nested.center(), Modifiers::default());
     cx.run_until_parked();
     view.update(cx, |view, cx| {
-        assert_eq!(
-            view.state.project().root,
-            directory.join("mock-src/mock-nested")
-        );
+        assert_eq!(view.state.project().root, directory.join(&nested_path));
         assert_eq!(view.state.project_rows(), vec![0]);
         assert_eq!(view.state.project().tab, tervia::state::Tab::Terminal);
         view.state
