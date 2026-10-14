@@ -48,8 +48,6 @@ impl Tervia {
             .flex_col()
             .min_h_0()
             .min_w_0()
-            .border_r_1()
-            .border_color(p.chrome_border())
             .child(
                 div()
                     .h(px(44.0))

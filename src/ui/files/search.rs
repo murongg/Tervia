@@ -198,8 +198,6 @@ impl Tervia {
             .min_h_0()
             .flex()
             .flex_col()
-            .border_r_1()
-            .border_color(p.border)
             .capture_key_down(cx.listener(move |this, event: &KeyDownEvent, window, cx| {
                 if event.keystroke.modifiers != Modifiers::default() {
                     return;

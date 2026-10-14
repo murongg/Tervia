@@ -199,17 +199,26 @@ fn background_pauses_monitoring_and_foreground_refreshes_immediately(
 
 impl Tervia {
     pub(super) fn files(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        div().flex_1().min_h_0().min_w_0().flex().child(
-            h_resizable(("files-split", self.state.active_project))
-                .child(
-                    resizable_panel()
-                        .size(px(240.0))
-                        .size_range(px(180.0)..px(440.0))
-                        .flex_none()
-                        .child(self.file_sidebar(cx)),
-                )
-                .child(resizable_panel().child(self.file_editor(window, cx))),
-        )
+        let p = super::theme::Palette::workbench(self.appearance.light_theme);
+        div()
+            .flex_1()
+            .min_h_0()
+            .min_w_0()
+            .flex()
+            .border_t_1()
+            .border_color(p.border)
+            .child(
+                // The resize handle owns this seam; a sidebar border would draw it twice.
+                h_resizable(("files-split", self.state.active_project))
+                    .child(
+                        resizable_panel()
+                            .size(px(240.0))
+                            .size_range(px(180.0)..px(440.0))
+                            .flex_none()
+                            .child(self.file_sidebar(cx)),
+                    )
+                    .child(resizable_panel().child(self.file_editor(window, cx))),
+            )
     }
 
     fn file_editor(&self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
