@@ -21,6 +21,118 @@ fn review_patch(path: &str) -> String {
     )
 }
 
+#[test]
+fn hunk_lines_identify_modified_ranges_and_use_original_lines_for_deletions() {
+    use gpui_kit::component::diff::DiffSide;
+
+    for (header, expected) in [
+        (
+            "@@ -9,6 +9,7 @@ synthetic scope",
+            Some((DiffSide::Modified, 9, 15)),
+        ),
+        (
+            "@@ -188,12 +189,13 @@",
+            Some((DiffSide::Modified, 189, 201)),
+        ),
+        ("@@ -2 +3 @@", Some((DiffSide::Modified, 3, 3))),
+        ("@@ -0,0 +1,4 @@", Some((DiffSide::Modified, 1, 4))),
+        ("@@ -30,2 +29,0 @@", Some((DiffSide::Original, 30, 31))),
+        ("@@ -1 +0,0 @@", Some((DiffSide::Original, 1, 1))),
+        ("@@ -0,0 +0,0 @@", None),
+        ("@@ -1,2 +mock,2 @@", None),
+        ("@@ -1,2 +1,2", None),
+        ("synthetic metadata", None),
+    ] {
+        assert_eq!(super::viewer::hunk_lines(header), expected, "{header}");
+    }
+}
+
+#[gpui_test::test]
+fn review_hunk_actions_appear_with_their_sections_in_both_diff_modes(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::DiffMode;
+
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/hunk-review".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let file = FileStatus {
+                path: "sample.txt".into(),
+                original: None,
+                index: 'M',
+                worktree: 'M',
+                conflicted: false,
+            };
+            let mut snapshot = Snapshot::default();
+            snapshot.status.files.push(file.clone());
+            let ui = &mut this.git_states[project];
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+        })
+    });
+    for (side, mode) in [
+        (Side::Worktree, DiffMode::Unified),
+        (Side::Worktree, DiffMode::Split),
+        (Side::Index, DiffMode::Unified),
+        (Side::Index, DiffMode::Split),
+    ] {
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                let ui = &mut this.git_states[0];
+                let file = ui.snapshot.as_ref().unwrap().status.files[0].clone();
+                let generation = ui.begin_detail(Detail::File(file, side), cx);
+                ui.install_detail(
+                    generation,
+                    Ok(format!(
+                        "{}@@ -60,2 +59,0 @@\n-synthetic deleted first\n-synthetic deleted last\n",
+                        review_patch("sample.txt")
+                    )),
+                    cx,
+                );
+                ui.diff.update(cx, |state, cx| state.set_mode(mode, cx));
+            });
+            window.draw(cx).clear(cx);
+        });
+        let first = cx
+            .debug_bounds("git-hunk-0")
+            .expect("First section has its own action");
+        let second = cx
+            .debug_bounds("git-hunk-1")
+            .expect("Second section has its own action");
+        assert!(
+            first.size.width <= gpui_kit::px(32.0),
+            "Hunk actions are compact icon buttons"
+        );
+        let header = cx
+            .debug_bounds("diff-hunk-header-0-0")
+            .expect("The section has a header");
+        assert!(
+            header.contains(&first.center()),
+            "The action belongs inside its @@ header"
+        );
+        assert!(
+            first.origin.x > header.center().x,
+            "The action is on the header's right"
+        );
+        assert!(
+            second.origin.y > first.origin.y + first.size.height,
+            "Hunk actions follow their code sections rather than sharing a toolbar"
+        );
+        let deleted = cx
+            .debug_bounds("git-hunk-2")
+            .expect("A deleted section has its own action");
+        assert!(deleted.origin.y > second.origin.y + second.size.height);
+    }
+}
+
 #[gpui_test::test]
 fn review_working_copy_navigation_reveals_folded_files(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
