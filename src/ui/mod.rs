@@ -59,7 +59,9 @@ gpui_kit::actions!(
         CloseFileTab,
         NextFileTab,
         PreviousFileTab,
-        ReopenFileTab
+        ReopenFileTab,
+        QuickOpenFile,
+        SearchProjectText
     ]
 );
 
@@ -319,6 +321,9 @@ impl Tervia {
                     if matches!(event, InputEvent::Change) {
                         this.state.projects[project_index].files[file_index].draft =
                             editor.read(cx).value().to_string();
+                        if this.state.projects[project_index].files[file_index].dirty() {
+                            this.state.projects[project_index].pin_file(file_index);
+                        }
                         cx.notify();
                     }
                 },
@@ -326,7 +331,19 @@ impl Tervia {
             editors.push(editor);
         }
         self.editors.push(editors);
-        self.explorers.push(explorer::Explorer::default());
+        let explorer = explorer::Explorer::new(window, cx);
+        self.subscriptions.push(cx.subscribe_in(
+            &explorer.finder.input,
+            window,
+            move |this, _, event, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.refresh_file_search(project_index, window, cx);
+                } else if matches!(event, InputEvent::PressEnter { .. }) {
+                    this.open_search_selection(project_index, window, cx);
+                }
+            },
+        ));
+        self.explorers.push(explorer);
         self.monitors.push(monitor::Monitor::default());
         self.terminals.push(vec![None; project.sessions.len()]);
         let git = git::GitUi::new(window, cx);
@@ -472,6 +489,11 @@ impl Tervia {
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.state.dismiss_palette() {
             cx.notify();
+        } else if !self.state.projects.is_empty()
+            && self.state.project().tab == Tab::Files
+            && self.explorers[self.state.active_project].finder.mode != files::search::Mode::Browse
+        {
+            self.show_file_search(files::search::Mode::Browse, window, cx);
         } else if self.try_quit(cx) {
             window.remove_window();
         }
@@ -580,6 +602,12 @@ impl Render for Tervia {
                 }),
             )
             .on_action(cx.listener(|this, _: &SaveFile, window, cx| this.save(window, cx)))
+            .on_action(cx.listener(|this, _: &QuickOpenFile, window, cx| {
+                this.show_file_search(files::search::Mode::Files, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &SearchProjectText, window, cx| {
+                this.show_file_search(files::search::Mode::Text, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &CloseFileTab, window, cx| {
                 this.close_active_file_tab(window, cx)
             }))

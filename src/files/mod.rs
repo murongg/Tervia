@@ -1,10 +1,25 @@
 use std::{fs, path::Path};
 mod reads;
+pub mod search;
 mod tree;
 mod watch;
 pub use reads::{ReadOutcome, Reads};
 pub use tree::{Entry, EntryKind, Row, Tree, directory, list};
 pub use watch::{Changes, Update, Watch, reconcile};
+
+pub fn image_mime(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "svg" => Some("image/svg+xml"),
+        "bmp" => Some("image/bmp"),
+        "tif" | "tiff" => Some("image/tiff"),
+        "ico" => Some("image/ico"),
+        _ => None,
+    }
+}
 
 pub fn text(root: &Path, path: &Path) -> Result<String, String> {
     let bytes = read(root, path)?;

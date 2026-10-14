@@ -108,6 +108,35 @@ pub(super) fn change_rows(
 }
 
 impl GitUi {
+    pub(super) fn reveal_change(&mut self, target: &Detail) {
+        let (group, path) = match target {
+            Detail::Conflict(path) => (0, path),
+            Detail::File(file, side) => (if *side == Side::Index { 2 } else { 1 }, &file.path),
+            _ => return,
+        };
+        self.collapsed_changes.remove(&group);
+        self.collapsed_folders
+            .retain(|(owner, folder)| *owner != group || !path.starts_with(folder));
+        self.rebuild_change_rows();
+        if let Some(row) = self.change_rows.iter().position(|row| match row {
+            ChangeRow::File {
+                group: owner,
+                index,
+                ..
+            } => {
+                *owner == group
+                    && self
+                        .snapshot
+                        .as_ref()
+                        .is_some_and(|snapshot| snapshot.status.files[*index].path == *path)
+            }
+            _ => false,
+        }) {
+            self.changes_scroll
+                .scroll_to_item(row, ScrollStrategy::Center);
+        }
+    }
+
     fn rebuild_change_rows(&mut self) {
         if let Some(snapshot) = &self.snapshot {
             self.change_rows = change_rows(
@@ -140,6 +169,7 @@ impl Tervia {
         .min_h_0()
         .track_scroll(&ui.changes_scroll);
         let message = ui.message.read(cx).value().to_string();
+        let has_message = !message.trim().is_empty();
         let staged = snapshot
             .status
             .files
@@ -153,7 +183,9 @@ impl Tervia {
             && !message.trim().is_empty()
             && staged > 0
             && !snapshot.status.files.iter().any(|file| file.conflicted);
-        let footer = div()
+        let form = div()
+            .id("git-commit-form")
+            .debug_selector(|| "git-commit-form".into())
             .flex_shrink_0()
             .p(px(12.0))
             .border_t_1()
@@ -228,6 +260,41 @@ impl Tervia {
                 .w_full()
                 .disabled(!can_commit),
             );
+        let footer = div()
+            .flex_shrink_0()
+            .border_t_1()
+            .border_color(p.border)
+            .child(
+                label_button("git-toggle-commit", self.t("git_commit_toggle"), p)
+                    .debug_selector(|| "git-toggle-commit".into())
+                    .icon(icon(
+                        if ui.review.commit_expanded {
+                            IconName::ChevronDown
+                        } else {
+                            IconName::ChevronRight
+                        },
+                        p.secondary,
+                    ))
+                    .h(px(36.0))
+                    .w_full()
+                    .rounded(px(0.0))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(p.muted)
+                            .child(staged.to_string()),
+                    )
+                    .when(has_message, |button| {
+                        button.child(div().size(px(5.0)).rounded_full().bg(p.accent))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let review = &mut this.git_states[project].review;
+                        review.commit_expanded = !review.commit_expanded;
+                        cx.notify();
+                    })),
+            )
+            .when(ui.review.commit_expanded, |footer| footer.child(form));
         div()
             .size_full()
             .min_h_0()

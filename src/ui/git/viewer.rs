@@ -28,6 +28,12 @@ impl Tervia {
             .bg(p.toolbar);
         if let Some(Detail::File(file, side)) = &ui.selected {
             let path = file.path.clone();
+            // Button focus clears the live text selection before its click callback.
+            let range = ui
+                .diff
+                .read(cx)
+                .selected_lines()
+                .or_else(|| ui.review.range.clone());
             header = header
                 .child(
                     div()
@@ -47,14 +53,15 @@ impl Tervia {
                 .child(
                     icon_button(
                         "git-edit-file",
-                        IconName::SquarePen,
-                        self.t("edit_in_files"),
+                        IconName::FileCode,
+                        self.t("git_open_full_file"),
                         p,
                         cx,
                     )
-                    .accessibility_label(self.t("edit_in_files"))
+                    .debug_selector(|| "git-open-full-file".into())
+                    .accessibility_label(self.t("git_open_full_file"))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_git_file(project, path.clone(), window, cx)
+                        this.open_git_file(project, path.clone(), range.clone(), window, cx)
                     })),
                 );
         } else if let Some(Detail::Conflict(path)) = &ui.selected {
@@ -71,7 +78,7 @@ impl Tervia {
                 .child(
                     label_button("git-edit-conflict", self.t("git_edit_result"), p).on_click(
                         cx.listener(move |this, _, window, cx| {
-                            this.open_git_file(project, path.clone(), window, cx)
+                            this.open_git_file(project, path.clone(), None, window, cx)
                         }),
                     ),
                 );
@@ -115,16 +122,91 @@ impl Tervia {
             );
         }
         let mut tools = div()
-            .h(px(32.0))
+            .min_h(px(32.0))
             .flex_shrink_0()
             .px(px(10.0))
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(3.0))
             .bg(p.toolbar)
             .border_b_1()
-            .border_color(p.border)
-            .child(div().flex_1());
+            .border_color(p.border);
+        let (file_index, file_count) = ui.file_position(cx);
+        for (id, key, glyph, forward) in [
+            (
+                "git-previous-file",
+                "git_previous_file",
+                IconName::ChevronLeft,
+                false,
+            ),
+            (
+                "git-next-file",
+                "git_next_file",
+                IconName::ChevronRight,
+                true,
+            ),
+        ] {
+            tools = tools.child(
+                icon_button(id, glyph, self.t(key), p, cx)
+                    .debug_selector(move || id.into())
+                    .accessibility_label(self.t(key))
+                    .disabled(
+                        file_count == 0
+                            || if forward {
+                                file_index + 1 >= file_count
+                            } else {
+                                file_index == 0
+                            },
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.navigate_git_file(project, forward, window, cx)
+                    })),
+            );
+        }
+        tools = tools.child(div().text_size(px(11.0)).text_color(p.muted).child(format!(
+            "{} / {file_count}",
+            if file_count == 0 { 0 } else { file_index + 1 }
+        )));
+        let has_changes = !ui.detail_loading
+            && ui
+                .diff
+                .read(cx)
+                .files()
+                .iter()
+                .any(|file| file.has_changes());
+        for (id, key, glyph, forward) in [
+            (
+                "git-previous-change",
+                "git_previous_change",
+                IconName::ArrowUp,
+                false,
+            ),
+            (
+                "git-next-change",
+                "git_next_change",
+                IconName::ArrowDown,
+                true,
+            ),
+        ] {
+            tools = tools.child(
+                icon_button(id, glyph, self.t(key), p, cx)
+                    .debug_selector(move || id.into())
+                    .accessibility_label(self.t(key))
+                    .disabled(!has_changes)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.git_states[project].diff.update(cx, |state, cx| {
+                            if forward {
+                                state.next_change(cx);
+                            } else {
+                                state.previous_change(cx);
+                            }
+                        });
+                        cx.notify();
+                    })),
+            );
+        }
+        tools = tools.child(div().flex_1());
         for (index, mode, key) in [
             (0usize, DiffMode::Unified, "diff_inline"),
             (1, DiffMode::Split, "diff_split"),
@@ -147,6 +229,34 @@ impl Tervia {
             );
         }
         tools = tools.child(
+            icon_button(
+                "git-focus-diff",
+                if ui.review.focused {
+                    IconName::Minimize
+                } else {
+                    IconName::Maximize
+                },
+                self.t(if ui.review.focused {
+                    "git_restore_layout"
+                } else {
+                    "git_focus_diff"
+                }),
+                p,
+                cx,
+            )
+            .debug_selector(|| "git-focus-diff".into())
+            .accessibility_label(self.t(if ui.review.focused {
+                "git_restore_layout"
+            } else {
+                "git_focus_diff"
+            }))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let review = &mut this.git_states[project].review;
+                review.focused = !review.focused;
+                cx.notify();
+            })),
+        );
+        tools = tools.child(
             icon_button("git-copy-detail", IconName::Copy, self.t("git_copy"), p, cx)
                 .accessibility_label(self.t("git_copy"))
                 .disabled(ui.detail.is_empty())
@@ -161,7 +271,7 @@ impl Tervia {
             && !matches!(ui.selected, Some(Detail::Conflict(_)))
         {
             let diff = Diff::new(&ui.diff).bg(p.background).border_0();
-            if matches!(ui.selected, Some(Detail::Commit(_))) {
+            if matches!(ui.selected, Some(Detail::Commit(_))) && !ui.review.focused {
                 h_resizable(("git-commit-diff-layout", project))
                     .child(
                         resizable_panel()
@@ -274,6 +384,7 @@ impl Tervia {
                 .into_any_element()
         };
         div()
+            .debug_selector(|| "git-diff-viewer".into())
             .flex_1()
             .min_w_0()
             .min_h_0()

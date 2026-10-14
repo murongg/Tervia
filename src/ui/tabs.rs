@@ -110,7 +110,11 @@ impl Tervia {
                             .h_full()
                             .rounded(px(0.0))
                             .accessibility_label(self.f("open_file", &[("path", &file.path)]))
-                            .tooltip(file.path.clone())
+                            .tooltip(if owner.preview_file == Some(index) {
+                                format!("{}\n{}", file.path, self.t("files_preview_hint"))
+                            } else {
+                                file.path.clone()
+                            })
                             .child(
                                 div()
                                     .flex()
@@ -120,7 +124,13 @@ impl Tervia {
                                     .gap(px(6.0))
                                     .px(px(2.0))
                                     .child(icon(
-                                        IconName::FileCode,
+                                        if file.is_image() {
+                                            IconName::Image
+                                        } else if file.language == "markdown" {
+                                            IconName::FileText
+                                        } else {
+                                            IconName::FileCode
+                                        },
                                         if selected { p.accent } else { p.secondary },
                                     ))
                                     .child(
@@ -128,6 +138,9 @@ impl Tervia {
                                             .flex_1()
                                             .min_w_0()
                                             .text_ellipsis()
+                                            .when(owner.preview_file == Some(index), |name| {
+                                                name.italic()
+                                            })
                                             .text_color(if selected { p.text } else { p.secondary })
                                             .child(name.clone()),
                                     )
@@ -135,7 +148,10 @@ impl Tervia {
                                         row.child(div().size(px(5.0)).rounded_full().bg(p.accent))
                                     }),
                             )
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                                if event.click_count() >= 2 {
+                                    this.state.projects[project].pin_file(index);
+                                }
                                 this.select_open_file(project, index, window, cx)
                             })),
                     )
@@ -425,11 +441,11 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) {
         self.state.projects[project].close_files(targets);
+        self.prune_previews(project);
         self.reveal_file_tab(project);
         if self.state.active_project == project && self.state.project().tab == Tab::Files {
             if self.state.project().current_file().is_some() {
-                self.editors[project][self.state.project().active_file]
-                    .update(cx, |editor, cx| editor.focus(window, cx));
+                self.focus_file_document(project, self.state.project().active_file, window, cx);
             } else {
                 self.focus.focus(window, cx);
             }

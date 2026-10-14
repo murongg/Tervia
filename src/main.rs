@@ -7,7 +7,8 @@ use gpui_kit::*;
 use tervia::{config::Config, platform::Platform};
 use ui::{
     CloseFileTab, FilesTab, GitTab, NewSession, NextFileTab, OpenPreferences, PreviousFileTab,
-    Quit, ReopenFileTab, SaveFile, TerminalTab, Tervia, TogglePalette, ToggleSidebar,
+    QuickOpenFile, Quit, ReopenFileTab, SaveFile, SearchProjectText, TerminalTab, Tervia,
+    TogglePalette, ToggleSidebar,
 };
 
 fn main() {
@@ -25,6 +26,16 @@ fn main() {
             KeyBinding::new("secondary-2", GitTab, Some("Tervia")),
             KeyBinding::new("secondary-3", FilesTab, Some("Tervia")),
             KeyBinding::new("secondary-s", SaveFile, Some("Tervia")),
+            KeyBinding::new(
+                "secondary-p",
+                QuickOpenFile,
+                Some(if Platform::CURRENT == Platform::Mac {
+                    "Tervia"
+                } else {
+                    "FileTabs"
+                }),
+            ),
+            KeyBinding::new("secondary-shift-f", SearchProjectText, Some("Tervia")),
             KeyBinding::new("secondary-w", CloseFileTab, Some("FileTabs")),
             KeyBinding::new("ctrl-tab", NextFileTab, Some("FileTabs")),
             KeyBinding::new("ctrl-shift-tab", PreviousFileTab, Some("FileTabs")),

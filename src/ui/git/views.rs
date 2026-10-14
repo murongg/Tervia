@@ -233,59 +233,65 @@ impl Tervia {
                     .child(self.git_action("git-abort", "git_abort", Operation::Abort, cx)),
             );
         }
-        let content = match ui.mode {
-            Mode::Changes => h_resizable(("git-changes-layout", project))
-                .child(
-                    resizable_panel()
-                        .size(px(300.0))
-                        .size_range(px(240.0)..px(480.0))
-                        .flex_none()
-                        .child(self.git_changes(snapshot, cx)),
-                )
-                .child(
-                    resizable_panel()
-                        .size_range(px(220.0)..Pixels::MAX)
-                        .child(self.git_viewer(cx)),
-                )
-                .into_any_element(),
-            Mode::History => v_resizable(("git-history-layout", project))
-                .child(
-                    resizable_panel()
-                        .size(px(320.0))
-                        .size_range(px(135.0)..px(500.0))
-                        .flex_none()
-                        .child(self.git_history(snapshot, cx)),
-                )
-                .child(
-                    resizable_panel()
-                        .size_range(px(150.0)..Pixels::MAX)
-                        .child(self.git_viewer(cx)),
-                )
-                .into_any_element(),
-            Mode::Stash => h_resizable(("git-stash-layout", project))
-                .child(
-                    resizable_panel()
-                        .size(px(300.0))
-                        .size_range(px(240.0)..px(500.0))
-                        .flex_none()
-                        .child(self.git_stashes(snapshot, cx)),
-                )
-                .child(
-                    resizable_panel()
-                        .size_range(px(220.0)..Pixels::MAX)
-                        .child(self.git_viewer(cx)),
-                )
-                .into_any_element(),
-            Mode::Branches => self.git_branches(snapshot, cx).into_any_element(),
-            Mode::Remotes => self.git_remotes(snapshot, cx).into_any_element(),
-            Mode::Worktrees => self.git_worktrees(snapshot, cx).into_any_element(),
+        let focused =
+            ui.review.focused && matches!(ui.mode, Mode::Changes | Mode::History | Mode::Stash);
+        let content = if focused {
+            self.git_viewer(cx).into_any_element()
+        } else {
+            match ui.mode {
+                Mode::Changes => h_resizable(("git-changes-layout", project))
+                    .child(
+                        resizable_panel()
+                            .size(px(260.0))
+                            .size_range(px(200.0)..px(480.0))
+                            .flex_none()
+                            .child(self.git_changes(snapshot, cx)),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size_range(px(220.0)..Pixels::MAX)
+                            .child(self.git_viewer(cx)),
+                    )
+                    .into_any_element(),
+                Mode::History => v_resizable(("git-history-layout", project))
+                    .child(
+                        resizable_panel()
+                            .size(px(250.0))
+                            .size_range(px(135.0)..px(500.0))
+                            .flex_none()
+                            .child(self.git_history(snapshot, cx)),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size_range(px(150.0)..Pixels::MAX)
+                            .child(self.git_viewer(cx)),
+                    )
+                    .into_any_element(),
+                Mode::Stash => h_resizable(("git-stash-layout", project))
+                    .child(
+                        resizable_panel()
+                            .size(px(300.0))
+                            .size_range(px(240.0)..px(500.0))
+                            .flex_none()
+                            .child(self.git_stashes(snapshot, cx)),
+                    )
+                    .child(
+                        resizable_panel()
+                            .size_range(px(220.0)..Pixels::MAX)
+                            .child(self.git_viewer(cx)),
+                    )
+                    .into_any_element(),
+                Mode::Branches => self.git_branches(snapshot, cx).into_any_element(),
+                Mode::Remotes => self.git_remotes(snapshot, cx).into_any_element(),
+                Mode::Worktrees => self.git_worktrees(snapshot, cx).into_any_element(),
+            }
         };
         body.child(
             div()
                 .flex_1()
                 .min_h_0()
                 .flex()
-                .child(self.git_sidebar(snapshot, cx))
+                .when(!focused, |body| body.child(self.git_sidebar(snapshot, cx)))
                 .child(
                     div()
                         .flex_1()

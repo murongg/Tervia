@@ -16,6 +16,8 @@ ui-tests = ["native", "gpui-test/test-support"]
 sys-locale = "=0.3.2"
 serde_json = "=1.0.154"
 notify = "=8.2.0"
+ignore = "=0.4.33"
+regex = "=1.13.1"
 dirs = "=6.0.0"
 tempfile = "=3.27.0"
 toml_edit = "=0.25.17"
