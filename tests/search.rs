@@ -1,4 +1,4 @@
-use std::{fs, sync::atomic::AtomicBool};
+use std::{fs, path::Path, sync::atomic::AtomicBool};
 use tervia::files::search;
 
 #[test]
@@ -19,11 +19,12 @@ fn long_line_results_show_the_match_and_explicitly_opened_dependency_roots_are_s
 #[test]
 fn search_respects_ignores_binary_files_unicode_and_literal_queries() {
     let root = tempfile::tempdir().unwrap();
+    let mock_path = Path::new("src").join("mock.rs");
     fs::create_dir(root.path().join("src")).unwrap();
     fs::create_dir(root.path().join("node_modules")).unwrap();
     fs::write(root.path().join(".gitignore"), "ignored.txt\n").unwrap();
     fs::write(
-        root.path().join("src/mock.rs"),
+        root.path().join(&mock_path),
         "Synthetic [query]\n中文 Synthetic [QUERY]\n",
     )
     .unwrap();
@@ -40,23 +41,15 @@ fn search_respects_ignores_binary_files_unicode_and_literal_queries() {
     assert_eq!(found.hits.len(), 2);
     assert_eq!(found.hits[1].line, 2);
     assert_eq!(found.hits[1].column, 13);
-    assert!(
-        found
-            .hits
-            .iter()
-            .all(|hit| hit.path.to_str() == Some("src/mock.rs"))
-    );
+    assert!(found.hits.iter().all(|hit| hit.path == mock_path));
     let index = search::index(root.path(), &cancel).unwrap();
     assert!(
         !index
             .paths
             .iter()
-            .any(|path| path.to_str() == Some("ignored.txt"))
+            .any(|path| path == Path::new("ignored.txt"))
     );
-    assert_eq!(
-        search::find(&index.paths, "smrs")[0].to_str(),
-        Some("src/mock.rs")
-    );
+    assert_eq!(search::find(&index.paths, "smrs")[0], mock_path);
 }
 
 #[test]
