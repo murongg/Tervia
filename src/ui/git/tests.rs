@@ -2,7 +2,7 @@ use super::{Detail, FileStatus, Mode, Side, Snapshot, Tervia};
 use core::prelude::v1::test;
 use gpui_kit::AppContext as _;
 use gpui_test::TestAppContext;
-use std::fs;
+use std::{fs, path::Path};
 
 fn synthetic_commit(hash: &str, parents: &str) -> tervia::git::Commit {
     tervia::git::Commit {
@@ -25,9 +25,10 @@ fn review_patch(path: &str) -> String {
 fn review_working_copy_navigation_reveals_folded_files(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();
+    let nested_path = Path::new("nested").join("second.txt");
     fs::create_dir(root.path().join("nested")).unwrap();
     fs::write(root.path().join("first.txt"), "synthetic first\n").unwrap();
-    fs::write(root.path().join("nested/second.txt"), "synthetic second\n").unwrap();
+    fs::write(root.path().join(&nested_path), "synthetic second\n").unwrap();
     let repo = tervia::git::Repository::initialize(root.path()).unwrap();
     let mut view = None;
     let (_, cx) = cx.add_window_view(|window, cx| {
@@ -41,19 +42,25 @@ fn review_working_copy_navigation_reveals_folded_files(cx: &mut TestAppContext) 
         this.init_project(project, window, cx);
         this.state.set_tab(tervia::state::Tab::Git);
         let snapshot = repo.snapshot(10).unwrap();
-        let first = snapshot.status.files.iter().find(|file| file.path.to_str() == Some("nested/second.txt")).unwrap().clone();
+        let first = snapshot.status.files.iter().find(|file| file.path == nested_path).unwrap().clone();
         let ui = &mut this.git_states[project];
         ui.repository = Some(repo);
         ui.collapsed_changes.insert(1);
-        ui.collapsed_folders.insert((1, "nested".into()));
+        ui.collapsed_changes.insert(3);
+        ui.collapsed_folders.insert((3, "nested".into()));
         ui.reconcile_snapshot(&snapshot, cx);
         ui.snapshot = Some(std::sync::Arc::new(snapshot));
         let generation = ui.begin_detail(Detail::File(first, Side::Worktree), cx);
         ui.install_detail(generation, Ok(review_patch("nested/second.txt")), cx);
         this.navigate_git_file(project, true, window, cx);
         let ui = &this.git_states[project];
-        assert!(matches!(&ui.selected, Some(Detail::File(file, Side::Worktree)) if file.path.to_str() == Some("first.txt")));
-        assert!(!ui.collapsed_changes.contains(&1), "Navigation reveals the selected untracked file in its list");
+        assert!(matches!(&ui.selected, Some(Detail::File(file, Side::Worktree)) if file.path == Path::new("first.txt")));
+        assert!(!ui.collapsed_changes.contains(&3), "Navigation reveals the selected untracked file in its list");
+        assert!(ui.collapsed_changes.contains(&1), "Navigation preserves unrelated collapsed groups");
+        this.navigate_git_file(project, false, window, cx);
+        let ui = &this.git_states[project];
+        assert!(matches!(&ui.selected, Some(Detail::File(file, Side::Worktree)) if file.path == nested_path));
+        assert!(!ui.collapsed_folders.contains(&(3, "nested".into())), "Navigation reveals the destination's ancestor folder");
     }));
 }
 
@@ -853,7 +860,7 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
             .iter()
             .any(|row| matches!(row, ChangeRow::File { group: 1, .. }))
     );
-    assert!(rows.contains(&ChangeRow::Group { group: 1, count: 2 }));
+    assert!(rows.contains(&ChangeRow::Group { group: 1, count: 1 }));
     let rows = change_rows(
         &files,
         &Default::default(),
@@ -868,7 +875,7 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
         }
     )));
     assert!(rows.contains(&ChangeRow::File {
-        group: 1,
+        group: 3,
         index: 1,
         depth: 0
     }));
@@ -877,6 +884,80 @@ fn folding_change_groups_and_directories_preserves_file_ownership_and_both_sides
         index: 0,
         depth: 2
     }));
+}
+
+#[test]
+fn untracked_changes_have_their_own_group() {
+    use super::changes::{ChangeRow, change_rows};
+    let make = |path: &str, index, worktree, conflicted| FileStatus {
+        path: path.into(),
+        original: None,
+        index,
+        worktree,
+        conflicted,
+    };
+    let snapshot = Snapshot {
+        status: tervia::git::Status {
+            files: vec![
+                make("src/conflict.rs", 'U', 'U', true),
+                make("src/both.rs", 'M', 'M', false),
+                make("src/new.rs", '.', '?', false),
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let rows = change_rows(
+        &snapshot.status.files,
+        &Default::default(),
+        &Default::default(),
+    );
+    let groups: Vec<_> = rows
+        .iter()
+        .filter_map(|row| match row {
+            ChangeRow::Group { group, count } => Some((*group, *count)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(groups, vec![(0, 1), (1, 1), (3, 1), (2, 1)]);
+    let entries: Vec<_> = rows
+        .iter()
+        .filter_map(|row| match row {
+            ChangeRow::File { group, index, .. } => Some((*group, *index)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(entries, vec![(0, 0), (1, 1), (3, 2), (2, 1)]);
+    let folded = change_rows(
+        &snapshot.status.files,
+        &std::collections::BTreeSet::from([3]),
+        &Default::default(),
+    );
+    assert!(folded.contains(&ChangeRow::Group { group: 3, count: 1 }));
+    assert!(
+        !folded
+            .iter()
+            .any(|row| matches!(row, ChangeRow::File { group: 3, .. }))
+    );
+    let folder_folded = change_rows(
+        &snapshot.status.files,
+        &Default::default(),
+        &std::collections::BTreeSet::from([(3, "src".into())]),
+    );
+    assert!(folder_folded.contains(&ChangeRow::Folder {
+        group: 3,
+        path: "src".into(),
+        depth: 0,
+        count: 1,
+    }));
+    assert!(
+        !folder_folded
+            .iter()
+            .any(|row| matches!(row, ChangeRow::File { group: 3, .. }))
+    );
+
+    let empty = change_rows(&[], &Default::default(), &Default::default());
+    assert!(empty.contains(&ChangeRow::Group { group: 3, count: 0 }));
 }
 
 #[gpui_test::test]

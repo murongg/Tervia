@@ -7,6 +7,22 @@ use std::{
     ffi::OsString,
 };
 
+// Keep section IDs stable; display order places untracked files beside worktree edits.
+const CHANGE_GROUPS: [u8; 4] = [0, 1, 3, 2];
+
+fn group_files(files: &[FileStatus], group: u8) -> impl Iterator<Item = (usize, &FileStatus)> {
+    files
+        .iter()
+        .enumerate()
+        .filter(move |(_, file)| match group {
+            0 => file.conflicted,
+            1 => !file.conflicted && !matches!(file.worktree, '.' | '?'),
+            2 => !file.conflicted && file.index != '.',
+            3 => !file.conflicted && file.worktree == '?',
+            _ => false,
+        })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ChangeRow {
     Group {
@@ -68,13 +84,9 @@ pub(super) fn change_rows(
     folders: &BTreeSet<(u8, PathBuf)>,
 ) -> Vec<ChangeRow> {
     let mut rows = Vec::new();
-    for group in 0..3 {
+    for group in CHANGE_GROUPS {
         let mut root = Folder::default();
-        for (index, file) in files.iter().enumerate().filter(|(_, file)| match group {
-            0 => file.conflicted,
-            1 => !file.conflicted && file.worktree != '.',
-            _ => !file.conflicted && file.index != '.',
-        }) {
+        for (index, file) in group_files(files, group) {
             root.count += 1;
             let mut folder = &mut root;
             for part in file
@@ -111,7 +123,17 @@ impl GitUi {
     pub(super) fn reveal_change(&mut self, target: &Detail) {
         let (group, path) = match target {
             Detail::Conflict(path) => (0, path),
-            Detail::File(file, side) => (if *side == Side::Index { 2 } else { 1 }, &file.path),
+            Detail::File(file, side) => (
+                if *side == Side::Index {
+                    2
+                } else if file.worktree == '?' {
+                    // Untracked files use a worktree Diff but own a separate list section.
+                    3
+                } else {
+                    1
+                },
+                &file.path,
+            ),
             _ => return,
         };
         self.collapsed_changes.remove(&group);
@@ -322,8 +344,10 @@ impl Tervia {
                 let key = match group {
                     0 => "git_conflicts",
                     1 => "unstaged",
+                    3 => "untracked",
                     _ => "staged",
                 };
+                let staging = group != 2;
                 let folded = ui.collapsed_changes.contains(&group);
                 div()
                     .id(("git-change-section", group as usize))
@@ -387,13 +411,13 @@ impl Tervia {
                             self.git_action_for(
                                 project,
                                 ("git-all", group as usize),
-                                if group == 1 {
-                                    "stage_all"
-                                } else {
-                                    "unstage_all"
-                                },
-                                if group == 1 {
-                                    Operation::StageAll
+                                if staging { "stage_all" } else { "unstage_all" },
+                                if staging {
+                                    Operation::StageFiles(
+                                        group_files(&snapshot.status.files, group)
+                                            .map(|(_, file)| file.path.clone())
+                                            .collect(),
+                                    )
                                 } else {
                                     Operation::UnstageAll
                                 },
@@ -401,19 +425,15 @@ impl Tervia {
                             )
                             .label("")
                             .icon(icon(
-                                if group == 1 {
+                                if staging {
                                     IconName::Plus
                                 } else {
                                     IconName::Minus
                                 },
                                 p.secondary,
                             ))
-                            .tooltip(self.t(if group == 1 {
-                                "stage_all"
-                            } else {
-                                "unstage_all"
-                            }))
-                            .accessibility_label(self.t(if group == 1 {
+                            .tooltip(self.t(if staging { "stage_all" } else { "unstage_all" }))
+                            .accessibility_label(self.t(if staging {
                                 "stage_all"
                             } else {
                                 "unstage_all"
@@ -508,6 +528,7 @@ impl Tervia {
                 ui.rendered_rows.set(ui.rendered_rows.get() + 1);
                 let file = &snapshot.status.files[*index];
                 let group = *group;
+                let row_id = index * CHANGE_GROUPS.len() + group as usize;
                 let side = if group == 2 {
                     Side::Index
                 } else {
@@ -526,7 +547,7 @@ impl Tervia {
                         "git_resolve",
                         IconName::Check,
                     ),
-                    1 => (Operation::Stage(file.path.clone()), "stage", IconName::Plus),
+                    1 | 3 => (Operation::Stage(file.path.clone()), "stage", IconName::Plus),
                     _ => (
                         Operation::Unstage(file.path.clone()),
                         "unstage",
@@ -555,7 +576,7 @@ impl Tervia {
                     .pr(px(5.0))
                     .bg(if selected { p.selected } else { p.background })
                     .child(
-                        label_button(("git-file", index * 3 + group as usize), "", p)
+                        label_button(("git-file", row_id), "", p)
                             .h_full()
                             .rounded(px(0.0))
                             .flex_1()
@@ -602,19 +623,13 @@ impl Tervia {
                             })),
                     )
                     .child(
-                        self.git_action_for(
-                            project,
-                            ("git-stage", index * 3 + group as usize),
-                            action_key,
-                            action,
-                            cx,
-                        )
-                        .label("")
-                        .icon(icon(glyph, p.secondary))
-                        .w(px(26.0))
-                        .h(px(26.0))
-                        .tooltip(self.t(action_key))
-                        .accessibility_label(format!("{} {path}", self.t(action_key))),
+                        self.git_action_for(project, ("git-stage", row_id), action_key, action, cx)
+                            .label("")
+                            .icon(icon(glyph, p.secondary))
+                            .w(px(26.0))
+                            .h(px(26.0))
+                            .tooltip(self.t(action_key))
+                            .accessibility_label(format!("{} {path}", self.t(action_key))),
                     )
                     .into_any_element()
             }
