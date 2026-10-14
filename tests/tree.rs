@@ -177,3 +177,20 @@ fn refresh_invalidates_collapsed_contents_and_reopens_them_lazily() {
         matches!(&tree.rows()[1], Row::Entry { entry, .. } if entry.path == std::path::Path::new("src/new.rs"))
     );
 }
+#[test]
+fn directory_resolution_rejects_a_folder_replaced_by_an_external_symlink() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("mock-child")).unwrap();
+    assert_eq!(
+        tervia::files::directory(root.path(), std::path::Path::new("mock-child")).unwrap(),
+        root.path().join("mock-child").canonicalize().unwrap()
+    );
+    assert!(tervia::files::directory(root.path(), std::path::Path::new("../outside")).is_err());
+    #[cfg(unix)]
+    {
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::remove_dir(root.path().join("mock-child")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("mock-child")).unwrap();
+        assert!(tervia::files::directory(root.path(), std::path::Path::new("mock-child")).is_err());
+    }
+}

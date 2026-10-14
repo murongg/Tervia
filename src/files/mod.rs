@@ -3,7 +3,7 @@ mod reads;
 mod tree;
 mod watch;
 pub use reads::{ReadOutcome, Reads};
-pub use tree::{Entry, EntryKind, Row, Tree, list};
+pub use tree::{Entry, EntryKind, Row, Tree, directory, list};
 pub use watch::{Changes, Update, Watch, reconcile};
 
 pub fn text(root: &Path, path: &Path) -> Result<String, String> {

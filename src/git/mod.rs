@@ -1,7 +1,7 @@
 mod command;
 mod diff;
 mod discovery;
-pub use discovery::Discovery;
+pub use discovery::{Discovery, Scan, ScanLimit};
 mod operations;
 mod pipe;
 mod stash;
@@ -189,6 +189,23 @@ impl Repository {
         ];
         command::run(parent, &args)?;
         Self::open(destination)
+    }
+    pub fn clone_name(url: &str) -> &str {
+        let last = url
+            .trim()
+            .trim_end_matches(['/', '\\'])
+            .rsplit(['/', '\\', ':'])
+            .next()
+            .unwrap_or_default();
+        let name = last.strip_suffix(".git").unwrap_or(last);
+        if name.is_empty()
+            || matches!(name, "." | "..")
+            || name.contains(['?', '#', '<', '>', '|', '*', '\n', '\r'])
+        {
+            "repository"
+        } else {
+            name
+        }
     }
     pub fn status(&self) -> Result<Status, String> {
         let mut status = status::parse(&self.run(&[

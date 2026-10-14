@@ -181,10 +181,19 @@ struct RepositoryGroup {
 }
 
 #[derive(Clone, Debug)]
+struct FolderGroup {
+    directories: std::collections::BTreeSet<usize>,
+    children: Vec<usize>,
+    active: usize,
+    expanded: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct Workspace {
     pub projects: Vec<Project>,
     closed_projects: std::collections::BTreeSet<usize>,
     repositories: std::collections::BTreeMap<PathBuf, RepositoryGroup>,
+    folders: std::collections::BTreeMap<usize, FolderGroup>,
     pub active_project: usize,
     pub sidebar_expanded: bool,
     pub notice: String,
@@ -203,6 +212,7 @@ impl Workspace {
             projects: Vec::new(),
             closed_projects: Default::default(),
             repositories: Default::default(),
+            folders: Default::default(),
             active_project: 0,
             sidebar_expanded: false,
             notice: String::new(),
@@ -220,6 +230,11 @@ impl Workspace {
 
     pub fn switch_project(&mut self, index: usize) {
         if self.project_visible(index) {
+            if let Some(parent) = self.folder(index)
+                && let Some(group) = self.folders.get_mut(&parent)
+            {
+                group.active = index;
+            }
             self.active_project = index;
             if let Some(identity) = &self.projects[index].repository
                 && let Some(group) = self.repositories.get_mut(identity)
@@ -232,6 +247,119 @@ impl Workspace {
 
     pub fn project_visible(&self, index: usize) -> bool {
         index < self.projects.len() && !self.closed_projects.contains(&index)
+    }
+
+    pub fn group_folder(&mut self, root: usize, children: &[usize]) {
+        if self.attach_directories(root, children) {
+            let children = children
+                .iter()
+                .copied()
+                .filter(|index| self.project_visible(*index))
+                .collect();
+            self.folders.get_mut(&root).unwrap().children = children;
+        }
+    }
+
+    /// A navigated directory belongs to its opened folder even when Git identity is shared.
+    pub fn attach_directory(&mut self, root: usize, directory: usize) {
+        if self.project_visible(root)
+            && self.project_visible(directory)
+            && self.projects[directory]
+                .root
+                .starts_with(&self.projects[root].root)
+        {
+            self.attach_directories(root, &[directory]);
+        }
+    }
+
+    fn attach_directories(&mut self, root: usize, children: &[usize]) -> bool {
+        if !self.project_visible(root)
+            || self.folder(root).is_some_and(|owner| {
+                owner != root
+                    && !self.projects[owner]
+                        .root
+                        .starts_with(&self.projects[root].root)
+            })
+        {
+            return false;
+        }
+        let children: Vec<_> = children
+            .iter()
+            .copied()
+            .filter(|index| self.project_visible(*index))
+            .collect();
+        let mut cached = std::collections::BTreeSet::new();
+        for child in &children {
+            if *child != root
+                && self.projects[*child]
+                    .root
+                    .starts_with(&self.projects[root].root)
+                && let Some(previous) = self.folders.remove(child)
+            {
+                cached.extend(previous.directories);
+            }
+        }
+        let group = self.folders.entry(root).or_insert_with(|| FolderGroup {
+            directories: std::collections::BTreeSet::from([root]),
+            children: Vec::new(),
+            active: root,
+            expanded: true,
+        });
+        // Cached directory owners stay attached after rescans so drafts never reappear as new projects.
+        group.directories.extend(cached);
+        group.directories.extend(children.iter().copied());
+        if self.folder(self.active_project) == Some(root)
+            && let Some(group) = self.folders.get_mut(&root)
+        {
+            group.active = self.active_project;
+        }
+        true
+    }
+
+    pub fn folder(&self, index: usize) -> Option<usize> {
+        // Retired folder worktrees must not hide the remaining checkout directories.
+        self.folders
+            .iter()
+            .find_map(|(root, group)| {
+                (self.project_visible(*root) && group.directories.contains(&index)).then_some(*root)
+            })
+            .or_else(|| {
+                self.folders.iter().find_map(|(root, group)| {
+                    (self.project_visible(*root)
+                        && group
+                            .directories
+                            .iter()
+                            .any(|member| self.same_project(*member, index)))
+                    .then_some(*root)
+                })
+            })
+    }
+
+    pub fn folder_children(&self, root: usize) -> Vec<usize> {
+        let mut children = Vec::new();
+        if let Some(group) = self.folders.get(&root) {
+            for index in &group.children {
+                if self.project_visible(*index)
+                    && !self.same_project(root, *index)
+                    && !children
+                        .iter()
+                        .any(|child| self.same_project(*child, *index))
+                {
+                    children.push(*index);
+                }
+            }
+        }
+        children
+    }
+
+    pub fn folder_expanded(&self, root: usize) -> bool {
+        self.folders.get(&root).is_none_or(|group| group.expanded)
+    }
+
+    pub fn toggle_folder(&mut self, root: usize) {
+        if let Some(group) = self.folders.get_mut(&root) {
+            group.expanded = !group.expanded;
+        }
     }
 
     pub fn associate_repository(&mut self, index: usize, identity: PathBuf, root: Option<PathBuf>) {
@@ -263,6 +391,9 @@ impl Workspace {
                 if !self.project_visible(index) {
                     return None;
                 }
+                if self.folder(index).is_some_and(|root| root != index) {
+                    return None;
+                }
                 if let Some(identity) = &project.repository
                     && !repositories.insert(identity)
                 {
@@ -288,6 +419,11 @@ impl Workspace {
     }
 
     pub fn project_target(&self, index: usize) -> usize {
+        if let Some(group) = self.folders.get(&index)
+            && self.project_visible(group.active)
+        {
+            return group.active;
+        }
         self.projects
             .get(index)
             .and_then(|project| project.repository.as_ref())
@@ -309,6 +445,9 @@ impl Workspace {
 
     pub fn project_root(&self, index: usize) -> &PathBuf {
         let project = &self.projects[index];
+        if self.folders.contains_key(&index) {
+            return &project.root;
+        }
         project
             .repository
             .as_ref()

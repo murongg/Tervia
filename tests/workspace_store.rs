@@ -56,6 +56,40 @@ fn missing_directories_are_skipped_and_selection_falls_back_to_an_available_proj
 }
 
 #[test]
+fn folder_history_restores_one_parent_its_selected_child_and_its_folded_state() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    let parent = directory(&temporary, "mock-folder");
+    let child = parent.join("mock-child");
+    fs::create_dir(&child).unwrap();
+    let mut state = Workspace::new(parent.clone());
+    let child_index = state.register_directory(child.clone());
+    state.group_folder(0, &[child_index]);
+    state.switch_project(child_index);
+    state.toggle_folder(0);
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(saved["projects"][0]["root"], serde_json::json!(parent));
+    assert_eq!(saved["projects"][0]["directory"], serde_json::json!(child));
+    let mut restored_store = Store::new(path.clone());
+    let mut restored = restored_store.load().unwrap();
+    assert_eq!(restored.project_rows(), vec![0]);
+    assert_eq!(restored.project().root, child);
+    assert_eq!(restored.folder(restored.active_project), Some(0));
+    assert!(!restored.folder_expanded(0));
+    restored.sidebar_expanded = true;
+    restored_store.save(&restored).unwrap();
+    fs::remove_dir(&child).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.project_rows(), vec![0]);
+    assert_eq!(restored.project().root, parent);
+}
+
+#[test]
 fn worktree_groups_remember_the_last_directory_and_fall_back_when_it_is_removed() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("workspace.json");

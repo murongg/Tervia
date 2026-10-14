@@ -150,6 +150,73 @@ fn worktree_removal_reservation_blocks_every_directory_navigation_entry(cx: &mut
 }
 
 #[gpui_test::test]
+fn opening_a_folder_keeps_the_parent_selected_and_nests_detected_repositories(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| {
+        view.unwrap().update(cx, |this, cx| {
+            this.open_workspace(
+                tervia::git::Discovery {
+                    root: "/synthetic/mock-folder".into(),
+                    repositories: vec![
+                        "/synthetic/mock-folder/mock-alpha".into(),
+                        "/synthetic/mock-folder/mock-beta".into(),
+                    ],
+                    limited: false,
+                    identities: Default::default(),
+                },
+                true,
+                window,
+                cx,
+            );
+            assert_eq!(
+                this.state.active_project, 0,
+                "Opening a folder must select that folder"
+            );
+            assert_eq!(
+                this.state.project_rows(),
+                vec![0],
+                "Child repositories are not top-level projects"
+            );
+            this.state.set_tab(tervia::state::Tab::Files);
+            this.change_project(1, window, cx);
+            assert_eq!(this.state.project().tab, tervia::state::Tab::Terminal);
+            this.new_session(window, cx);
+            this.state.set_tab(tervia::state::Tab::Terminal);
+            this.change_project(0, window, cx);
+            assert_eq!(this.state.project().tab, tervia::state::Tab::Files);
+            this.change_project(1, window, cx);
+            assert_eq!(this.state.project().sessions.len(), 2);
+            assert_eq!(this.state.project().tab, tervia::state::Tab::Terminal);
+            this.open_workspace(
+                tervia::git::Discovery {
+                    root: "/synthetic/mock-folder/mock-alpha".into(),
+                    repositories: vec!["/synthetic/mock-folder/mock-alpha/mock-nested".into()],
+                    limited: false,
+                    identities: Default::default(),
+                },
+                true,
+                window,
+                cx,
+            );
+            assert_eq!(
+                this.state.projects.len(),
+                3,
+                "Reopening a nested directory reuses its enclosing project"
+            );
+            assert_eq!(this.state.project_rows(), vec![0]);
+        });
+    });
+}
+
+#[gpui_test::test]
 fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_drafts(
     cx: &mut TestAppContext,
 ) {
@@ -181,6 +248,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
             this.open_workspace(discovery, false, window, cx);
             assert_eq!(this.state.active_project, existing);
             assert_eq!(this.state.projects.len(), 4);
+            assert_eq!(this.state.project_rows(), vec![existing, 1]);
             assert_eq!(
                 this.git_states[existing].message.read(cx).value().as_ref(),
                 "Synthetic draft"
@@ -204,6 +272,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
                 4,
                 "Removed repositories keep their project and drafts"
             );
+            assert_eq!(this.state.project_rows(), vec![existing, 1]);
             for ui in &this.git_states[1..] {
                 assert_eq!(ui.workspace.as_ref().unwrap().repositories.len(), 1);
             }

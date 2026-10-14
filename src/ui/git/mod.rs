@@ -245,16 +245,10 @@ impl Tervia {
             {
                 let opened = cx
                     .background_executor()
-                    .spawn(async move {
-                        Repository::discover(
-                            &Repository::open(&path)
-                                .map(|repository| repository.root)
-                                .unwrap_or(path),
-                        )
-                    })
+                    .spawn(async move { tervia::files::directory(&path, std::path::Path::new("")) })
                     .await;
                 let _ = weak.update_in(cx, |this, window, cx| match opened {
-                    Ok(discovery) => this.open_workspace(discovery, true, window, cx),
+                    Ok(root) => this.open_directory(root, window, cx),
                     Err(error) => {
                         this.state.notice = error;
                         cx.notify();
@@ -269,6 +263,7 @@ impl Tervia {
         if self.worktree_removing(&root) {
             return;
         }
+        self.navigation.cancel();
         for ui in &mut self.git_states {
             ui.cancel_worktree_navigation();
         }
@@ -276,6 +271,10 @@ impl Tervia {
         let index = self.state.open_directory(root);
         if index == count {
             self.init_project(index, window, cx);
+        }
+        let parent = self.attach_navigation(index);
+        if !self.navigation.roots.contains_key(&parent) {
+            self.restore_navigation(parent, window, cx);
         }
         self.state.set_tab(Tab::Git);
         self.refresh_git(index, window, cx);
@@ -291,30 +290,54 @@ impl Tervia {
     ) {
         let previous = self.state.active_project;
         let root = discovery.root.clone();
+        if activate
+            && let Some(index) = self
+                .state
+                .projects
+                .iter()
+                .position(|project| project.root == root)
+            && self
+                .state
+                .folder(index)
+                .is_some_and(|parent| parent != index)
+        {
+            // Reopening a child must keep its enclosing scan and project boundary.
+            self.change_project(index, window, cx);
+            return;
+        }
         self.git_scans.invalidate(&root);
-        let target = if discovery.repositories.contains(&root) {
-            root.clone()
-        } else {
-            discovery
-                .repositories
-                .first()
-                .cloned()
-                .unwrap_or(root.clone())
-        };
+        let new_root = !self
+            .state
+            .projects
+            .iter()
+            .any(|project| project.root == root);
         let group = Arc::new(discovery);
+        let mut members = Vec::new();
         for directory in std::iter::once(&root).chain(group.repositories.iter()) {
             if self.worktree_removing(directory) {
                 continue;
             }
             let count = self.state.projects.len();
             let index = self.state.register_directory(directory.clone());
+            members.push(index);
             if index == count {
                 self.init_project(index, window, cx);
+                self.state.projects[index].tab = Tab::Terminal;
             }
             self.git_states[index].workspace = Some(group.clone());
             if let Some(identity) = group.identities.get(directory) {
                 self.state
                     .associate_repository(index, identity.clone(), None);
+            }
+            if index == count {
+                self.refresh_git(index, window, cx);
+            }
+        }
+        let parent = members.first().copied();
+        if let Some(parent) = parent {
+            self.state.group_folder(parent, &members[1..]);
+            if !self.navigation.roots.contains_key(&parent) {
+                self.restore_navigation(parent, window, cx);
             }
         }
         // Removed repositories retain their drafts, but must receive the group's new membership too.
@@ -328,7 +351,12 @@ impl Tervia {
             }
         }
         if activate {
-            self.open_repository(target, window, cx);
+            if let Some(parent) = parent {
+                if new_root {
+                    self.state.projects[parent].tab = Tab::Terminal;
+                }
+                self.change_project(parent, window, cx);
+            }
         } else {
             // A background rescan must preserve whichever project the user selected meanwhile.
             self.state.active_project = previous;
@@ -336,13 +364,57 @@ impl Tervia {
         cx.notify();
     }
 
-    fn scanning_project(&self, project: usize) -> bool {
+    pub(super) fn scanning_project(&self, project: usize) -> bool {
         let root = self.git_states[project]
             .workspace
             .as_ref()
             .map(|workspace| workspace.root.as_path())
             .unwrap_or(&self.state.projects[project].root);
         self.git_scans.running(root)
+    }
+
+    fn open_scan(
+        &mut self,
+        scan: tervia::git::Scan,
+        activate: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let root = scan.discovery.root.clone();
+        self.open_workspace(scan.discovery, activate, window, cx);
+        self.git_scans.notices.insert(root, scan.notices);
+    }
+
+    pub(super) fn scan_notices(&self, project: usize) -> Vec<String> {
+        use tervia::git::ScanLimit;
+        let workspace = self.git_states[project].workspace.as_ref();
+        let root = workspace
+            .map(|workspace| &workspace.root)
+            .unwrap_or(&self.state.projects[project].root);
+        if let Some(notices) = self.git_scans.notices.get(root) {
+            notices
+                .iter()
+                .map(|notice| match notice {
+                    ScanLimit::Time(seconds) => {
+                        self.f("git_scan_time", &[("seconds", &seconds.to_string())])
+                    }
+                    ScanLimit::Directories(count) => {
+                        self.f("git_scan_directories", &[("count", &count.to_string())])
+                    }
+                    ScanLimit::Repositories(count) => {
+                        self.f("git_scan_count", &[("count", &count.to_string())])
+                    }
+                    ScanLimit::Depth(depth) => {
+                        self.f("git_scan_depth", &[("depth", &depth.to_string())])
+                    }
+                    ScanLimit::Unreadable => self.t("git_scan_unreadable").to_owned(),
+                })
+                .collect()
+        } else if workspace.is_some_and(|workspace| workspace.limited) {
+            vec![self.t("git_scan_limited").to_owned()]
+        } else {
+            Vec::new()
+        }
     }
 
     pub(super) fn rescan_repositories(
@@ -364,7 +436,7 @@ impl Tervia {
         cx.spawn_in(window, async move |weak, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { Repository::discover(&captured) })
+                .spawn(async move { Repository::scan(&captured) })
                 .await;
             let _ = weak.update_in(cx, |this, window, cx| {
                 // All siblings share one scan; a superseded completion must not reinstall an old group.
@@ -372,7 +444,7 @@ impl Tervia {
                     return;
                 }
                 match result {
-                    Ok(discovery) => this.open_workspace(discovery, false, window, cx),
+                    Ok(scan) => this.open_scan(scan, false, window, cx),
                     Err(error) => this.git_states[project].error = error,
                 }
                 cx.notify();
@@ -652,7 +724,7 @@ impl Tervia {
                     .map(PathBuf::from)
                     .unwrap_or_else(|| "/".into())
             });
-        let destination = cx.prompt_for_new_path(&root, Some("repository"));
+        let destination = cx.prompt_for_new_path(&root, Some(Repository::clone_name(&url)));
         self.git_mutating = true;
         cx.notify();
         cx.spawn_in(window, async move |weak, cx| {

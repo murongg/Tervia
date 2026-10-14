@@ -7,7 +7,6 @@ use gpui_kit::component::button::ButtonVariants as _;
 enum SidebarRow {
     Navigation(usize, Mode, &'static str, IconName, usize),
     Section(&'static str, usize),
-    Repository(PathBuf),
     Worktree(usize),
     Branch(usize),
     Tag(usize),
@@ -20,16 +19,6 @@ impl Tervia {
         let ui = &self.git_states[project];
         let p = self.git_p();
         let mut rows = Vec::new();
-        if let Some(workspace) = &ui.workspace {
-            let repositories = workspace.projects();
-            rows.push(SidebarRow::Section("git_repositories", repositories.len()));
-            if !ui.collapsed_sections.contains("git_repositories") {
-                rows.extend(repositories.into_iter().map(SidebarRow::Repository));
-            }
-            if workspace.limited {
-                rows.push(SidebarRow::Hint("git_scan_limited"));
-            }
-        }
         rows.extend([
             SidebarRow::Navigation(
                 0,
@@ -216,24 +205,6 @@ impl Tervia {
                                 cx.notify();
                             })),
                     )
-                    .when(key == "git_repositories", |row| {
-                        row.child(
-                            icon_button(
-                                "git-rescan",
-                                IconName::Search,
-                                self.t("git_scan_repositories"),
-                                p,
-                                cx,
-                            )
-                            .accessibility_label(self.t("git_scan_repositories"))
-                            .disabled(self.scanning_project(project))
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.rescan_repositories(project, window, cx)
-                                },
-                            )),
-                        )
-                    })
                     .when(key == "git_local_branches", |row| {
                         row.child(
                             icon_button(
@@ -268,57 +239,6 @@ impl Tervia {
                             )),
                         )
                     })
-                    .into_any_element()
-            }
-            SidebarRow::Repository(path) => {
-                let path = path.clone();
-                let current = self.state.projects[project].root == path
-                    || ui
-                        .workspace
-                        .as_ref()
-                        .and_then(|workspace| workspace.identities.get(&path))
-                        .zip(self.state.projects[project].repository.as_ref())
-                        .is_some_and(|(identity, current)| identity == current);
-                let label = ui
-                    .workspace
-                    .as_ref()
-                    .and_then(|workspace| path.strip_prefix(&workspace.root).ok())
-                    .filter(|path| !path.as_os_str().is_empty())
-                    .map(|path| path.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| {
-                        path.file_name()
-                            .unwrap_or_default()
-                            .to_string_lossy()
-                            .into_owned()
-                    });
-                label_button(format!("git-repository-{}", path.to_string_lossy()), "", p)
-                    .h(px(32.0))
-                    .w_full()
-                    .rounded(px(0.0))
-                    .bg(if current { p.selected } else { p.sidebar })
-                    .accessibility_label(path.to_string_lossy().into_owned())
-                    .tooltip(path.to_string_lossy().into_owned())
-                    .child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .px(px(4.0))
-                            .min_w_0()
-                            .child(icon(IconName::FolderGit2, p.muted))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_ellipsis()
-                                    .text_size(px(12.0))
-                                    .child(label),
-                            ),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_repository(path.clone(), window, cx)
-                    }))
                     .into_any_element()
             }
             SidebarRow::Branch(index) => {
@@ -444,44 +364,5 @@ impl Tervia {
                 .child(self.t(key))
                 .into_any_element(),
         }
-    }
-
-    pub(super) fn git_repository_picker(&self, cx: &mut Context<Self>) -> Div {
-        let project = self.state.active_project;
-        let ui = &self.git_states[project];
-        let p = self.git_p();
-        let mut picker = div()
-            .p(px(12.0))
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(8.0))
-            .bg(p.toolbar)
-            .child(
-                label_button("git-empty-rescan", self.t("git_scan_repositories"), p)
-                    .disabled(self.scanning_project(project))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.rescan_repositories(project, window, cx)
-                    })),
-            );
-        if let Some(workspace) = &ui.workspace {
-            for (index, path) in workspace.projects().into_iter().enumerate() {
-                let path = path.clone();
-                picker = picker.child(
-                    label_button(
-                        ("git-detected-repo", index),
-                        &path
-                            .strip_prefix(&workspace.root)
-                            .unwrap_or(&path)
-                            .to_string_lossy(),
-                        p,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_repository(path.clone(), window, cx)
-                    })),
-                );
-            }
-        }
-        picker
     }
 }
