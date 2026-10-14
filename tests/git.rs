@@ -228,6 +228,57 @@ fn branches_tags_stashes_and_history_have_complete_metadata() {
 }
 
 #[test]
+fn individual_commit_metadata_can_follow_parents_beyond_the_loaded_history() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    let root = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.write("sample.txt", "synthetic second commit\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "Synthetic second commit"]);
+    let repo = fixture.repo();
+    let page = repo.history(1).unwrap();
+    assert_eq!(page.len(), 1);
+    assert_eq!(page[0].parents, root);
+    let parent = repo.commit(&page[0].parents).unwrap();
+    assert_eq!(parent.hash, root);
+    assert!(parent.parents.is_empty());
+    assert_eq!(parent.author, "Synthetic Developer");
+    assert_eq!(parent.message, "Synthetic initial commit");
+    assert!(repo.commit("mock-missing-commit").is_err());
+}
+
+#[test]
+fn merge_details_show_changes_against_the_first_parent_and_preserve_both_parent_ids() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.git(&["checkout", "-b", "feature/mock-graph"]);
+    fixture.write("feature.txt", "synthetic feature change\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "Synthetic feature"]);
+    let feature = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.git(&["checkout", "main"]);
+    fixture.git(&[
+        "merge",
+        "--no-ff",
+        "feature/mock-graph",
+        "-m",
+        "Synthetic merge",
+    ]);
+    let repo = fixture.repo();
+    let merge = repo.history(1).unwrap().remove(0);
+    assert_eq!(merge.parents.split_whitespace().count(), 2);
+    assert_eq!(
+        merge.parents.split_whitespace().nth(1),
+        Some(feature.as_str())
+    );
+    assert!(
+        repo.show_commit(&merge.hash)
+            .unwrap()
+            .contains("+synthetic feature change")
+    );
+}
+
+#[test]
 fn symbolic_remote_heads_are_not_actionable_branches() {
     let fixture = Fixture::new();
     fixture.seed();

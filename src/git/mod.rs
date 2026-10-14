@@ -1,6 +1,7 @@
 mod command;
 mod diff;
 mod discovery;
+pub mod graph;
 pub use discovery::{Discovery, Scan, ScanLimit};
 mod operations;
 mod pipe;
@@ -41,6 +42,24 @@ pub struct Commit {
     pub when: String,
     pub message: String,
     pub refs: String,
+}
+
+const COMMIT_FORMAT: &str = "--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%D%x00";
+
+fn parse_commits(output: &[u8]) -> Vec<Commit> {
+    let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+    fields
+        .chunks(6)
+        .filter(|parts| parts.len() == 6)
+        .map(|parts| Commit {
+            hash: String::from_utf8_lossy(parts[0]).trim().into(),
+            parents: String::from_utf8_lossy(parts[1]).into(),
+            author: String::from_utf8_lossy(parts[2]).into(),
+            when: String::from_utf8_lossy(parts[3]).into(),
+            message: String::from_utf8_lossy(parts[4]).into(),
+            refs: String::from_utf8_lossy(parts[5]).into(),
+        })
+        .collect()
 }
 #[derive(Clone, Debug)]
 pub struct Remote {
@@ -315,33 +334,26 @@ impl Repository {
             "HEAD",
             "--date-order",
             &format!("--max-count={}", limit.min(2000)),
-            "--format=%H%x00%P%x00%an%x00%aI%x00%s%x00%D%x00",
+            COMMIT_FORMAT,
         ])?;
-        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
-        Ok(fields
-            .chunks(6)
-            .filter_map(|parts| {
-                if parts.len() < 6 {
-                    return None;
-                }
-                Some(Commit {
-                    hash: String::from_utf8_lossy(parts[0]).trim().into(),
-                    parents: String::from_utf8_lossy(parts[1]).into(),
-                    author: String::from_utf8_lossy(parts[2]).into(),
-                    when: String::from_utf8_lossy(parts[3]).into(),
-                    message: String::from_utf8_lossy(parts[4]).into(),
-                    refs: String::from_utf8_lossy(parts[5]).into(),
-                })
-            })
-            .collect())
+        Ok(parse_commits(&output))
+    }
+    pub fn commit(&self, hash: &str) -> Result<Commit, String> {
+        reference(hash)?;
+        parse_commits(&self.run(&["log", "-1", COMMIT_FORMAT, hash, "--"])?)
+            .into_iter()
+            .next()
+            .ok_or_else(|| "Commit metadata is unavailable".into())
     }
     pub fn show_commit(&self, hash: &str) -> Result<String, String> {
         reference(hash)?;
+        // A merge's first-parent diff shows the changes introduced into its destination branch.
         patch(self.run(&[
             "show",
             "--no-ext-diff",
             "--no-textconv",
             "--format=fuller",
+            "--diff-merges=first-parent",
             "--stat",
             "--patch",
             hash,

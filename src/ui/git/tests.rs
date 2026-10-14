@@ -4,6 +4,170 @@ use gpui_kit::AppContext as _;
 use gpui_test::TestAppContext;
 use std::fs;
 
+fn synthetic_commit(hash: &str, parents: &str) -> tervia::git::Commit {
+    tervia::git::Commit {
+        hash: hash.into(),
+        parents: parents.into(),
+        author: "Synthetic Developer".into(),
+        when: "2026-01-01T00:00:00Z".into(),
+        message: "Synthetic commit".into(),
+        refs: String::new(),
+    }
+}
+
+#[gpui_test::test]
+fn commit_file_navigation_selects_the_target_and_full_metadata_can_be_expanded(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/commit-files".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot {
+                commits: vec![synthetic_commit("mock-tip", "mock-parent")],
+                ..Default::default()
+            };
+            let ui = &mut this.git_states[project];
+            ui.mode = Mode::History;
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            let mut patch = "commit mock-tip\nAuthor: Synthetic Developer\n\n    Synthetic body\n\ndiff --git a/first.rs b/first.rs\nnew file mode 100644\n--- /dev/null\n+++ b/first.rs\n@@ -0,0 +1,80 @@\n".to_owned();
+            for index in 0..80 {
+                patch.push_str(&format!("+// Synthetic line {index}\n"));
+            }
+            patch.push_str("diff --git a/second.rs b/second.rs\nnew file mode 100644\n--- /dev/null\n+++ b/second.rs\n@@ -0,0 +1 @@\n+// Synthetic second file\n");
+            let generation = ui.begin_detail(Detail::Commit("mock-tip".into()), cx);
+            ui.install_detail(generation, Ok(patch), cx);
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let file = cx
+        .debug_bounds("git-commit-file-1")
+        .expect("Commit files have a navigation list");
+    cx.simulate_click(file.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| {
+        view.update(cx, |this, _| {
+            assert_eq!(
+                this.git_states[this.state.active_project]
+                    .commit_file
+                    .as_ref()
+                    .unwrap()
+                    .as_str(),
+                "second.rs"
+            );
+        })
+    });
+    assert!(cx.debug_bounds("git-commit-metadata").is_none());
+    let toggle = cx.debug_bounds("git-toggle-commit-metadata").unwrap();
+    cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-commit-metadata").is_some(),
+        "Full original metadata remains accessible"
+    );
+}
+
+#[gpui_test::test]
+fn history_graph_is_cached_and_rebuilt_when_parent_relationships_change(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/graph-cache".into());
+            this.init_project(project, window, cx);
+            let mut snapshot = Snapshot {
+                commits: vec![synthetic_commit("mock-child", "mock-parent")],
+                ..Default::default()
+            };
+            let ui = &mut this.git_states[project];
+            ui.reconcile_snapshot(&snapshot, cx);
+            assert_eq!(ui.history_graph.rows.len(), 1);
+            assert_eq!(ui.history_graph.rows[0].below.len(), 1);
+            let graph = ui.history_graph.clone();
+            ui.snapshot = Some(std::sync::Arc::new(snapshot.clone()));
+            ui.reconcile_snapshot(&snapshot, cx);
+            assert!(std::sync::Arc::ptr_eq(&graph, &ui.history_graph));
+            snapshot.commits[0].parents.clear();
+            ui.reconcile_snapshot(&snapshot, cx);
+            assert!(!std::sync::Arc::ptr_eq(&graph, &ui.history_graph));
+            assert!(ui.history_graph.rows[0].below.is_empty());
+        })
+    });
+}
+
+#[gpui_test::test]
+fn parent_navigation_clears_filters_and_commit_metadata_rejects_stale_results(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory(root.path().into());
+            this.init_project(project, window, cx);
+            let snapshot = Snapshot {
+                commits: vec![
+                    synthetic_commit("mock-child", "mock-parent"),
+                    synthetic_commit("mock-parent", "mock-unloaded"),
+                ],
+                ..Default::default()
+            };
+            let ui = &mut this.git_states[project];
+            ui.repository = Some(repo);
+            ui.mode = Mode::History;
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            ui.first
+                .update(cx, |input, cx| input.set_value("mock-child", window, cx));
+            this.open_git_commit(project, "mock-parent".into(), window, cx);
+            let ui = &mut this.git_states[project];
+            assert!(ui.first.read(cx).value().is_empty());
+            assert!(ui.selected == Some(Detail::Commit("mock-parent".into())));
+            assert_eq!(ui.commit.as_ref().unwrap().parents, "mock-unloaded");
+            let parent_generation = ui.generation;
+            this.open_git_commit(project, "mock-unloaded".into(), window, cx);
+            let ui = &mut this.git_states[project];
+            assert!(ui.selected == Some(Detail::Commit("mock-unloaded".into())));
+            assert!(ui.commit.is_none());
+            ui.install_commit(
+                parent_generation,
+                synthetic_commit("mock-parent", "mock-unloaded"),
+            );
+            assert!(ui.commit.is_none());
+            ui.install_commit(ui.generation, synthetic_commit("mock-unloaded", ""));
+            assert_eq!(ui.commit.as_ref().unwrap().hash, "mock-unloaded");
+            ui.clear_detail(cx);
+            assert!(ui.commit.is_none());
+        })
+    });
+}
+
 #[gpui_test::test]
 fn worktree_open_reuses_project_state_and_removal_refuses_any_cached_dirty_draft(
     cx: &mut TestAppContext,

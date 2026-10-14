@@ -251,7 +251,7 @@ impl Tervia {
             Mode::History => v_resizable(("git-history-layout", project))
                 .child(
                     resizable_panel()
-                        .size(px(260.0))
+                        .size(px(320.0))
                         .size_range(px(135.0)..px(500.0))
                         .flex_none()
                         .child(self.git_history(snapshot, cx)),

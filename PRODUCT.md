@@ -32,4 +32,4 @@ Bring terminal use, Git review, file navigation, and small code edits into one w
 Tervia. Quiet, compact, readable developer tooling.
 
 ## Open Decisions
-Terminal session persistence, a commit graph, advanced history editing, hosting-provider APIs, and extended terminal protocols are future work. Windows GUI behavior and Linux desktop interactions still require hands-on platform validation.
+Terminal session persistence, advanced history editing, hosting-provider APIs, and extended terminal protocols are future work. Windows GUI behavior and Linux desktop interactions still require hands-on platform validation.

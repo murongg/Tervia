@@ -1,5 +1,7 @@
 mod branches;
 mod changes;
+mod commits;
+mod graph;
 mod history;
 mod navigation;
 mod remotes;
@@ -53,10 +55,12 @@ pub(super) struct GitUi {
     workspace: Option<Arc<tervia::git::Discovery>>,
     changes_scroll: UniformListScrollHandle,
     history_scroll: UniformListScrollHandle,
+    history_graph: Arc<tervia::git::graph::Graph>,
     sidebar_scroll: UniformListScrollHandle,
     branches_scroll: UniformListScrollHandle,
     raw_scroll: UniformListScrollHandle,
     metadata_scroll: UniformListScrollHandle,
+    commit_files_scroll: UniformListScrollHandle,
     stash_scroll: UniformListScrollHandle,
     worktrees: worktrees::WorktreesUi,
     collapsed_changes: std::collections::BTreeSet<u8>,
@@ -74,6 +78,8 @@ pub(super) struct GitUi {
     detail: String,
     raw_lines: Arc<[SharedString]>,
     metadata_lines: Arc<[SharedString]>,
+    commit: Option<tervia::git::Commit>,
+    commit_file: Option<SharedString>,
     selected: Option<Detail>,
     generation: usize,
     detail_loading: bool,
@@ -86,6 +92,17 @@ pub(super) struct GitUi {
 
 impl GitUi {
     fn reconcile_snapshot(&mut self, snapshot: &Snapshot, cx: &mut Context<Tervia>) {
+        if !self.snapshot.as_ref().is_some_and(|previous| {
+            previous.commits.len() == snapshot.commits.len()
+                && previous
+                    .commits
+                    .iter()
+                    .zip(&snapshot.commits)
+                    .all(|(old, new)| old.hash == new.hash && old.parents == new.parents)
+        }) {
+            // Lay out the whole loaded DAG once; viewport boundaries must not reset its lanes.
+            self.history_graph = Arc::new(tervia::git::graph::Graph::new(&snapshot.commits));
+        }
         if !self
             .snapshot
             .as_ref()
@@ -113,6 +130,8 @@ impl GitUi {
         self.detail.clear();
         self.raw_lines = Arc::from([]);
         self.metadata_lines = Arc::from([]);
+        self.commit = None;
+        self.commit_file = None;
         self.detail_loading = false;
         self.diff.update(cx, |state, cx| state.set_files([], cx));
     }
@@ -121,12 +140,29 @@ impl GitUi {
             self.detail.clear();
             self.raw_lines = Arc::from([]);
             self.metadata_lines = Arc::from([]);
+            self.commit = None;
+            self.commit_file = None;
             self.diff.update(cx, |state, cx| state.set_files([], cx));
+        }
+        if let Detail::Commit(hash) = &detail
+            && let Some(commit) = self
+                .snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.commits.iter().find(|commit| &commit.hash == hash))
+        {
+            self.commit = Some(commit.clone());
         }
         self.generation += 1;
         self.selected = Some(detail);
         self.detail_loading = true;
         self.generation
+    }
+
+    fn install_commit(&mut self, generation: usize, commit: tervia::git::Commit) {
+        // Metadata and the patch share the same owner, including navigation beyond a loaded page.
+        if self.generation == generation {
+            self.commit = Some(commit);
+        }
     }
 
     fn install_detail(
@@ -144,6 +180,7 @@ impl GitUi {
             Ok(detail) => {
                 if self.detail != detail {
                     let files = DiffFile::parse(&detail).unwrap_or_default();
+                    self.commit_file = files.first().map(|file| file.path().clone());
                     self.diff.update(cx, |state, cx| state.set_files(files, cx));
                     let commit = matches!(self.selected, Some(Detail::Commit(_)));
                     let body = if commit {
@@ -194,15 +231,17 @@ impl GitUi {
             workspace: None,
             changes_scroll: UniformListScrollHandle::new(),
             history_scroll: UniformListScrollHandle::new(),
+            history_graph: Arc::new(tervia::git::graph::Graph::default()),
             sidebar_scroll: UniformListScrollHandle::new(),
             branches_scroll: UniformListScrollHandle::new(),
             raw_scroll: UniformListScrollHandle::new(),
             metadata_scroll: UniformListScrollHandle::new(),
+            commit_files_scroll: UniformListScrollHandle::new(),
             stash_scroll: UniformListScrollHandle::new(),
             worktrees: worktrees::WorktreesUi::new(window, cx),
             collapsed_changes: Default::default(),
             collapsed_folders: Default::default(),
-            collapsed_sections: Default::default(),
+            collapsed_sections: std::collections::BTreeSet::from(["git_commit_metadata"]),
             change_rows: Arc::from([]),
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),
@@ -215,6 +254,8 @@ impl GitUi {
             detail: String::new(),
             raw_lines: Arc::from([]),
             metadata_lines: Arc::from([]),
+            commit: None,
+            commit_file: None,
             selected: None,
             generation: 0,
             detail_loading: false,
@@ -589,12 +630,20 @@ impl Tervia {
         };
         let ui = &mut self.git_states[project];
         let generation = ui.begin_detail(detail.clone(), cx);
+        let cached_commit = ui.commit.clone();
         cx.notify();
         cx.spawn_in(window, async move |weak, cx| {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    match detail {
+                    let commit = match &detail {
+                        Detail::Commit(hash) => Some(match cached_commit {
+                            Some(commit) => commit,
+                            None => repository.commit(hash)?,
+                        }),
+                        _ => None,
+                    };
+                    let result = match detail {
                         Detail::File(file, side) => repository.diff(&file, side),
                         Detail::Commit(hash) => repository.show_commit(&hash),
                         Detail::Stash(reference) => repository.show_stash(&reference),
@@ -614,12 +663,21 @@ impl Tervia {
                             }
                             Ok(output)
                         }
-                    }
+                    };
+                    result.map(|detail| (detail, commit))
                 })
                 .await;
             let _ = weak.update_in(cx, |this, _, cx| {
                 let ui = &mut this.git_states[project];
-                ui.install_detail(generation, result, cx);
+                match result {
+                    Ok((detail, commit)) => {
+                        ui.install_detail(generation, Ok(detail), cx);
+                        if let Some(commit) = commit {
+                            ui.install_commit(generation, commit);
+                        }
+                    }
+                    Err(error) => ui.install_detail(generation, Err(error), cx),
+                }
                 cx.notify();
             });
         })
