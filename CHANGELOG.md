@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.2.0 (2026-10-14)
+
+### Features
+
+- **workspace:** unify directory navigation (ab428dfe)
+- **updates:** schedule configurable automatic checks (7b0452c9)
+- **updates:** add verified desktop updates and restart (9f8c5d7d)
+
+### Fixes
+
+- **files:** start explorer at directory contents (ddac56ce)
+- **workspace:** restore open projects after restart (38fae62f)
+- **ui:** simplify welcome screen styling (72f4c622)
+- **ui:** toggle window zoom on titlebar double-click (ac39ae72)
+
+### Documentation
+
+- **updates:** show automatic check settings (d4cd323d)
+
+### Other changes
+
+- **workspace:** make nested directory selectors portable (c5ac7c61)
+- add pull request checks across desktop platforms (e73f0c1b)
+- restrict native workflow triggers to main pushes (78c61db5)
+- **workspace:** make save failure checks portable (d74dc5d7)
+- **updates:** use host-native paths in bundle checks (79ed794c)
+
 ## v0.1.2 (2026-10-13)
 
 ### Fixes
