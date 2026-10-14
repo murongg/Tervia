@@ -4,7 +4,7 @@ TERVIA_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$TERVIA_ROOT"
 
 if [[ "${1:-}" != "--no-build" ]]; then
-  cargo build --features native
+  cargo build --release --features native
 fi
 
 TERVIA_PACKAGE_ID="$(cargo pkgid --locked --offline)"
@@ -14,7 +14,7 @@ TERVIA_VERSION="${TERVIA_VERSION%%[-+]*}"
 
 TERVIA_APP="$TERVIA_ROOT/build/Tervia.app"
 mkdir -p "$TERVIA_APP/Contents/MacOS" "$TERVIA_APP/Contents/Resources" "$TERVIA_ROOT/build/Tervia.iconset"
-cp "$TERVIA_ROOT/target/debug/tervia" "$TERVIA_APP/Contents/MacOS/Tervia"
+cp "$TERVIA_ROOT/target/release/tervia" "$TERVIA_APP/Contents/MacOS/Tervia"
 cat "$TERVIA_ROOT/assets/lobe-license.txt" "$TERVIA_ROOT/assets/hermes-license.txt" > "$TERVIA_APP/Contents/Resources/ThirdPartyNotices.txt"
 
 # Regenerate from the shared SVG so a cached PNG cannot hide a logo update.
