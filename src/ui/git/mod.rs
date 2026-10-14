@@ -784,6 +784,23 @@ impl Tervia {
         operation: Operation,
         cx: &mut Context<Self>,
     ) -> Button {
+        self.git_button(
+            project,
+            label_button(id, self.t(key), self.git_p()),
+            key,
+            operation,
+            cx,
+        )
+    }
+
+    fn git_button(
+        &self,
+        project: usize,
+        button: Button,
+        key: &'static str,
+        operation: Operation,
+        cx: &mut Context<Self>,
+    ) -> Button {
         let confirm = matches!(
             operation,
             Operation::DeleteBranch(_)
@@ -803,7 +820,7 @@ impl Tervia {
             } => format!("{} · {}", reference, &expected[..expected.len().min(12)]),
             _ => self.state.projects[project].branch.clone(),
         };
-        label_button(id, self.t(key), self.git_p())
+        button
             .custom(icon_style(self.git_p(), cx))
             .disabled(
                 self.git_states[project].busy

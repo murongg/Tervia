@@ -1,7 +1,7 @@
 use super::super::controls::{icon, icon_button};
 use super::*;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::diff::Diff;
+use gpui_kit::component::diff::{Diff, DiffSide};
 use gpui_kit::component::resizable::{h_resizable, resizable_panel};
 
 pub(super) fn commit_patch(detail: &str) -> &str {
@@ -9,6 +9,27 @@ pub(super) fn commit_patch(detail: &str) -> &str {
         .find("\ndiff --git ")
         .map(|offset| &detail[offset + 1..])
         .unwrap_or_default()
+}
+
+pub(super) fn hunk_lines(header: &str) -> Option<(DiffSide, usize, usize)> {
+    let mut fields = header.strip_prefix("@@ ")?.split_whitespace();
+    let parse = |field: &str, prefix| -> Option<(usize, usize)> {
+        let field = field.strip_prefix(prefix)?;
+        let (start, count) = field.split_once(',').unwrap_or((field, "1"));
+        Some((start.parse().ok()?, count.parse().ok()?))
+    };
+    let original = parse(fields.next()?, '-')?;
+    let modified = parse(fields.next()?, '+')?;
+    if fields.next()? != "@@" {
+        return None;
+    }
+    // A hunk with no remaining lines must use its original line numbers.
+    let (side, (start, count)) = if modified.1 == 0 {
+        (DiffSide::Original, original)
+    } else {
+        (DiffSide::Modified, modified)
+    };
+    Some((side, start, start.checked_add(count.checked_sub(1)?)?))
 }
 
 impl Tervia {
@@ -272,7 +293,7 @@ impl Tervia {
             && !ui.diff.read(cx).files().is_empty()
             && !matches!(ui.selected, Some(Detail::Conflict(_)))
         {
-            let diff = Diff::new(&ui.diff).bg(p.background).border_0();
+            let diff = self.git_diff(project, cx);
             if matches!(ui.selected, Some(Detail::Commit(_))) && !ui.review.focused {
                 h_resizable(("git-commit-diff-layout", project))
                     .child(
@@ -396,7 +417,6 @@ impl Tervia {
             .bg(p.background)
             .child(header)
             .child(tools)
-            .child(self.git_hunks(cx))
             .when_some(ui.commit.as_ref(), |viewer, commit| {
                 viewer.child(self.git_commit_metadata(project, commit, cx))
             })
@@ -436,58 +456,103 @@ impl Tervia {
             .child(content)
     }
 
-    fn git_hunks(&self, cx: &mut Context<Self>) -> Div {
-        let project = self.state.active_project;
+    fn git_diff(&self, project: usize, cx: &mut Context<Self>) -> Diff {
         let ui = &self.git_states[project];
+        let p = self.git_p();
+        let diff = Diff::new(&ui.diff).bg(p.background).border_0();
         let Some(Detail::File(file, side)) = &ui.selected else {
-            return div();
+            return diff;
         };
         if file.conflicted || (*side == Side::Worktree && file.worktree == '?') {
-            return div();
+            return diff;
         }
+        let Some(path) = ui
+            .diff
+            .read(cx)
+            .files()
+            .first()
+            .map(|file| file.path().clone())
+        else {
+            return diff;
+        };
+        let key = if *side == Side::Index {
+            "git_unstage_hunk"
+        } else {
+            "git_stage_hunk"
+        };
+        let hint = self.t(if *side == Side::Index {
+            "git_unstage_hunks_hint"
+        } else {
+            "git_stage_hunks_hint"
+        });
+        let action = self.t(key);
         let expected: std::sync::Arc<str> = ui.detail.as_str().into();
-        let mut bar = div()
-            .id("git-hunks")
-            .flex()
-            .gap(px(5.0))
-            .px(px(12.0))
-            .py(px(5.0))
-            .bg(self.git_p().toolbar)
-            .overflow_x_scroll();
-        for (index, _) in ui
+        // Stage indices belong to the raw patch, before an invalid header is skipped.
+        let actions: Vec<_> = ui
             .detail
             .lines()
             .filter(|line| line.starts_with("@@ "))
             .enumerate()
-        {
-            let operation = Operation::Hunk {
-                file: file.clone(),
-                side: *side,
-                index,
-                expected: expected.clone(),
-            };
-            bar = bar.child(
-                self.git_action(
-                    ("git-hunk", index),
-                    if *side == Side::Index {
-                        "git_unstage_hunk"
+            .filter_map(|(index, header)| {
+                let (line_side, start, end) = hunk_lines(header)?;
+                let range = if start == end {
+                    start.to_string()
+                } else {
+                    format!("{start}–{end}")
+                };
+                let lines = self.appearance.language.format(
+                    if line_side == DiffSide::Original {
+                        "git_hunk_original_lines"
                     } else {
-                        "git_stage_hunk"
+                        "git_hunk_lines"
                     },
-                    operation,
+                    &[("range", &range)],
+                );
+                let label = self.appearance.language.format(
+                    "git_hunk_action_label",
+                    &[("action", action), ("lines", &lines)],
+                );
+                let operation = Operation::Hunk {
+                    file: file.clone(),
+                    side: *side,
+                    index,
+                    expected: expected.clone(),
+                };
+                Some((index, operation, label))
+            })
+            .collect();
+        let owner = cx.entity().downgrade();
+        let glyph = if *side == Side::Index {
+            IconName::Minus
+        } else {
+            IconName::Plus
+        };
+        diff.render_hunk_suffix(move |file, index, _, cx| {
+            if file.path() != &path {
+                return div();
+            }
+            let Some((_, operation, label)) = actions.iter().find(|action| action.0 == index)
+            else {
+                return div();
+            };
+            let button = owner.update(cx, |this, cx| {
+                let button = icon_button(
+                    ("git-hunk", index),
+                    glyph,
+                    format!("{label}\n{hint}"),
+                    p,
                     cx,
                 )
-                .label(format!(
-                    "{} {}",
-                    self.t(if *side == Side::Index {
-                        "git_unstage_hunk"
-                    } else {
-                        "git_stage_hunk"
-                    }),
-                    index + 1
-                )),
-            );
-        }
-        div().flex_shrink_0().child(bar)
+                .debug_selector(move || format!("git-hunk-{index}"))
+                .accessibility_label(label.clone());
+                this.git_button(project, button, key, operation.clone(), cx)
+            });
+            div()
+                .flex()
+                .flex_shrink_0()
+                .font_family(tervia::platform::Platform::CURRENT.ui_font())
+                .text_size(px(12.0))
+                .when_some(button.ok(), |row, button| row.child(button))
+        })
     }
 }
