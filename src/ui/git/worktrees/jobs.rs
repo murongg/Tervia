@@ -101,7 +101,7 @@ impl Tervia {
         };
         let token = self.git_states[owner].worktrees.navigation.begin();
         cx.spawn_in(window, async move |weak, cx| {
-            let result = cx
+            let result: Result<PathBuf, tervia::git::Error> = cx
                 .background_executor()
                 .spawn(async move {
                     let target = Repository::open(&tree.path)?;
@@ -119,7 +119,7 @@ impl Tervia {
                 }
                 match result {
                     Ok(root) => this.activate_worktree(root, window, cx),
-                    Err(error) => this.git_states[owner].error = error,
+                    Err(error) => this.git_states[owner].error.action(error),
                 }
                 cx.notify();
             });
@@ -204,7 +204,8 @@ impl Tervia {
         let (title, description) = match &operation {
             WorktreeOperation::Remove(tree) => {
                 if !self.worktree_removal_safe(&tree.path) {
-                    self.git_states[owner].error = self.t("worktree_unsaved").into();
+                    let message = self.t("worktree_unsaved");
+                    self.git_states[owner].error.action(message);
                     cx.notify();
                     return;
                 }
@@ -255,7 +256,8 @@ impl Tervia {
                         && (!this.worktree_removal_safe(&tree.path)
                             || this.state.project().root.starts_with(&tree.path))
                     {
-                        this.git_states[owner].error = this.t("worktree_unsaved").into();
+                        let message = this.t("worktree_unsaved");
+                        this.git_states[owner].error.action(message);
                     } else {
                         this.worktree_job(owner, operation, window, cx);
                     }
@@ -314,14 +316,15 @@ impl Tervia {
                             this.retire_worktree(path, cx);
                         }
                     }
-                    Err(error) => this.git_states[owner].error = error,
+                    Err(error) => this.git_states[owner].error.action(error),
                 }
                 match snapshot {
                     Ok(snapshot) => {
                         this.git_states[owner].reconcile_snapshot(&snapshot, cx);
                         this.git_states[owner].snapshot = Some(Arc::new(snapshot));
+                        this.git_states[owner].error.recovered();
                     }
-                    Err(error) => this.git_states[owner].error = error,
+                    Err(error) => this.git_states[owner].fail_snapshot(error, error::Origin::Probe),
                 }
                 cx.notify();
             });

@@ -1,6 +1,8 @@
 mod command;
 mod diff;
 mod discovery;
+mod error;
+pub use error::{Error, ErrorKind};
 pub mod graph;
 pub use discovery::{Discovery, Scan, ScanLimit};
 mod operations;
@@ -153,13 +155,13 @@ fn text(bytes: Vec<u8>) -> String {
         .trim_end_matches(['\n', '\r'])
         .into()
 }
-fn patch(bytes: Vec<u8>) -> Result<String, String> {
+fn patch(bytes: Vec<u8>) -> Result<String, Error> {
     String::from_utf8(bytes).map_err(|_| {
         "Diff contains non-UTF-8 text. Stage the whole file or inspect it in the terminal.".into()
     })
 }
 
-fn reference(value: &str) -> Result<&str, String> {
+fn reference(value: &str) -> Result<&str, Error> {
     if value.is_empty() || value.starts_with('-') || value.contains(['\0', '\n', '\r']) {
         Err("Invalid or empty Git reference".into())
     } else {
@@ -168,37 +170,68 @@ fn reference(value: &str) -> Result<&str, String> {
 }
 
 impl Repository {
-    pub fn open(directory: &Path) -> Result<Self, String> {
+    pub fn open(directory: &Path) -> Result<Self, Error> {
         let root = command::run(directory, &arguments(&["rev-parse", "--show-toplevel"]))?;
+        Self::from_root(root)
+    }
+
+    pub fn probe(directory: &Path) -> Result<Option<Self>, Error> {
+        let directory = directory.canonicalize()?;
+        if !directory.metadata()?.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotADirectory,
+                "Select a project directory",
+            )
+            .into());
+        }
+        // A traversable but unreadable folder can still produce Git's ordinary
+        // absence diagnostic; it must remain an inaccessible-path error.
+        std::fs::read_dir(&directory)?;
+        let args = arguments(&["rev-parse", "--show-toplevel"]);
+        match command::probe(&directory, &args) {
+            Ok(root) => Self::from_root(root).map(Some),
+            Err(error) if ordinary_directory_failure(&error) => match has_git_marker(&directory) {
+                Ok(false) => Ok(None),
+                Ok(true) => Err(error),
+                Err(metadata_error) => Err(metadata_error.with_process(
+                    &directory,
+                    &args,
+                    error.status(),
+                    error.stdout().to_vec(),
+                    error.stderr().to_vec(),
+                )),
+            },
+            Err(error) => Err(error),
+        }
+    }
+
+    fn from_root(root: Vec<u8>) -> Result<Self, Error> {
         // Git prints ordinary drive paths on Windows, while workspace identities use
         // canonical \\?\ paths. Normalize here so containment and ownership comparisons agree.
         let root = status::path(root.strip_suffix(b"\n").unwrap_or(&root))?
             .canonicalize()
-            .map_err(|error| error.to_string())?;
+            .map_err(Error::from)?;
         let git_dir = command::run(&root, &arguments(&["rev-parse", "--absolute-git-dir"]))?;
         let git_dir = status::path(git_dir.strip_suffix(b"\n").unwrap_or(&git_dir))?
             .canonicalize()
-            .map_err(|error| error.to_string())?;
+            .map_err(Error::from)?;
         let common = command::run(&root, &arguments(&["rev-parse", "--git-common-dir"]))?;
         let common = status::path(common.strip_suffix(b"\n").unwrap_or(&common))?;
-        let common_dir = root
-            .join(common)
-            .canonicalize()
-            .map_err(|error| error.to_string())?;
+        let common_dir = root.join(common).canonicalize().map_err(Error::from)?;
         Ok(Self {
             root,
             git_dir,
             common_dir,
         })
     }
-    fn run(&self, values: &[&str]) -> Result<Vec<u8>, String> {
+    fn run(&self, values: &[&str]) -> Result<Vec<u8>, Error> {
         command::run(&self.root, &arguments(values))
     }
-    pub fn initialize(directory: &Path) -> Result<Self, String> {
+    pub fn initialize(directory: &Path) -> Result<Self, Error> {
         command::run(directory, &arguments(&["init"]))?;
         Self::open(directory)
     }
-    pub fn clone_into(url: &str, destination: &Path) -> Result<Self, String> {
+    pub fn clone_into(url: &str, destination: &Path) -> Result<Self, Error> {
         reference(url)?;
         let parent = destination.parent().ok_or("Select a clone destination")?;
         let args = vec![
@@ -227,7 +260,7 @@ impl Repository {
             name
         }
     }
-    pub fn status(&self) -> Result<Status, String> {
+    pub fn status(&self) -> Result<Status, Error> {
         let mut status = status::parse(&self.run(&[
             "status",
             "--porcelain=v2",
@@ -252,7 +285,7 @@ impl Repository {
         }
         None
     }
-    pub fn snapshot(&self, limit: usize) -> Result<Snapshot, String> {
+    pub fn snapshot(&self, limit: usize) -> Result<Snapshot, Error> {
         let status = self.status()?;
         let branches = text(self.run(&[
             "for-each-ref",
@@ -325,7 +358,7 @@ impl Repository {
             worktrees: self.worktrees()?,
         })
     }
-    pub fn history(&self, limit: usize) -> Result<Vec<Commit>, String> {
+    pub fn history(&self, limit: usize) -> Result<Vec<Commit>, Error> {
         // --all also includes stash's private index/untracked parents; those belong to the stash view.
         let output = self.run(&[
             "log",
@@ -339,14 +372,14 @@ impl Repository {
         ])?;
         Ok(parse_commits(&output))
     }
-    pub fn commit(&self, hash: &str) -> Result<Commit, String> {
+    pub fn commit(&self, hash: &str) -> Result<Commit, Error> {
         reference(hash)?;
         parse_commits(&self.run(&["log", "-1", COMMIT_FORMAT, hash, "--"])?)
             .into_iter()
             .next()
             .ok_or_else(|| "Commit metadata is unavailable".into())
     }
-    pub fn show_commit(&self, hash: &str) -> Result<String, String> {
+    pub fn show_commit(&self, hash: &str) -> Result<String, Error> {
         reference(hash)?;
         // A merge's first-parent diff shows the changes introduced into its destination branch.
         patch(self.run(&[
@@ -361,7 +394,7 @@ impl Repository {
             "--",
         ])?)
     }
-    pub fn show_stash(&self, name: &str) -> Result<String, String> {
+    pub fn show_stash(&self, name: &str) -> Result<String, Error> {
         reference(name)?;
         patch(self.run(&[
             "stash",
@@ -373,7 +406,7 @@ impl Repository {
             name,
         ])?)
     }
-    pub fn diff(&self, file: &FileStatus, side: Side) -> Result<String, String> {
+    pub fn diff(&self, file: &FileStatus, side: Side) -> Result<String, Error> {
         if file.conflicted {
             return patch(self.run_path(
                 &["diff", "--no-ext-diff", "--no-textconv", "--cc", "--"],
@@ -407,7 +440,7 @@ impl Repository {
         }
         patch(command::run(&self.root, &args)?)
     }
-    fn run_path(&self, values: &[&str], path: &Path) -> Result<Vec<u8>, String> {
+    fn run_path(&self, values: &[&str], path: &Path) -> Result<Vec<u8>, Error> {
         let mut args = arguments(values);
         args.push(path.as_os_str().into());
         command::run(&self.root, &args)
@@ -418,12 +451,169 @@ impl Repository {
     pub fn write_file(&self, path: &Path, contents: &str, expected: &str) -> Result<(), String> {
         crate::files::write(&self.root, path, contents, expected)
     }
-    pub fn conflict_content(&self, path: &Path, stage: usize) -> Result<String, String> {
+    pub fn conflict_content(&self, path: &Path, stage: usize) -> Result<String, Error> {
         if !(1..=3).contains(&stage) {
             return Err("Invalid conflict stage".into());
         }
         let mut object = OsString::from(format!(":{stage}:"));
         object.push(path.as_os_str());
         Ok(text(command::run(&self.root, &["show".into(), object])?))
+    }
+}
+
+fn ordinary_directory_failure(error: &Error) -> bool {
+    // Git has no structured "not a repository" result. Only these known C-locale
+    // diagnostics from the internal probe qualify; new diagnostics stay errors.
+    if error.kind() != ErrorKind::Command
+        || error.exit_code() != Some(128)
+        || !error.stdout().is_empty()
+    {
+        return false;
+    }
+    let diagnostic = error.stderr().trim_ascii();
+    if diagnostic == b"fatal: not a git repository (or any of the parent directories): .git" {
+        return true;
+    }
+    let Some(mount) = diagnostic
+        .strip_prefix(b"fatal: not a git repository (or any parent up to mount point ")
+        .and_then(|value| {
+            value.strip_suffix(
+                b")\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).",
+            )
+        })
+    else {
+        return false;
+    };
+    !mount.contains(&b'\n')
+        && !mount.contains(&b'\r')
+        && status::path(mount).is_ok_and(|path| path.is_absolute())
+}
+
+fn has_git_marker(directory: &Path) -> Result<bool, Error> {
+    // Git also emits its absence diagnostic for damaged metadata. Inspect every
+    // ancestor conservatively, and use symlink_metadata so dangling markers count.
+    for ancestor in directory.ancestors() {
+        let marker = ancestor.join(".git");
+        match std::fs::symlink_metadata(&marker) {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(
+                    Error::from(error).context(&format!("Cannot inspect {}", marker.display()))
+                );
+            }
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn absence_classification_requires_exact_diagnostic_status_and_empty_stdout() {
+        #[cfg(unix)]
+        use std::os::unix::process::ExitStatusExt;
+        #[cfg(windows)]
+        use std::os::windows::process::ExitStatusExt;
+        let status = |code| {
+            #[cfg(unix)]
+            {
+                std::process::ExitStatus::from_raw(code << 8)
+            }
+            #[cfg(windows)]
+            {
+                std::process::ExitStatus::from_raw(code as u32)
+            }
+        };
+        let diagnostic = b"fatal: not a git repository (or any of the parent directories): .git\n";
+        let error = |code, stdout: Vec<u8>, stderr: Vec<u8>| {
+            Error::process(
+                ErrorKind::Command,
+                Path::new("mock-project"),
+                &arguments(&["rev-parse", "--show-toplevel"]),
+                Some(status(code)),
+                stdout,
+                stderr,
+                String::new(),
+            )
+        };
+        assert!(ordinary_directory_failure(&error(
+            128,
+            Vec::new(),
+            diagnostic.to_vec()
+        )));
+        assert!(!ordinary_directory_failure(&error(
+            1,
+            Vec::new(),
+            diagnostic.to_vec()
+        )));
+        assert!(!ordinary_directory_failure(&error(
+            128,
+            b"synthetic stdout".to_vec(),
+            diagnostic.to_vec()
+        )));
+        assert!(!ordinary_directory_failure(&error(
+            128,
+            Vec::new(),
+            [diagnostic.as_slice(), b"synthetic extra failure\n"].concat()
+        )));
+        assert!(!ordinary_directory_failure(&Error::from(
+            String::from_utf8_lossy(diagnostic).into_owned()
+        )));
+        let mount_diagnostic = |path| {
+            format!(
+            "fatal: not a git repository (or any parent up to mount point {path})\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n"
+        ).into_bytes()
+        };
+        let mount = if cfg!(windows) {
+            "C:/synthetic"
+        } else {
+            "/synthetic"
+        };
+        assert!(ordinary_directory_failure(&error(
+            128,
+            Vec::new(),
+            mount_diagnostic(mount)
+        )));
+        for path in ["", "synthetic-relative", "/synthetic\nadditional failure"] {
+            assert!(!ordinary_directory_failure(&error(
+                128,
+                Vec::new(),
+                mount_diagnostic(path)
+            )));
+        }
+        assert!(!ordinary_directory_failure(&error(
+            1,
+            Vec::new(),
+            mount_diagnostic(mount)
+        )));
+        assert!(!ordinary_directory_failure(&error(
+            128,
+            b"synthetic output".to_vec(),
+            mount_diagnostic(mount)
+        )));
+        assert!(!ordinary_directory_failure(&error(
+            128,
+            Vec::new(),
+            [mount_diagnostic(mount), b"additional failure\n".to_vec()].concat()
+        )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn marker_inspection_never_turns_metadata_read_errors_into_absence() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o000)).unwrap();
+        let result = has_git_marker(directory.path());
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Io);
+        assert!(error.message().contains("Cannot inspect"));
     }
 }

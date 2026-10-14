@@ -1,6 +1,7 @@
 mod branches;
 mod changes;
 mod commits;
+mod error;
 mod graph;
 mod history;
 mod navigation;
@@ -71,10 +72,11 @@ pub(super) struct GitUi {
     #[cfg(all(test, feature = "ui-tests"))]
     rendered_rows: std::cell::Cell<usize>,
     pub(super) repository: Option<Repository>,
+    plain_directory: bool,
     mode: Mode,
     branch: Option<String>,
     busy: bool,
-    pub(super) error: String,
+    pub(super) error: error::ErrorState,
     output: String,
     detail: String,
     raw_lines: Arc<[SharedString]>,
@@ -127,6 +129,14 @@ impl GitUi {
         }
     }
 
+    fn fail_snapshot(&mut self, error: tervia::git::Error, origin: error::Origin) {
+        // A late detail may finish after metadata fails. Cached snapshot evidence
+        // must not allow that detail to dismiss the newer repository failure.
+        self.snapshot = None;
+        self.plain_directory = false;
+        self.error.set(error, origin);
+    }
+
     fn clear_detail(&mut self, cx: &mut Context<Tervia>) {
         self.prepare_diff(None, cx);
         self.generation += 1;
@@ -171,7 +181,17 @@ impl GitUi {
     fn install_detail(
         &mut self,
         generation: usize,
-        result: Result<String, String>,
+        result: Result<String, tervia::git::Error>,
+        cx: &mut Context<Tervia>,
+    ) {
+        self.install_detail_with_origin(generation, result, error::Origin::Action, cx);
+    }
+
+    fn install_detail_with_origin(
+        &mut self,
+        generation: usize,
+        result: Result<String, tervia::git::Error>,
+        origin: error::Origin,
         cx: &mut Context<Tervia>,
     ) {
         // A slow request for a previous selection must never change the new viewer.
@@ -181,6 +201,10 @@ impl GitUi {
         self.detail_loading = false;
         match result {
             Ok(detail) => {
+                // A late detail cannot recover a repository whose newer probe failed.
+                if self.snapshot.is_some() {
+                    self.error.recovered();
+                }
                 if self.detail != detail {
                     let files = DiffFile::parse(&detail).unwrap_or_default();
                     // Reuse a position only after the fresh patch matches its saved document.
@@ -234,7 +258,7 @@ impl GitUi {
                 self.raw_lines = Arc::from([]);
                 self.metadata_lines = Arc::from([]);
                 self.diff.update(cx, |state, cx| state.set_files([], cx));
-                self.error = error;
+                self.error.set(error, origin);
             }
         }
     }
@@ -266,10 +290,11 @@ impl GitUi {
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),
             repository: None,
+            plain_directory: false,
             mode: Mode::Changes,
             branch: None,
             busy: false,
-            error: String::new(),
+            error: error::ErrorState::default(),
             output: String::new(),
             detail: String::new(),
             raw_lines: Arc::from([]),
@@ -509,7 +534,7 @@ impl Tervia {
                 }
                 match result {
                     Ok(scan) => this.open_scan(scan, false, window, cx),
-                    Err(error) => this.git_states[project].error = error,
+                    Err(error) => this.git_states[project].error.action(error),
                 }
                 cx.notify();
             });
@@ -571,6 +596,7 @@ impl Tervia {
         self.git_states[project].busy = true;
         if mutating {
             self.git_mutating = true;
+            self.git_states[project].plain_directory = false;
             self.git_states[project].error.clear();
         }
         cx.notify();
@@ -579,17 +605,20 @@ impl Tervia {
                 .background_executor()
                 .spawn(async move {
                     let repository = if initialize {
-                        Repository::initialize(&root)
+                        Repository::initialize(&root).map(Some)
+                    } else if mutating {
+                        Repository::open(&root).map(Some)
                     } else {
-                        Repository::open(&root)
+                        Repository::probe(&root)
                     };
                     match repository {
-                        Ok(repository) => {
+                        Ok(Some(repository)) => {
                             let result = operation.map(|operation| repository.execute(operation));
                             // A failed merge/rebase can still change Git's operation state.
-                            let snapshot = repository.snapshot(limit);
+                            let snapshot = repository.snapshot(limit).map(Some);
                             (Some(repository), result, snapshot)
                         }
+                        Ok(None) => (None, None, Ok(None)),
                         Err(error) => (None, None, Err(error)),
                     }
                 })
@@ -605,6 +634,7 @@ impl Tervia {
                     let main = snapshot
                         .as_ref()
                         .ok()
+                        .and_then(Option::as_ref)
                         .and_then(|snapshot| snapshot.worktrees.iter().find(|tree| tree.main))
                         .map(|tree| tree.path.clone());
                     this.state.associate_repository(project, identity, main);
@@ -612,32 +642,37 @@ impl Tervia {
                 let ui = &mut this.git_states[project];
                 ui.busy = false;
                 ui.repository = repository;
+                // Only a positive absence result may enable initialization; failed reads remain unknown.
+                ui.plain_directory = matches!(&snapshot, Ok(None));
                 let success = matches!(&result, Some(Ok(_)));
                 if let Some(result) = result {
                     match result {
                         Ok(output) => ui.output = output,
-                        Err(error) => ui.error = error,
+                        Err(error) => ui.error.action(error),
                     }
                 }
                 match snapshot {
-                    Ok(snapshot) => {
+                    Ok(Some(snapshot)) => {
                         this.state.projects[project].branch = snapshot.status.branch.clone();
                         ui.reconcile_snapshot(&snapshot, cx);
                         ui.snapshot = Some(Arc::new(snapshot));
+                        // A selected detail is part of this refresh. Clearing before its
+                        // completion would collapse an unchanged error on every poll.
+                        if ui.selected.is_none() {
+                            ui.error.recovered();
+                        }
+                    }
+                    Ok(None) => {
+                        ui.snapshot = None;
+                        ui.error.recovered();
                     }
                     Err(error) => {
-                        // A passive probe outside a worktree is an empty state, not an error.
-                        ui.error = if !mutating
-                            && ui.repository.is_none()
-                            && error.starts_with(
-                                "git rev-parse: fatal: not a git repository (or any of the parent directories):",
-                            )
-                        {
-                            String::new()
+                        let origin = if mutating && ui.repository.is_none() {
+                            error::Origin::Action
                         } else {
-                            error
+                            error::Origin::Probe
                         };
-                        ui.snapshot = None;
+                        ui.fail_snapshot(error, origin);
                     }
                 }
                 if commit && success {
@@ -645,7 +680,7 @@ impl Tervia {
                         .update(cx, |input, cx| input.set_value("", window, cx));
                 }
                 if let Some(detail) = ui.selected.clone() {
-                    this.git_detail(project, detail, window, cx);
+                    this.read_git_detail(project, detail, error::Origin::Probe, window, cx);
                 }
                 cx.notify();
             });
@@ -657,6 +692,17 @@ impl Tervia {
         &mut self,
         project: usize,
         detail: Detail,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_git_detail(project, detail, error::Origin::Action, window, cx);
+    }
+
+    fn read_git_detail(
+        &mut self,
+        project: usize,
+        detail: Detail,
+        origin: error::Origin,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -711,7 +757,7 @@ impl Tervia {
                             ui.install_commit(generation, commit);
                         }
                     }
-                    Err(error) => ui.install_detail(generation, Err(error), cx),
+                    Err(error) => ui.install_detail_with_origin(generation, Err(error), origin, cx),
                 }
                 cx.notify();
             });
@@ -835,9 +881,9 @@ impl Tervia {
                     Some(Ok(repository)) => this.open_repository(repository.root, window, cx),
                     Some(Err(error)) => {
                         if let Some(project) = project {
-                            this.git_states[project].error = error;
+                            this.git_states[project].error.action(error);
                         } else {
-                            this.state.notice = error;
+                            this.state.notice = error.to_string();
                         }
                     }
                     None => {}

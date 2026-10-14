@@ -7,23 +7,33 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::pipe::{Capture, OutputPipe};
+use super::{
+    Error, ErrorKind,
+    pipe::{Capture, OutputPipe},
+};
 
-pub(super) fn run(root: &Path, args: &[OsString]) -> Result<Vec<u8>, String> {
+pub(super) fn run(root: &Path, args: &[OsString]) -> Result<Vec<u8>, Error> {
     run_input(root, args, None)
+}
+
+pub(super) fn probe(root: &Path, args: &[OsString]) -> Result<Vec<u8>, Error> {
+    let mut command = configured(root, args);
+    // Locale normalization belongs only to absence classification. Mutations,
+    // hooks, signing, and authentication retain the user's inherited locale.
+    command.env("LC_ALL", "C").env("LANGUAGE", "C");
+    execute(command, root, args, None, timeout(args))
 }
 
 pub(super) fn run_input(
     root: &Path,
     args: &[OsString],
     input: Option<Vec<u8>>,
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, Error> {
+    execute(configured(root, args), root, args, input, timeout(args))
+}
+
+fn configured(root: &Path, args: &[OsString]) -> Command {
     let mut command = Command::new("git");
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        command.process_group(0);
-    }
     command.arg("--no-pager");
     // Stash internally uses magic pathspecs to remove saved untracked files.
     // Scope literal paths to our file commands, never Git's compound operations.
@@ -38,13 +48,6 @@ pub(super) fn run_input(
         .arg(root)
         .args(["-c", "color.ui=false", "-c", "core.quotepath=false"])
         .args(args)
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", "true");
     // A GUI may inherit a launcher's repository environment. Every request must
@@ -59,23 +62,11 @@ pub(super) fn run_input(
     ] {
         command.env_remove(key);
     }
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Cannot start Git: {error}"))?;
-    let mut stdout = child.stdout.take().ok_or("Git stdout unavailable")?;
-    let mut stderr = child.stderr.take().ok_or("Git stderr unavailable")?;
-    let writer = input.and_then(|input| {
-        child
-            .stdin
-            .take()
-            .map(|mut stdin| thread::spawn(move || stdin.write_all(&input)))
-    });
-    stdout.prepare().map_err(|error| error.to_string())?;
-    stderr.prepare().map_err(|error| error.to_string())?;
-    let mut output = Capture::default();
-    let mut errors = Capture::default();
-    let started = Instant::now();
-    let timeout = if args.first().is_some_and(|arg| {
+    command
+}
+
+fn timeout(args: &[OsString]) -> Duration {
+    if args.first().is_some_and(|arg| {
         matches!(
             arg.to_str(),
             Some("status" | "diff" | "log" | "show" | "rev-parse" | "for-each-ref" | "config")
@@ -84,50 +75,100 @@ pub(super) fn run_input(
         Duration::from_secs(90)
     } else {
         Duration::from_secs(1800)
-    };
-    let status = loop {
-        output
-            .drain(&mut stdout)
-            .map_err(|error| error.to_string())?;
-        errors
-            .drain(&mut stderr)
-            .map_err(|error| error.to_string())?;
-        match child.try_wait().map_err(|error| error.to_string())? {
-            Some(status) => {
-                // Git has flushed its own output before exit. Drain available
-                // bytes without waiting for background hooks to close their pipes.
-                output
-                    .drain(&mut stdout)
-                    .map_err(|error| error.to_string())?;
-                errors
-                    .drain(&mut stderr)
-                    .map_err(|error| error.to_string())?;
-                break status;
-            }
-            None if started.elapsed() > timeout => {
-                #[cfg(unix)]
-                unsafe {
-                    libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+}
+
+fn execute(
+    mut command: Command,
+    root: &Path,
+    args: &[OsString],
+    input: Option<Vec<u8>>,
+    timeout: Duration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        command.process_group(0);
+    }
+    command
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| Error::start(root, args, error))?;
+    let mut stdout = child.stdout.take().ok_or("Git stdout unavailable")?;
+    let mut stderr = child.stderr.take().ok_or("Git stderr unavailable")?;
+    let writer = input.and_then(|input| {
+        child
+            .stdin
+            .take()
+            .map(|mut stdin| thread::spawn(move || stdin.write_all(&input)))
+    });
+    let mut output = Capture::default();
+    let mut errors = Capture::default();
+    let started = Instant::now();
+    let result = (|| -> Result<_, Error> {
+        stdout.prepare()?;
+        stderr.prepare()?;
+        loop {
+            output.drain(&mut stdout)?;
+            errors.drain(&mut stderr)?;
+            match child.try_wait()? {
+                Some(status) => {
+                    // Git has flushed its own output before exit. Drain available
+                    // bytes without waiting for background hooks to close their pipes.
+                    output.drain(&mut stdout)?;
+                    errors.drain(&mut stderr)?;
+                    return Ok(status);
                 }
-                #[cfg(windows)]
-                {
-                    let program = std::env::var_os("SystemRoot")
-                        .map(std::path::PathBuf::from)
-                        .map(|path| path.join("System32/taskkill.exe"))
-                        .unwrap_or_else(|| "taskkill.exe".into());
-                    let _ = Command::new(program)
-                        .args(["/T", "/F", "/PID", &child.id().to_string()])
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .status();
+                None if started.elapsed() > timeout => {
+                    return Err(Error::process(
+                        ErrorKind::Timeout, root, args, None, Vec::new(), Vec::new(),
+                        "Git timed out. Inspect the repository before retrying; an operation may have partially completed.".into(),
+                    ));
                 }
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err("Git timed out. Inspect the repository before retrying; an operation may have partially completed.".into());
+                None => thread::sleep(Duration::from_millis(15)),
             }
-            None => thread::sleep(Duration::from_millis(15)),
+        }
+    })();
+    let status = match result {
+        Ok(status) => status,
+        Err(error) => {
+            terminate(&mut child);
+            let status = child.wait().ok();
+            // Retain bytes already emitted before termination, within the same
+            // capture bounds. Never wait for inherited hook pipe handles to close.
+            let _ = output.drain(&mut stdout);
+            let _ = errors.drain(&mut stderr);
+            return Err(error.with_process(
+                root,
+                args,
+                status,
+                output.bytes().to_vec(),
+                errors.bytes().to_vec(),
+            ));
         }
     };
+    if output.oversized() || errors.oversized() {
+        return Err(Error::process(
+            if status.success() {
+                ErrorKind::Message
+            } else {
+                ErrorKind::Command
+            },
+            root,
+            args,
+            Some(status),
+            output.bytes().to_vec(),
+            errors.bytes().to_vec(),
+            "Git output exceeds 8 MiB; narrow the comparison or history.".into(),
+        ));
+    }
     let stdout = output.finish()?;
     let stderr = errors.finish()?;
     // Git consumes finite patch or pathspec input before exit.
@@ -137,25 +178,136 @@ pub(super) fn run_input(
     if status.success() {
         Ok(stdout)
     } else {
-        let message = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&stderr).trim(),
-            String::from_utf8_lossy(&stdout).trim()
-        );
-        Err(format!(
-            "git {}: {}",
-            args.first()
-                .map(|arg| arg.to_string_lossy())
-                .unwrap_or_default(),
-            message.trim()
+        Err(Error::process(
+            ErrorKind::Command,
+            root,
+            args,
+            Some(status),
+            stdout,
+            stderr,
+            String::new(),
         ))
     }
+}
+
+fn terminate(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    #[cfg(windows)]
+    {
+        let program = std::env::var_os("SystemRoot")
+            .map(std::path::PathBuf::from)
+            .map(|path| path.join("System32/taskkill.exe"))
+            .unwrap_or_else(|| "taskkill.exe".into());
+        let _ = Command::new(program)
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
 }
 
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::{fs, os::unix::fs::PermissionsExt};
+
+    #[test]
+    fn failed_commands_keep_status_directory_and_both_output_streams() {
+        let root = tempfile::tempdir().unwrap();
+        let args = |values: &[&str]| values.iter().map(OsString::from).collect::<Vec<_>>();
+        run(root.path(), &args(&["init", "--template=", "-b", "main"])).unwrap();
+        run(
+            root.path(),
+            &args(&[
+                "config",
+                "alias.synthetic",
+                "!printf 'synthetic stdout\\n'; printf 'synthetic stderr\\n' >&2; exit 7",
+            ]),
+        )
+        .unwrap();
+        let error = run(root.path(), &args(&["synthetic"])).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Command);
+        assert_eq!(error.exit_code(), Some(7));
+        assert!(!error.status().unwrap().success());
+        assert_eq!(error.directory(), Some(root.path()));
+        assert_eq!(error.arguments(), args(&["synthetic"]));
+        assert_eq!(error.stdout(), b"synthetic stdout\n");
+        assert_eq!(error.stderr(), b"synthetic stderr\n");
+        let detail = error.to_string();
+        assert!(detail.contains("synthetic stdout"), "{detail}");
+        assert!(detail.contains("synthetic stderr"), "{detail}");
+        assert!(detail.contains("exit code: 7"), "{detail}");
+        assert!(
+            detail.contains(&root.path().display().to_string()),
+            "{detail}"
+        );
+        assert!(detail.contains("stdout:"), "{detail}");
+        assert!(detail.contains("stderr:"), "{detail}");
+    }
+
+    #[test]
+    fn missing_executable_and_non_executable_file_have_different_kinds() {
+        let root = tempfile::tempdir().unwrap();
+        let args = vec!["status".into()];
+        let missing = execute(
+            Command::new(root.path().join("synthetic-missing-git")),
+            root.path(),
+            &args,
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert_eq!(missing.kind(), ErrorKind::MissingExecutable);
+        assert_eq!(missing.directory(), Some(root.path()));
+        let program = root.path().join("synthetic-unexecutable-git");
+        fs::write(&program, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&program, fs::Permissions::from_mode(0o600)).unwrap();
+        let error = execute(
+            Command::new(program),
+            root.path(),
+            &args,
+            None,
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::Start);
+        assert_eq!(error.arguments(), args);
+    }
+
+    #[test]
+    fn timeout_keeps_partial_output_without_recording_stdin_or_argument_values() {
+        let root = tempfile::tempdir().unwrap();
+        let args = vec![
+            "commit".into(),
+            "-m".into(),
+            "synthetic private body".into(),
+        ];
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", "printf 'synthetic partial stdout\\n'; printf 'synthetic partial stderr\\n' >&2; sleep 30"]);
+        let started = Instant::now();
+        let error = execute(
+            command,
+            root.path(),
+            &args,
+            Some(b"synthetic stdin payload".to_vec()),
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+        assert_eq!(error.stdout(), b"synthetic partial stdout\n");
+        assert_eq!(error.stderr(), b"synthetic partial stderr\n");
+        assert_eq!(error.arguments(), args);
+        assert!(error.status().is_some());
+        let detail = error.details();
+        assert!(detail.contains("may have partially completed"));
+        assert!(!detail.contains("stdin payload"));
+        assert!(!detail.contains("private body"));
+    }
 
     #[test]
     fn a_background_hook_cannot_hold_a_completed_git_command_open() {

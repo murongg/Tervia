@@ -1,7 +1,7 @@
 use super::*;
 
 impl Repository {
-    pub fn execute(&self, operation: Operation) -> Result<String, String> {
+    pub fn execute(&self, operation: Operation) -> Result<String, Error> {
         let mut args: Vec<OsString>;
         match operation {
             Operation::Hunk {
@@ -14,7 +14,7 @@ impl Repository {
                 let inspect = match std::fs::symlink_metadata(self.root.join(&path)) {
                     Ok(metadata) => !metadata.file_type().is_symlink(),
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                    Err(error) => return Err(error.to_string()),
+                    Err(error) => return Err(error.into()),
                 };
                 if inspect {
                     let content = self.read_file(&path)?;
@@ -214,7 +214,7 @@ impl Repository {
                 return self
                     .drop_stash_locked(&name, &expected, || Ok(()))
                     .map_err(|error| {
-                        format!("Stash applied; automatic removal did not complete: {error}")
+                        error.with_guidance("Stash applied; automatic removal did not complete")
                     });
             }
             Operation::StashDrop {
@@ -244,7 +244,7 @@ impl Repository {
         command::run(&self.root, &args).map(text)
     }
 
-    fn verify_stash(&self, name: &str, expected: &str) -> Result<(), String> {
+    fn verify_stash(&self, name: &str, expected: &str) -> Result<(), Error> {
         reference(name)?;
         reference(expected)?;
         if text(self.run(&["rev-parse", "--verify", name])?) != expected {

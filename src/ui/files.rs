@@ -614,7 +614,7 @@ impl Tervia {
                         if this.state.active_project == project {
                             this.state.notice = error.clone();
                         }
-                        this.git_states[project].error = error;
+                        this.git_states[project].error.action(error);
                     }
                 }
                 this.prune_previews(project);
@@ -676,7 +676,7 @@ impl Tervia {
                         if this.state.active_project == project {
                             this.state.notice = error.clone();
                         }
-                        this.git_states[project].error = error;
+                        this.git_states[project].error.action(error);
                     }
                 }
                 cx.notify();

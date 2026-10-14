@@ -1,4 +1,4 @@
-use super::{FileStatus, Repository, Side, arguments, command, text};
+use super::{Error, FileStatus, Repository, Side, arguments, command, text};
 
 impl Repository {
     pub(super) fn apply_hunk(
@@ -7,7 +7,7 @@ impl Repository {
         side: Side,
         index: usize,
         expected: &str,
-    ) -> Result<String, String> {
+    ) -> Result<String, Error> {
         if file.conflicted || (side == Side::Worktree && file.worktree == '?') {
             return Err("Stage this file as a whole".into());
         }

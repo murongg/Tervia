@@ -25,26 +25,52 @@ impl Tervia {
             .border_t_1()
             .border_color(p.border);
         let Some(snapshot) = &ui.snapshot else {
+            let ordinary = ui.plain_directory;
+            let failed = ui.repository.is_some() || (!ordinary && !ui.error.is_empty());
             return body.child(
                 div()
                     .flex_1()
+                    .min_h_0()
                     .flex()
                     .flex_col()
                     .items_center()
                     .justify_center()
                     .gap(px(14.0))
                     .child(icon(IconName::FolderGit2, p.muted))
-                    .child(self.t(if ui.busy {
-                        "git_running"
-                    } else if ui.repository.is_some() {
-                        "git_refresh_failed"
-                    } else {
-                        "git_not_repository"
-                    }))
+                    .child(
+                        div()
+                            .id(if failed {
+                                "git-failure-heading"
+                            } else if ordinary {
+                                "git-empty-heading"
+                            } else {
+                                "git-pending-heading"
+                            })
+                            .debug_selector(move || {
+                                if failed {
+                                    "git-failure-heading".into()
+                                } else if ordinary {
+                                    "git-empty-heading".into()
+                                } else {
+                                    "git-pending-heading".into()
+                                }
+                            })
+                            .child(self.t(if ui.busy {
+                                "git_running"
+                            } else if failed {
+                                "git_refresh_failed"
+                            } else if ordinary {
+                                "git_not_repository"
+                            } else {
+                                "git_check_status"
+                            })),
+                    )
                     .when(
-                        self.state
-                            .folder(project)
-                            .is_some_and(|root| !self.state.folder_children(root).is_empty()),
+                        ordinary
+                            && self
+                                .state
+                                .folder(project)
+                                .is_some_and(|root| !self.state.folder_children(root).is_empty()),
                         |body| {
                             body.child(
                                 div()
@@ -57,33 +83,45 @@ impl Tervia {
                     .when(!ui.error.is_empty(), |body| {
                         body.child(
                             div()
-                                .max_w(px(580.0))
-                                .text_size(px(12.0))
-                                .text_color(p.red)
-                                .child(ui.error.clone()),
+                                .w_full()
+                                .max_w(px(720.0))
+                                .child(self.git_error(project, cx)),
                         )
                     })
-                    .when(ui.repository.is_none(), |body| {
+                    .when(!ordinary, |body| {
+                        body.child(
+                            label_button("git-retry", self.t("refresh_git"), p)
+                                .debug_selector(|| "git-retry".into())
+                                .accessibility_label(self.t("refresh_git"))
+                                .disabled(ui.busy || self.git_mutating)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.refresh_git(project, window, cx)
+                                })),
+                        )
+                    })
+                    .when(ordinary, |body| {
                         body.child(
                             label_button("git-init", self.t("git_init"), p)
+                                .debug_selector(|| "git-init".into())
                                 .disabled(ui.busy || self.git_mutating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.git_job(project, None, true, window, cx)
                                 })),
                         )
-                    })
-                    .child(
-                        Input::new(&ui.first)
-                            .aria_label(self.t("git_clone_url"))
-                            .w(px(380.0)),
-                    )
-                    .child(
-                        label_button("git-clone", self.t("git_clone"), p)
-                            .disabled(ui.busy || self.git_mutating)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.clone_repository(project, window, cx)
-                            })),
-                    ),
+                        .child(
+                            Input::new(&ui.first)
+                                .aria_label(self.t("git_clone_url"))
+                                .w(px(380.0)),
+                        )
+                        .child(
+                            label_button("git-clone", self.t("git_clone"), p)
+                                .debug_selector(|| "git-clone".into())
+                                .disabled(ui.busy || self.git_mutating)
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.clone_repository(project, window, cx)
+                                })),
+                        )
+                    }),
             );
         };
         let status = &snapshot.status;
@@ -171,39 +209,7 @@ impl Tervia {
         body = body.child(toolbar);
         // Background polling never inserts a loading row: stable geometry matters while reviewing a diff.
         if !ui.error.is_empty() {
-            body = body.child(
-                div()
-                    .max_h(px(95.0))
-                    .id("git-error")
-                    .overflow_y_scroll()
-                    .px(px(12.0))
-                    .py(px(8.0))
-                    .bg(p.red.opacity(0.08))
-                    .border_b_1()
-                    .border_color(p.red.opacity(0.25))
-                    .text_size(px(12.0))
-                    .text_color(p.red)
-                    .flex()
-                    .items_start()
-                    .gap(px(8.0))
-                    .child(icon(IconName::TriangleAlert, p.red))
-                    .child(div().flex_1().min_w_0().child(ui.error.clone()))
-                    .child(
-                        icon_button(
-                            "git-copy-error",
-                            IconName::Copy,
-                            self.t("git_copy_error"),
-                            p,
-                            cx,
-                        )
-                        .accessibility_label(self.t("git_copy_error"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                this.git_states[project].error.clone(),
-                            ))
-                        })),
-                    ),
-            );
+            body = body.child(self.git_error(project, cx));
         }
         if let Some(operation) = &status.operation {
             body = body.child(

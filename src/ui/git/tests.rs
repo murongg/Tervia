@@ -402,11 +402,235 @@ fn git_probes_treat_plain_folders_as_empty_states_and_preserve_real_errors(
                 !ui.error.is_empty(),
                 expect_error,
                 "Only ordinary non-repository detection is silent: {}",
-                ui.error
+                ui.error.details().unwrap_or_default()
             );
             assert!(!this.git_mutating);
         });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            cx.debug_bounds("git-empty-heading").is_some(),
+            !expect_error
+        );
+        assert_eq!(cx.debug_bounds("git-init").is_some(), !expect_error);
+        assert_eq!(cx.debug_bounds("git-clone").is_some(), !expect_error);
+        assert_eq!(cx.debug_bounds("git-retry").is_some(), expect_error);
     }
+}
+
+#[gpui_test::test]
+fn git_probe_failure_offers_retry_and_recovers_after_metadata_repair(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    fs::create_dir(root.path().join(".git")).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            this.refresh_git(project, window, cx);
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    view.update(cx, |this, _| {
+        assert!(
+            !this.git_states[0].error.is_empty(),
+            "Empty Git metadata is a failure"
+        )
+    });
+    assert!(
+        cx.debug_bounds("git-init").is_none(),
+        "Do not initialize over damaged metadata"
+    );
+    assert!(
+        cx.debug_bounds("git-retry").is_some(),
+        "A failed probe offers retry"
+    );
+    let toggle = cx.debug_bounds("git-toggle-error-details").unwrap();
+    cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let retry = cx.debug_bounds("git-retry").unwrap();
+    cx.simulate_click(retry.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-error-details").is_some(),
+        "Repeating the same failed probe preserves disclosure"
+    );
+    fs::remove_dir(root.path().join(".git")).unwrap();
+    tervia::git::Repository::initialize(root.path()).unwrap();
+    let retry = cx.debug_bounds("git-retry").unwrap();
+    cx.simulate_click(retry.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert!(this.git_states[0].snapshot.is_some());
+        assert!(
+            this.git_states[0].error.is_empty(),
+            "Successful retry clears the recovered probe failure"
+        );
+    });
+}
+
+#[gpui_test::test]
+fn git_error_controls_disclose_and_copy_full_diagnostics_in_both_states(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for loaded in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+        let failure = repo
+            .execute(tervia::git::Operation::Switch(
+                "synthetic-missing-branch".into(),
+            ))
+            .unwrap_err();
+        let details = failure.details();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut this = Tervia::new(window, cx);
+                let project = this
+                    .state
+                    .open_directory(root.path().canonicalize().unwrap());
+                this.init_project(project, window, cx);
+                this.state.set_tab(tervia::state::Tab::Git);
+                let ui = &mut this.git_states[project];
+                ui.repository = Some(repo.clone());
+                if loaded {
+                    ui.snapshot = Some(std::sync::Arc::new(repo.snapshot(10).unwrap()));
+                }
+                ui.error.action(failure.clone());
+                this
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("git-error-details").is_none(),
+            "Diagnostics begin collapsed"
+        );
+        let copy = cx
+            .debug_bounds("git-copy-error")
+            .expect("Copy exists in every error state");
+        cx.simulate_click(copy.center(), gpui_kit::Modifiers::default());
+        cx.run_until_parked();
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            details,
+            "Copy retains directory, status and stderr"
+        );
+        let toggle = cx
+            .debug_bounds("git-toggle-error-details")
+            .expect("Diagnostics can be expanded");
+        cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = cx
+            .debug_bounds("git-error-details")
+            .expect("Expanded diagnostic is visible");
+        assert!(
+            bounds.size.height <= gpui_kit::px(160.0),
+            "Diagnostic height stays bounded"
+        );
+        let changed = repo
+            .execute(tervia::git::Operation::Switch(
+                "synthetic-different-missing-branch".into(),
+            ))
+            .unwrap_err();
+        view.update(cx, |this, cx| {
+            this.git_states[0].error.action(changed);
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("git-error-details").is_none(),
+            "A changed diagnostic starts collapsed"
+        );
+        let toggle = cx.debug_bounds("git-toggle-error-details").unwrap();
+        cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("git-error-details").is_some());
+        let toggle = cx.debug_bounds("git-toggle-error-details").unwrap();
+        cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("git-error-details").is_none(),
+            "Hide removes the diagnostic"
+        );
+        view.update(cx, |_, _| {});
+    }
+}
+
+#[gpui_test::test]
+fn git_action_failure_survives_successful_passive_refresh(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    tervia::git::Repository::initialize(root.path()).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            this.git_job(
+                project,
+                Some(tervia::git::Operation::Switch(
+                    "synthetic-missing-branch".into(),
+                )),
+                false,
+                window,
+                cx,
+            );
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.run_until_parked();
+    let mut diagnostic = String::new();
+    view.update(cx, |this, _| {
+        assert!(
+            this.git_states[0].snapshot.is_some(),
+            "A failed action still reconciles status"
+        );
+        assert!(
+            !this.git_states[0].error.is_empty(),
+            "The failed action is reported"
+        );
+        diagnostic = this.git_states[0]
+            .error
+            .details()
+            .unwrap_or_default()
+            .to_owned();
+    });
+    cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(
+            this.git_states[0]
+                .error
+                .details()
+                .unwrap_or_default()
+                .to_owned(),
+            diagnostic,
+            "Polling cannot erase the failed user action"
+        )
+    });
 }
 
 #[gpui_test::test]
@@ -1318,4 +1542,383 @@ fn corrupt_project_history_preserves_preferences_and_reports_the_state_file(
         fs::read_to_string(history).unwrap(),
         "{synthetic invalid JSON"
     );
+}
+
+#[gpui_test::test]
+fn git_passive_detail_failure_preserves_the_failed_action(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| {
+        view.unwrap().update(cx, |this, cx| {
+            let project = this
+                .state
+                .open_directory("/synthetic/detail-failure".into());
+            this.init_project(project, window, cx);
+            let ui = &mut this.git_states[project];
+            ui.error.action("synthetic failed action");
+            let generation = ui.begin_detail(Detail::Commit("synthetic-commit".into()), cx);
+            ui.install_detail_with_origin(
+                generation,
+                Err("synthetic failed passive detail".into()),
+                super::error::Origin::Probe,
+                cx,
+            );
+            assert_eq!(ui.error.details(), Some("synthetic failed action"));
+            assert!(!ui.detail_loading, "Failed passive reads finish loading");
+        })
+    });
+}
+
+#[cfg(unix)]
+#[gpui_test::test]
+fn git_action_and_snapshot_failures_recover_independently(cx: &mut TestAppContext) {
+    use std::os::unix::fs::PermissionsExt;
+    cx.update(gpui_kit::init);
+    for operation_fails in [true, false] {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+        for (key, value) in [
+            ("user.name", "Synthetic Developer"),
+            ("user.email", "synthetic@example.test"),
+            ("commit.gpgsign", "false"),
+            ("core.hooksPath", ".git/hooks"),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(root.path())
+                    .args(["config", "--local", key, value])
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        fs::write(root.path().join("mock.txt"), "synthetic content\n").unwrap();
+        repo.execute(tervia::git::Operation::StageAll).unwrap();
+        let head = fs::read(root.path().join(".git/HEAD")).unwrap();
+        let hook = root.path().join(if operation_fails {
+            ".git/hooks/pre-commit"
+        } else {
+            ".git/hooks/post-commit"
+        });
+        fs::write(
+            &hook,
+            format!(
+                "#!/bin/sh\necho 'synthetic action failure' >&2\nrm .git/HEAD\nexit {}\n",
+                u8::from(operation_fails)
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut this = Tervia::new(window, cx);
+                let project = this
+                    .state
+                    .open_directory(root.path().canonicalize().unwrap());
+                this.init_project(project, window, cx);
+                this.state.set_tab(tervia::state::Tab::Git);
+                this.git_states[project].message.update(cx, |input, cx| {
+                    input.set_value("Synthetic draft", window, cx)
+                });
+                this.git_job(
+                    project,
+                    Some(tervia::git::Operation::Commit {
+                        message: "Synthetic commit".into(),
+                        amend: false,
+                    }),
+                    false,
+                    window,
+                    cx,
+                );
+                this
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+        let mut diagnostic = String::new();
+        view.update(cx, |this, cx| {
+            let ui = &this.git_states[0];
+            assert!(
+                ui.snapshot.is_none(),
+                "The hook damaged metadata before status reconciliation"
+            );
+            diagnostic = ui.error.details().unwrap().to_owned();
+            if operation_fails {
+                assert!(
+                    diagnostic.contains("synthetic action failure"),
+                    "The snapshot failure cannot replace the action diagnostic: {diagnostic}"
+                );
+            }
+            assert_eq!(
+                ui.message.read(cx).value().as_str(),
+                if operation_fails {
+                    "Synthetic draft"
+                } else {
+                    ""
+                }
+            );
+        });
+        fs::write(root.path().join(".git/HEAD"), head).unwrap();
+        fs::remove_file(hook).unwrap();
+        cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+        cx.run_until_parked();
+        view.update(cx, |this, _| {
+            assert!(this.git_states[0].snapshot.is_some());
+            if operation_fails {
+                assert_eq!(
+                    this.git_states[0].error.details(),
+                    Some(diagnostic.as_str())
+                );
+            } else {
+                assert!(
+                    this.git_states[0].error.is_empty(),
+                    "A successful operation's recovered snapshot failure is passive"
+                );
+            }
+        });
+    }
+}
+
+#[gpui_test::test]
+fn git_repeated_passive_detail_failure_keeps_disclosure_open_until_recovery(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    fs::write(root.path().join(".git/info/attributes"), "mock.txt diff\n").unwrap();
+    fs::write(root.path().join("mock.txt"), b"synthetic non-UTF-8: \xff\n").unwrap();
+    repo.execute(tervia::git::Operation::StageAll).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            this.refresh_git(project, window, cx);
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let toggle = cx
+        .debug_bounds("git-toggle-error-details")
+        .expect("The forced-text diff reports non-UTF-8 guidance");
+    cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-error-details").is_some());
+    cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-error-details").is_some(),
+        "An unchanged detail error cannot collapse during successful snapshot polling"
+    );
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.git_job(
+                0,
+                Some(tervia::git::Operation::Switch(
+                    "synthetic-missing-branch".into(),
+                )),
+                false,
+                window,
+                cx,
+            );
+        })
+    });
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert!(
+            this.git_states[0]
+                .error
+                .details()
+                .unwrap()
+                .contains("synthetic-missing-branch"),
+            "The automatic failed diff cannot replace the failed action"
+        )
+    });
+    // Start a successful action to dismiss the prior action diagnostic before checking probe recovery.
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.git_job(0, Some(tervia::git::Operation::StageAll), false, window, cx)
+        })
+    });
+    cx.run_until_parked();
+    fs::write(root.path().join("mock.txt"), "synthetic repaired content\n").unwrap();
+    repo.execute(tervia::git::Operation::StageAll).unwrap();
+    cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-error").is_none(),
+        "A repaired passive detail clears its failure"
+    );
+}
+
+#[gpui_test::test]
+fn git_plain_folder_keeps_init_and_clone_guidance_after_a_clone_failure(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let failure = tervia::git::Repository::clone_into(
+        root.path()
+            .join("synthetic-missing-source")
+            .to_str()
+            .unwrap(),
+        &root.path().join("synthetic-destination"),
+    )
+    .unwrap_err();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            this.refresh_git(project, window, cx);
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        this.git_states[0].error.action(failure);
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-empty-heading").is_some());
+    assert!(
+        cx.debug_bounds("git-init").is_some(),
+        "The known ordinary folder still offers initialization"
+    );
+    assert!(
+        cx.debug_bounds("git-clone").is_some(),
+        "Clone can be retried in the known ordinary folder"
+    );
+    assert!(cx.debug_bounds("git-copy-error").is_some());
+}
+
+#[gpui_test::test]
+fn git_late_successful_detail_cannot_clear_a_failed_repository_probe(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| {
+        view.unwrap().update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/late-detail".into());
+            this.init_project(project, window, cx);
+            let ui = &mut this.git_states[project];
+            let generation = ui.begin_detail(Detail::Commit("synthetic-commit".into()), cx);
+            ui.snapshot = None;
+            ui.error.probe("synthetic failed repository probe".into());
+            ui.install_detail_with_origin(
+                generation,
+                Ok("synthetic successful late detail".into()),
+                super::error::Origin::Probe,
+                cx,
+            );
+            assert_eq!(
+                ui.error.details(),
+                Some("synthetic failed repository probe"),
+                "A successful detail without a loaded status cannot recover a repository failure"
+            );
+        })
+    });
+}
+
+#[gpui_test::test]
+fn git_unprobed_directory_waits_for_a_positive_probe_before_offering_initialization(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory("/synthetic/unprobed".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            this
+        });
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-init").is_none(),
+        "Unknown metadata cannot offer initialization"
+    );
+    assert!(
+        cx.debug_bounds("git-empty-heading").is_none(),
+        "An unprobed directory is not declared a non-repository"
+    );
+    assert!(
+        cx.debug_bounds("git-retry").is_some(),
+        "An unprobed directory offers a status refresh"
+    );
+}
+
+#[gpui_test::test]
+fn git_failed_worktree_snapshot_invalidates_cached_recovery_evidence(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    for failed_action in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+        let snapshot = std::sync::Arc::new(repo.snapshot(10).unwrap());
+        let workspace =
+            std::sync::Arc::new(tervia::git::Repository::discover(root.path()).unwrap());
+        fs::remove_file(root.path().join(".git/HEAD")).unwrap();
+        let failure = repo.snapshot(10).unwrap_err();
+        let diagnostic = failure.details();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| Tervia::new(window, cx));
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        cx.update(|window, cx| {
+            view.unwrap().update(cx, |this, cx| {
+                let project = this.state.open_directory(root.path().canonicalize().unwrap());
+                this.init_project(project, window, cx);
+                let ui = &mut this.git_states[project];
+                ui.repository = Some(repo);
+                ui.workspace = Some(workspace.clone());
+                ui.snapshot = Some(snapshot);
+                ui.message.update(cx, |input, cx| input.set_value("Synthetic commit draft", window, cx));
+                let generation = ui.begin_detail(Detail::Commit("synthetic-commit".into()), cx);
+                if failed_action { ui.error.action("synthetic failed worktree action"); }
+                ui.fail_snapshot(failure, super::error::Origin::Probe);
+                ui.install_detail_with_origin(generation, Ok("synthetic successful late detail".into()), super::error::Origin::Probe, cx);
+                assert_eq!(ui.error.details(), Some(if failed_action { "synthetic failed worktree action" } else { diagnostic.as_str() }), "A matching-generation detail cannot recover failed worktree metadata from a cached snapshot");
+                assert!(ui.snapshot.is_none(), "Failed metadata invalidates cached snapshot evidence");
+                assert!(!ui.plain_directory);
+                assert!(!ui.detail_loading);
+                assert_eq!(ui.detail, "synthetic successful late detail", "The current-generation detail still completes");
+                assert_eq!(ui.message.read(cx).value().as_str(), "Synthetic commit draft");
+                assert!(std::sync::Arc::ptr_eq(ui.workspace.as_ref().unwrap(), &workspace), "Workspace ownership is retained");
+                assert!(ui.repository.is_some());
+            })
+        });
+    }
 }
