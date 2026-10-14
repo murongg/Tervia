@@ -85,7 +85,13 @@ impl Tervia {
                     div()
                         .text_size(px(13.0))
                         .font_weight(FontWeight::MEDIUM)
-                        .child(self.t("git_clone")),
+                        .child(self.t("git_clone_title")),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(p.secondary)
+                        .child(self.t("git_clone_url")),
                 )
                 .child(Input::new(&self.welcome_url).aria_label(self.t("git_clone_url")))
                 .child(
@@ -102,6 +108,12 @@ impl Tervia {
                             let url = this.welcome_url.read(cx).value().to_string();
                             this.clone_url(None, url, window, cx);
                         })),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .text_color(p.secondary)
+                        .child(self.t("git_clone_hint")),
                 )
                 .child(div().text_size(px(12.0)).text_color(p.secondary).child(
                     if self.git_mutating {

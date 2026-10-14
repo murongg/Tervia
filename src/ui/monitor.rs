@@ -68,6 +68,7 @@ impl Tervia {
                 self.ensure_watch(project, window, cx);
                 // Reconcile immediately on foreground entry; do not wait for the event timer.
                 self.refresh_explorer(project, window, cx);
+                self.refresh_navigation(project, window, cx);
                 self.sync_open_files(project, window, cx);
             }
         }
@@ -114,6 +115,9 @@ impl Tervia {
                         this.monitors[project].watch = Some(watch);
                         this.monitors[project].registered.insert(PathBuf::new());
                         let mut directories = this.explorers[project].tree.directories();
+                        if let Some(navigation) = this.navigation.roots.get(&project) {
+                            directories.extend(navigation.tree.directories());
+                        }
                         directories.extend(
                             this.state.projects[project]
                                 .files
@@ -125,6 +129,7 @@ impl Tervia {
                         }
                         // Reconcile once after subscribing, covering changes during watcher setup.
                         this.request_tree_sync(project, window, cx);
+                        this.refresh_navigation(project, window, cx);
                         this.sync_open_files(project, window, cx);
                     }
                     Err(_) => {
@@ -183,6 +188,7 @@ impl Tervia {
         if result.is_ok() {
             // The first listing preceded subscription; reconcile that otherwise unwatched gap.
             self.load_directory(project, path, true, window, cx);
+            self.refresh_navigation(project, window, cx);
             self.sync_open_files(project, window, cx);
         } else {
             self.monitors[project].registered.remove(&path);
@@ -237,6 +243,7 @@ impl Tervia {
             }
             if changed {
                 self.request_tree_sync(project, window, cx);
+                self.refresh_navigation(project, window, cx);
                 self.sync_open_files(project, window, cx);
             }
         }

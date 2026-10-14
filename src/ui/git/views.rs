@@ -25,7 +25,7 @@ impl Tervia {
             .border_t_1()
             .border_color(p.border);
         let Some(snapshot) = &ui.snapshot else {
-            return body.child(self.git_repository_picker(cx)).child(
+            return body.child(
                 div()
                     .flex_1()
                     .flex()
@@ -41,6 +41,19 @@ impl Tervia {
                     } else {
                         "git_not_repository"
                     }))
+                    .when(
+                        self.state
+                            .folder(project)
+                            .is_some_and(|root| !self.state.folder_children(root).is_empty()),
+                        |body| {
+                            body.child(
+                                div()
+                                    .text_size(px(12.0))
+                                    .text_color(p.secondary)
+                                    .child(self.t("git_select_repository")),
+                            )
+                        },
+                    )
                     .when(!ui.error.is_empty(), |body| {
                         body.child(
                             div()

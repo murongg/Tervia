@@ -20,6 +20,183 @@ mod tests {
     use gpui_test::TestAppContext;
 
     #[gpui_test::test]
+    fn project_folder_hover_covers_the_arrow_name_and_right_inset_without_an_inner_block(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().canonicalize().unwrap();
+        std::fs::create_dir(directory.join("mock-child")).unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let parent = view.state.open_directory(directory.clone());
+                view.init_project(parent, window, cx);
+                let child = view.state.open_directory(directory.join("mock-child"));
+                view.init_project(child, window, cx);
+                view.state.group_folder(parent, &[child]);
+                view.state.projects[child].tab = Tab::Files;
+                view.load_navigation(parent, std::path::PathBuf::new(), false, window, cx);
+                view.state.sidebar_expanded = true;
+                view.state.set_tab(Tab::Files);
+                view
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+        for light in [false, true] {
+            view.update(cx, |view, cx| {
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.light_theme = light;
+                    cx.notify();
+                });
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let row = cx.debug_bounds("project-row-0").unwrap();
+            let arrow = cx.debug_bounds("project-fold-0").unwrap();
+            let name = cx.debug_bounds("project-root-0").unwrap();
+            for position in [
+                arrow.center(),
+                name.center(),
+                point(row.right() - px(4.0), row.center().y),
+            ] {
+                cx.simulate_mouse_move(position, None, Modifiers::default());
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    let scaled = row.scale(window.scale_factor());
+                    assert!(
+                        window
+                            .painted_quads()
+                            .iter()
+                            .any(|quad| quad.bounds == scaled && !quad.background.is_transparent()),
+                        "Hover must cover the complete folder row"
+                    );
+                    if position == name.center() {
+                        assert!(
+                            !window
+                                .painted_quads()
+                                .iter()
+                                .any(|quad| quad.bounds == name.scale(window.scale_factor())
+                                    && !quad.background.is_transparent()),
+                            "The name button must not paint a second inner hover block"
+                        );
+                    }
+                });
+            }
+        }
+    }
+
+    #[gpui_test::test]
+    fn project_tree_folding_keeps_the_selected_child_and_parent_navigation_explicit(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().canonicalize().unwrap();
+        std::fs::create_dir(directory.join("mock-child")).unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let parent = view.state.open_directory(directory.clone());
+                view.init_project(parent, window, cx);
+                let child = view.state.register_directory(directory.join("mock-child"));
+                view.init_project(child, window, cx);
+                view.state.group_folder(parent, &[child]);
+                view.state.projects[child].tab = Tab::Files;
+                view.load_navigation(parent, std::path::PathBuf::new(), false, window, cx);
+                view.state.sidebar_expanded = true;
+                view.state.set_tab(Tab::Files);
+                view
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let child = cx
+            .debug_bounds("directory-0-mock-child")
+            .expect("Directories need a nested row");
+        cx.simulate_click(child.center(), Modifiers::default());
+        cx.run_until_parked();
+        view.update(cx, |view, _| assert_eq!(view.state.active_project, 1));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let fold = cx.debug_bounds("project-fold-0").unwrap();
+        cx.simulate_click(fold.center(), Modifiers::default());
+        view.update(cx, |view, _| {
+            assert_eq!(view.state.active_project, 1);
+            assert!(!view.state.folder_expanded(0));
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("directory-0-mock-child").is_none());
+        view.update(cx, |view, cx| {
+            view.state.group_folder(0, &[]);
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let parent = cx.debug_bounds("project-root-0").unwrap();
+        cx.simulate_click(parent.center(), Modifiers::default());
+        cx.run_until_parked();
+        view.update(cx, |view, _| assert_eq!(view.state.active_project, 0));
+    }
+
+    #[gpui_test::test]
+    fn collapsed_project_menu_selects_a_child_and_dismisses_without_closing_the_window(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            cx.bind_keys([KeyBinding::new(
+                "escape",
+                gpui_kit::base::actions::Cancel,
+                Some("Tervia"),
+            )]);
+        });
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().canonicalize().unwrap();
+        std::fs::create_dir(directory.join("mock-child")).unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let parent = view.state.open_directory(directory.clone());
+                view.init_project(parent, window, cx);
+                let child = view.state.register_directory(directory.join("mock-child"));
+                view.init_project(child, window, cx);
+                view.state.group_folder(parent, &[child]);
+                view.state.projects[child].tab = Tab::Files;
+                view.load_navigation(parent, std::path::PathBuf::new(), false, window, cx);
+                view.state.set_tab(Tab::Files);
+                view
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let trigger = cx.debug_bounds("project-root-0").unwrap();
+        cx.simulate_click(trigger.center(), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_keystrokes("down down enter");
+        cx.run_until_parked();
+        view.update(cx, |view, _| assert_eq!(view.state.active_project, 1));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_click(trigger.center(), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_keystrokes("escape");
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        view.update(cx, |view, _| assert_eq!(view.state.active_project, 1));
+    }
+
+    #[gpui_test::test]
     fn update_status_keeps_the_fixed_titlebar_actions_in_place(cx: &mut TestAppContext) {
         cx.update(gpui_kit::init);
         let mut view = None;
@@ -97,6 +274,10 @@ impl Tervia {
     pub(super) fn titlebar(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p();
         let update = self.workspace_update(cx);
+        let parent = self
+            .state
+            .folder(self.state.active_project)
+            .filter(|parent| *parent != self.state.active_project);
         div()
             .h(px(48.0))
             .flex_shrink_0()
@@ -129,13 +310,39 @@ impl Tervia {
                     .items_center()
                     .gap(px(7.0))
                     .ml(px(8.0))
+                    .min_w_0()
                     .on_mouse_down(MouseButton::Left, titlebar_mouse_down)
                     .child(icon(IconName::Folder, p.secondary))
+                    .when_some(parent, |context, parent| {
+                        context
+                            .child(
+                                div()
+                                    .max_w(px(120.0))
+                                    .text_ellipsis()
+                                    .text_color(p.secondary)
+                                    .child(self.state.projects[parent].name.clone()),
+                            )
+                            .child(icon(IconName::ChevronRight, p.muted))
+                    })
                     .child(
                         div()
+                            .max_w(px(220.0))
+                            .text_ellipsis()
                             .text_color(p.text)
                             .font_weight(FontWeight::MEDIUM)
-                            .child(self.state.project_label(self.state.active_project)),
+                            .child(
+                                parent
+                                    .and_then(|parent| {
+                                        self.state
+                                            .project()
+                                            .root
+                                            .strip_prefix(&self.state.projects[parent].root)
+                                            .ok()
+                                    })
+                                    .map(|path| path.to_string_lossy().into_owned())
+                                    .filter(|name| !name.is_empty())
+                                    .unwrap_or_else(|| self.state.project().name.clone()),
+                            ),
                     ),
             )
             .child(
@@ -176,145 +383,6 @@ impl Tervia {
                     .accessibility_label(self.t("toggle_theme"))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_theme(window, cx))),
                 ),
-            )
-    }
-
-    pub(super) fn sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
-        let expanded = self.state.sidebar_expanded;
-        let mut rows = div()
-            .id("project-list")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .flex()
-            .flex_col()
-            .gap(px(8.0))
-            .px(px(8.0))
-            .py(px(12.0));
-        if expanded {
-            rows = rows.child(
-                div()
-                    .px(px(8.0))
-                    .mb(px(8.0))
-                    .text_size(px(11.0))
-                    .text_color(p.muted)
-                    .child(self.t("projects")),
-            );
-        }
-        for index in self.state.project_rows() {
-            let target = self.state.project_target(index);
-            let project = &self.state.projects[target];
-            let name = self.state.project_label(index);
-            let active = self.state.same_project(index, self.state.active_project);
-            let avatar = div()
-                .size(px(28.0))
-                .flex_shrink_0()
-                .rounded(px(7.0))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(if active { p.accent } else { p.secondary })
-                .font_weight(FontWeight::MEDIUM)
-                .text_size(px(13.0))
-                .child(
-                    name.chars()
-                        .next()
-                        .unwrap_or('T')
-                        .to_uppercase()
-                        .to_string(),
-                );
-            let mut content = div()
-                .flex()
-                .items_center()
-                .gap(px(10.0))
-                .w_full()
-                .child(avatar);
-            if expanded {
-                content = content.child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.0))
-                        .child(
-                            div()
-                                .text_size(px(13.0))
-                                .text_color(if active { p.text } else { p.secondary })
-                                .child(name.clone()),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(10.0))
-                                .text_color(p.muted)
-                                .text_ellipsis()
-                                .child(project.branch.clone()),
-                        ),
-                );
-            }
-            rows = rows.child(
-                Button::new(("project", index))
-                    .ghost()
-                    .compact()
-                    .w_full()
-                    .h(px(44.0))
-                    .rounded(px(8.0))
-                    .bg(if active {
-                        p.selected
-                    } else {
-                        p.sidebar.opacity(0.0)
-                    })
-                    .accessibility_label(self.f("switch_project", &[("name", &name)]))
-                    .tooltip(format!("{}\n{}", name, project.path))
-                    .child(content)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.change_project(this.state.project_target(index), window, cx)
-                    })),
-            );
-        }
-        div()
-            .w(px(if expanded { 196.0 } else { 56.0 }))
-            .h_full()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .border_r_1()
-            .border_color(p.chrome_border())
-            .child(rows)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.0))
-                    .p(px(8.0))
-                    .pb(px(12.0))
-                    .child(
-                        Button::new("add-project")
-                            .ghost()
-                            .compact()
-                            .h(px(36.0))
-                            .w_full()
-                            .icon(icon(IconName::Plus, p.secondary))
-                            .when(expanded, |button| button.label(self.t("add_project")))
-                            .accessibility_label(self.t("git_open_repository"))
-                            .tooltip(self.t("git_open_repository"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.choose_repository(window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("settings")
-                            .ghost()
-                            .compact()
-                            .h(px(36.0))
-                            .w_full()
-                            .icon(icon(IconName::Settings, p.secondary))
-                            .when(expanded, |button| button.label(self.t("settings")))
-                            .accessibility_label(self.t("settings"))
-                            .tooltip(self.t("appearance_shortcuts"))
-                            .on_click(cx.listener(|this, _, _, cx| this.open_preferences(cx))),
-                    ),
             )
     }
 

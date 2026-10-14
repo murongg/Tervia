@@ -254,57 +254,61 @@ impl Console {
                 }
             }
         }));
-        match PtySession::spawn(
-            shell_command(&cwd),
-            PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            },
-        ) {
-            Ok((session, receiver)) => {
-                console.session = Some(session);
-                console._reader = Some(cx.spawn(async move |weak, cx| {
-                    while let Ok(event) = receiver.recv().await {
-                        let mut batch = vec![event];
-                        while batch.len() < 32 {
-                            match receiver.try_recv() {
-                                Ok(event) => batch.push(event),
-                                Err(_) => break,
+        // Native UI tests use an in-memory terminal: OS reader threads cannot wake
+        // GPUI’s deterministic test scheduler. Real PTY transport has integration coverage.
+        if !cfg!(test) {
+            match PtySession::spawn(
+                shell_command(&cwd),
+                PtySize {
+                    rows: 24,
+                    cols: 80,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                },
+            ) {
+                Ok((session, receiver)) => {
+                    console.session = Some(session);
+                    console._reader = Some(cx.spawn(async move |weak, cx| {
+                        while let Ok(event) = receiver.recv().await {
+                            let mut batch = vec![event];
+                            while batch.len() < 32 {
+                                match receiver.try_recv() {
+                                    Ok(event) => batch.push(event),
+                                    Err(_) => break,
+                                }
                             }
-                        }
-                        if weak
-                            .update(cx, |this, cx| {
-                                for event in batch {
-                                    match event {
-                                        PtyEvent::Data(bytes) => {
-                                            this.buffer.feed(&bytes);
-                                            this.handle_events(cx);
-                                        }
-                                        PtyEvent::Exited(status) => {
-                                            this.status = Some(Status::Exited(status));
-                                            this.session.take();
-                                        }
-                                        PtyEvent::Error(error) => {
-                                            this.status = Some(Status::Connection(error));
+                            if weak
+                                .update(cx, |this, cx| {
+                                    for event in batch {
+                                        match event {
+                                            PtyEvent::Data(bytes) => {
+                                                this.buffer.feed(&bytes);
+                                                this.handle_events(cx);
+                                            }
+                                            PtyEvent::Exited(status) => {
+                                                this.status = Some(Status::Exited(status));
+                                                this.session.take();
+                                            }
+                                            PtyEvent::Error(error) => {
+                                                this.status = Some(Status::Connection(error));
+                                            }
                                         }
                                     }
-                                }
-                                cx.notify();
-                            })
-                            .is_err()
-                        {
-                            break;
+                                    cx.notify();
+                                })
+                                .is_err()
+                            {
+                                break;
+                            }
+                            // Bound each update and yield so a noisy PTY cannot starve keyboard input or painting.
+                            cx.background_executor()
+                                .timer(Duration::from_millis(8))
+                                .await;
                         }
-                        // Bound each update and yield so a noisy PTY cannot starve keyboard input or painting.
-                        cx.background_executor()
-                            .timer(Duration::from_millis(8))
-                            .await;
-                    }
-                }));
+                    }));
+                }
+                Err(error) => console.status = Some(Status::Spawn(error)),
             }
-            Err(error) => console.status = Some(Status::Spawn(error)),
         }
         console
     }

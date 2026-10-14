@@ -23,8 +23,6 @@ impl Tervia {
         let project = self.state.active_project;
         let ui = &self.explorers[project];
         let p = Palette::workbench(self.appearance.light_theme);
-        let root = PathBuf::new();
-        let expanded = ui.tree.is_expanded(&root);
         let rows = ui.tree.rows();
         div()
             .size_full()
@@ -73,57 +71,6 @@ impl Tervia {
                         .on_click(cx.listener(
                             move |this, _, window, cx| this.refresh_explorer(project, window, cx),
                         )),
-                    ),
-            )
-            .child(
-                div()
-                    .id("explorer-root-row")
-                    .h(px(32.0))
-                    .flex_shrink_0()
-                    .w_full()
-                    .hover(|style| style.bg(p.raised))
-                    .child(
-                        label_button("explorer-root", "", p)
-                            .text()
-                            .h_full()
-                            .w_full()
-                            .rounded(px(0.0))
-                            .accessibility_label(format!(
-                                "{} {}",
-                                self.t(if expanded {
-                                    "git_collapse"
-                                } else {
-                                    "git_expand"
-                                }),
-                                self.state.projects[project].name
-                            ))
-                            .child(
-                                div()
-                                    .w_full()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    .px(px(8.0))
-                                    .child(icon(
-                                        if expanded {
-                                            IconName::ChevronDown
-                                        } else {
-                                            IconName::ChevronRight
-                                        },
-                                        p.secondary,
-                                    ))
-                                    .child(icon(IconName::FolderOpen, p.accent))
-                                    .child(
-                                        div()
-                                            .min_w_0()
-                                            .flex_1()
-                                            .text_ellipsis()
-                                            .child(self.state.projects[project].name.clone()),
-                                    ),
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.toggle_directory(project, PathBuf::new(), window, cx)
-                            })),
                     ),
             )
             .child(

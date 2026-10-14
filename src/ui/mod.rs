@@ -5,6 +5,7 @@ mod files;
 mod git;
 mod monitor;
 mod preferences;
+mod projects;
 mod shell;
 mod tabs;
 mod terminal;
@@ -75,6 +76,7 @@ pub struct Tervia {
     update_restarting: bool,
     editors: Vec<Vec<Entity<EditorState>>>,
     explorers: Vec<explorer::Explorer>,
+    navigation: projects::Navigation,
     monitors: Vec<monitor::Monitor>,
     terminals: Vec<Vec<Option<Entity<console::Console>>>>,
     git_states: Vec<git::GitUi>,
@@ -152,6 +154,7 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) -> Self {
         preferences::apply(&appearance, cx);
+        projects::init(cx);
         let language = appearance.language;
         if let Some(error) = &error {
             state.notice = format!("{}\n{error}", language.text("config_error"));
@@ -171,6 +174,7 @@ impl Tervia {
             update_restarting: false,
             editors: Vec::new(),
             explorers: Vec::new(),
+            navigation: projects::Navigation::default(),
             monitors: Vec::new(),
             terminals: Vec::new(),
             git_states: Vec::new(),
@@ -179,8 +183,9 @@ impl Tervia {
             saving_file: false,
             file_closing: false,
             file_reads: tervia::files::Reads::default(),
-            welcome_url: cx
-                .new(|cx| InputState::new(window, cx).placeholder(language.text("git_clone_url"))),
+            welcome_url: cx.new(|cx| {
+                InputState::new(window, cx).placeholder(language.text("git_clone_placeholder"))
+            }),
             git_poll: None,
             file_poll: None,
             files_active: window.is_window_active(),
@@ -229,14 +234,22 @@ impl Tervia {
             view.refresh_git(index, window, cx);
             let root = &view.state.projects[index].root;
             // Separate child scans would replace the enclosing workspace's repository grouping.
-            if !view
+            if view
                 .state
-                .projects
-                .iter()
-                .any(|project| project.root != *root && root.starts_with(&project.root))
+                .folder(index)
+                .is_none_or(|parent| parent == index)
+                && !view
+                    .state
+                    .projects
+                    .iter()
+                    .any(|project| project.root != *root && root.starts_with(&project.root))
             {
                 view.rescan_repositories(index, window, cx);
             }
+        }
+        for parent in view.state.project_rows() {
+            view.state.attach_directory(parent, parent);
+            view.restore_navigation(parent, window, cx);
         }
         view.subscriptions
             .push(cx.observe_self(|this, cx| this.persist_workspace(cx)));
@@ -406,6 +419,7 @@ impl Tervia {
         {
             return;
         }
+        self.navigation.cancel();
         for ui in &mut self.git_states {
             ui.cancel_worktree_navigation();
         }
@@ -425,6 +439,7 @@ impl Tervia {
     }
 
     fn change_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigation.cancel();
         for ui in &mut self.git_states {
             ui.cancel_worktree_navigation();
         }

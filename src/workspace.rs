@@ -143,7 +143,12 @@ fn snapshot(
             let root = serde_json::to_value(root)?;
             let directory =
                 serde_json::to_value(&workspace.projects[workspace.project_target(index)].root)?;
-            Ok(json!({ "root": root, "directory": directory }))
+            let mut saved = json!({ "root": root, "directory": directory });
+            if workspace.folder(index) == Some(index) {
+                saved["folder"] = json!(true);
+                saved["children_expanded"] = json!(workspace.folder_expanded(index));
+            }
+            Ok(saved)
         })
         .collect::<Result<Vec<Value>, serde_json::Error>>()?;
     let active = workspace
@@ -189,6 +194,40 @@ fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), Stri
                 .get("directory")
                 .ok_or("Project directory is missing")?,
         )?;
+        let folder = project
+            .get("folder")
+            .map(|value| value.as_bool().ok_or("folder must be a boolean"))
+            .transpose()?
+            .unwrap_or(false);
+        if folder {
+            let parent = if root.is_dir() { &root } else { &target };
+            if !parent.is_dir() {
+                continue;
+            }
+            let parent = fs::canonicalize(parent).map_err(|error| error.to_string())?;
+            let parent_index = workspace.register_directory(parent);
+            let index = if target.is_dir() {
+                workspace.register_directory(
+                    fs::canonicalize(&target).map_err(|error| error.to_string())?,
+                )
+            } else {
+                parent_index
+            };
+            workspace.group_folder(parent_index, &[index]);
+            let expanded = project
+                .get("children_expanded")
+                .map(|value| value.as_bool().ok_or("children_expanded must be a boolean"))
+                .transpose()?
+                .unwrap_or(true);
+            if !expanded {
+                workspace.toggle_folder(parent_index);
+            }
+            workspace.switch_project(index);
+            if active.as_ref() == Some(&target) || active.as_ref() == Some(&root) {
+                selected = index;
+            }
+            continue;
+        }
         let available = if target.is_dir() { &target } else { &root };
         if !available.is_dir() {
             continue;

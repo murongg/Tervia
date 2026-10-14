@@ -646,3 +646,28 @@ fn rebase_abort_and_failed_commit_preserve_work_and_expose_errors() {
     );
     assert_eq!(repo.snapshot(50).unwrap().status.files[0].index, 'M');
 }
+#[test]
+fn clone_destination_name_follows_https_ssh_and_local_repository_names() {
+    for (address, name) in [
+        (
+            "https://example.test/team/mock-repository.git",
+            "mock-repository",
+        ),
+        (
+            "git@example.test:team/mock-repository.git",
+            "mock-repository",
+        ),
+        (
+            "ssh://git@example.test:2222/team/mock-repository.git/",
+            "mock-repository",
+        ),
+        (" /synthetic/mock-repository.git/ ", "mock-repository"),
+        ("C:\\synthetic\\mock-repository.git", "mock-repository"),
+        ("https://example.test/team/mock-project", "mock-project"),
+        ("", "repository"),
+        ("..", "repository"),
+        ("https://example.test/team/.git", "repository"),
+    ] {
+        assert_eq!(tervia::git::Repository::clone_name(address), name);
+    }
+}

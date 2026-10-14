@@ -18,8 +18,8 @@ pub struct Entry {
     pub kind: EntryKind,
 }
 
-/// Read one directory only. Expensive dependency trees remain unopened until requested.
-pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
+/// Resolve a directory within the opened root, including after filesystem changes.
+pub fn directory(root: &Path, path: &Path) -> Result<PathBuf, String> {
     if path.is_absolute()
         || path
             .components()
@@ -35,6 +35,15 @@ pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
     if !absolute.starts_with(&root) {
         return Err("Directory points outside the project".into());
     }
+    if !absolute.is_dir() {
+        return Err("Path is not a directory".into());
+    }
+    Ok(absolute)
+}
+
+/// Read one directory only. Expensive dependency trees remain unopened until requested.
+pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
+    let absolute = directory(root, path)?;
     let mut entries = Vec::new();
     for child in fs::read_dir(absolute).map_err(|error| error.to_string())? {
         let child = child.map_err(|error| error.to_string())?;
@@ -136,6 +145,10 @@ impl Tree {
     }
     pub fn expanded(&self) -> Vec<PathBuf> {
         self.expanded.iter().cloned().collect()
+    }
+
+    pub fn entries(&self, path: &Path) -> Option<&[Entry]> {
+        self.directories.get(path)?.entries.as_deref()
     }
 
     pub fn toggle(&mut self, path: &Path) -> bool {

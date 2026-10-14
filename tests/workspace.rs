@@ -48,6 +48,150 @@ fn retired_worktree_projects_keep_stable_owner_indices_and_reopen_in_place() {
 }
 
 #[test]
+fn ordinary_directories_inside_one_repository_keep_their_own_context_and_owner() {
+    let mut state = Workspace::new("/synthetic/mock-repository".into());
+    state.group_folder(0, &[]);
+    let identity = std::path::PathBuf::from("/synthetic/mock-repository/.git");
+    state.associate_repository(0, identity.clone(), None);
+    let src = state.register_directory("/synthetic/mock-repository/src".into());
+    let docs = state.register_directory("/synthetic/mock-repository/docs".into());
+    state.attach_directory(0, src);
+    state.attach_directory(0, docs);
+    state.associate_repository(src, identity.clone(), None);
+    state.associate_repository(docs, identity, None);
+    state.switch_project(src);
+    state.new_session();
+    state.set_tab(Tab::Files);
+    state.switch_project(docs);
+    state.switch_project(src);
+    assert_eq!(
+        state.project().root,
+        std::path::PathBuf::from("/synthetic/mock-repository/src")
+    );
+    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().tab, Tab::Files);
+    assert_eq!(state.project_rows(), vec![0]);
+    assert_eq!(state.folder(src), Some(0));
+}
+
+#[test]
+fn folders_keep_repositories_nested_and_remember_the_selected_directory() {
+    let mut state = Workspace::new("/synthetic/mock-folder".into());
+    let alpha = state.register_directory("/synthetic/mock-folder/mock-alpha".into());
+    let beta = state.register_directory("/synthetic/mock-folder/mock-beta".into());
+    state.group_folder(0, &[alpha, beta]);
+    assert_eq!(state.project_rows(), vec![0]);
+    assert_eq!(state.folder_children(0), vec![alpha, beta]);
+    assert_eq!(state.folder(beta), Some(0));
+    assert!(state.folder_expanded(0));
+    state.switch_project(beta);
+    state.set_tab(Tab::Files);
+    state.new_session();
+    state.toggle_folder(0);
+    assert!(!state.folder_expanded(0));
+    assert_eq!(state.active_project, beta);
+    assert_eq!(state.project_target(0), beta);
+    assert_eq!(state.project_label(0), "mock-folder");
+    state.switch_project(0);
+    assert_eq!(
+        state.project().root,
+        std::path::PathBuf::from("/synthetic/mock-folder")
+    );
+    state.switch_project(beta);
+    assert_eq!(state.project().tab, Tab::Files);
+    assert_eq!(state.project().sessions.len(), 2);
+}
+
+#[test]
+fn rescanning_a_folder_keeps_cached_drafts_owned_without_showing_stale_repositories() {
+    let mut state = Workspace::new("/synthetic/mock-folder".into());
+    let alpha = state.register_directory("/synthetic/mock-folder/mock-alpha".into());
+    let beta = state.register_directory("/synthetic/mock-folder/mock-beta".into());
+    state.group_folder(0, &[alpha, beta]);
+    state.switch_project(beta);
+    state.project_mut().files.push(File {
+        path: "mock.txt".into(),
+        disk_path: "/synthetic/mock-folder/mock-beta/mock.txt".into(),
+        language: "plaintext".into(),
+        saved: "Synthetic disk".into(),
+        draft: "Synthetic draft".into(),
+    });
+    state.group_folder(0, &[alpha]);
+    assert_eq!(state.project_rows(), vec![0]);
+    assert_eq!(state.folder_children(0), vec![alpha]);
+    assert_eq!(state.folder(beta), Some(0));
+    assert_eq!(state.project_target(0), beta);
+    assert!(state.project().files[0].dirty());
+}
+
+#[test]
+fn nested_worktrees_share_one_child_row_and_keep_the_enclosing_folder() {
+    let mut state = Workspace::new("/synthetic/mock-folder".into());
+    let main = state.register_directory("/synthetic/mock-folder/mock-main".into());
+    let linked = state.register_directory("/synthetic/mock-folder/mock-linked".into());
+    let identity = std::path::PathBuf::from("/synthetic/mock-folder/mock-main/.git");
+    state.associate_repository(
+        main,
+        identity.clone(),
+        Some("/synthetic/mock-folder/mock-main".into()),
+    );
+    state.associate_repository(linked, identity.clone(), None);
+    state.group_folder(0, &[main, linked]);
+    assert_eq!(state.folder_children(0), vec![main]);
+    let outside = state.register_directory("/synthetic/mock-worktree".into());
+    state.associate_repository(outside, identity, None);
+    state.switch_project(outside);
+    assert_eq!(state.folder(outside), Some(0));
+    assert_eq!(state.project_rows(), vec![0]);
+    assert_eq!(state.project_target(main), outside);
+    assert_eq!(state.project_target(0), outside);
+    state.retire_project(outside);
+    state.switch_project(0);
+    state.retire_project(outside);
+    assert_eq!(state.project_rows(), vec![0]);
+}
+
+#[test]
+fn opening_an_enclosing_folder_reuses_an_already_open_repository_as_a_child() {
+    let mut state = Workspace::new("/synthetic/mock-folder/mock-child".into());
+    state.group_folder(0, &[]);
+    state.new_session();
+    let parent = state.register_directory("/synthetic/mock-folder".into());
+    state.group_folder(parent, &[0]);
+    assert_eq!(state.project_rows(), vec![parent]);
+    assert_eq!(state.folder(0), Some(parent));
+    assert_eq!(state.project_target(parent), 0);
+    assert_eq!(state.projects[0].sessions.len(), 2);
+}
+
+#[test]
+fn grouping_an_active_external_worktree_preserves_the_folders_last_directory() {
+    let mut state = Workspace::new("/synthetic/mock-folder/mock-main".into());
+    let identity = std::path::PathBuf::from("/synthetic/mock-folder/mock-main/.git");
+    state.associate_repository(0, identity.clone(), None);
+    let linked = state.open_directory("/synthetic/mock-linked".into());
+    state.associate_repository(linked, identity, None);
+    let parent = state.register_directory("/synthetic/mock-folder".into());
+    state.group_folder(parent, &[0]);
+    assert_eq!(state.project_rows(), vec![parent]);
+    assert_eq!(state.project_target(parent), linked);
+}
+
+#[test]
+fn retiring_a_folder_worktree_keeps_the_surviving_repository_visible() {
+    let mut state = Workspace::new("/synthetic/mock-linked".into());
+    let identity = std::path::PathBuf::from("/synthetic/mock-main/.git");
+    state.associate_repository(0, identity.clone(), Some("/synthetic/mock-main".into()));
+    state.group_folder(0, &[]);
+    let main = state.register_directory("/synthetic/mock-main".into());
+    state.associate_repository(main, identity, None);
+    state.switch_project(main);
+    state.retire_project(0);
+    assert_eq!(state.project_rows(), vec![main]);
+    assert_eq!(state.active_project, main);
+}
+
+#[test]
 fn worktrees_share_one_project_entry_and_restore_its_last_directory() {
     let mut state = Workspace::new("/synthetic/repository".into());
     state.associate_repository(

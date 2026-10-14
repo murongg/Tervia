@@ -6,6 +6,7 @@ use std::{
 #[derive(Default)]
 pub struct Scans {
     pending: HashMap<PathBuf, usize>,
+    pub(super) notices: HashMap<PathBuf, std::collections::BTreeSet<tervia::git::ScanLimit>>,
     next: usize,
 }
 impl Scans {
