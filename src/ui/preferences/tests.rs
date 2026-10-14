@@ -304,9 +304,7 @@ fn background_update_notifications_preserve_an_existing_workspace_warning(cx: &m
 }
 
 #[gpui_test::test]
-fn main_window_update_icon_opens_install_confirmation_without_opening_settings(
-    cx: &mut TestAppContext,
-) {
+fn main_window_update_reports_install_errors_without_opening_settings(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut view = None;
     let (_, cx) = cx.add_window_view(|window, cx| {
@@ -359,6 +357,30 @@ fn main_window_update_icon_opens_install_confirmation_without_opening_settings(
     );
     assert!(cx.update(|_, cx| view.read(cx).preferences_window.is_none()));
     cx.simulate_prompt_answer(Language::English.text("git_cancel"));
+    cx.run_until_parked();
+    assert!(!cx.has_pending_prompt());
+    cx.simulate_click(icon.center(), Modifiers::default());
+    cx.simulate_prompt_answer(Language::English.text("update_install"));
+    cx.run_until_parked();
+    assert!(
+        cx.has_pending_prompt(),
+        "Installation errors must be visible in the main window"
+    );
+    let (message, detail) = cx.pending_prompt().unwrap();
+    assert_eq!(message, Language::English.text("update_error"));
+    assert_eq!(
+        detail,
+        tervia::updates::Installation::discover().unwrap_err()
+    );
+    assert!(cx.update(|_, cx| view.read(cx).preferences_window.is_none()));
+    assert!(cx.update(|_, cx| matches!(
+        view.read(cx).updater.read(cx).state,
+        super::super::updates::State::Failed {
+            candidate: Some(_),
+            ..
+        }
+    )));
+    cx.simulate_prompt_answer(Language::English.text("close"));
 }
 
 #[gpui_test::test]

@@ -12,7 +12,7 @@ The project pins Rust 1.99.0 in `rust-toolchain.toml`; the first run downloads t
 ./scripts/run.sh
 ```
 
-After building, you can also open `build/Tervia.app` directly.
+The script builds a release executable by default; you can also open `build/Tervia.app` directly after building. This build supports online updates. For a development build, run `cargo run --features native`.
 
 Linux requires Vulkan drivers and development libraries for Fontconfig, ALSA, XKB, XCB, Wayland, PipeWire, and related components. See `.github/workflows/native.yml` for Ubuntu / Debian installation commands. Run `cargo run --features native`, or use `./scripts/linux.sh` to create an archive.
 
@@ -60,7 +60,7 @@ Linux packages require the runtime libraries described above. Each archive targe
 
 ## Online updates
 
-By default, Tervia checks the latest stable GitHub Release in the background at startup and every **60 minutes** while running. **Settings → Updates** provides an automatic-check switch, common check intervals, manual checking, release notes, and **Download and install**. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. The icon becomes a restart action after installation. Download progress and retry actions are shown in the app. Once installed, choose **Restart Tervia**, or restart later yourself.
+By default, Tervia checks the latest stable GitHub Release in the background at startup and every **60 minutes** while running. **Settings → Updates** provides an automatic-check switch, common check intervals, manual checking, release notes, and **Download and install**. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. During downloads, the icon becomes a circular progress indicator. It spins while the download size is unknown or verification/installation is in progress, then becomes a restart action after installation. Failures show their cause in the initiating window and keep the update available for retry. Once installed, choose **Restart Tervia**, or restart later yourself.
 
 Intervals are measured from the last completed check, including manual checks and failures. Failed checks retry at the configured interval. Settings changes take effect immediately; editing `[updates]` in `config.toml` takes effect after restarting. Custom `interval_minutes` values from **5 to 10080 minutes (7 days)** are supported and retained in the settings menu. Disabling automatic checks leaves manual checking available. Checks pause during installation and confirmations and stop once an update is installed until restart; downloads and installation always require confirmation.
 

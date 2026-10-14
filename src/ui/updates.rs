@@ -9,6 +9,7 @@ use std::{
 use gpui_kit::assets::IconName;
 use gpui_kit::base::Disableable;
 use gpui_kit::component::button::ButtonVariants;
+use gpui_kit::component::{progress::ProgressCircle, tooltip::Tooltip};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use tervia::{
@@ -188,12 +189,13 @@ impl Updater {
         self.confirming = true;
         self.schedule_next(cx);
         cx.notify();
+        let window = window.window_handle();
         cx.spawn(async move |weak, cx| {
             let choice = receiver.await;
             let _ = weak.update(cx, |this, cx| {
                 this.confirming = false;
                 if choice == Ok(1) {
-                    this.install(candidate, cx);
+                    this.install(candidate, window, cx);
                 }
                 this.schedule_next(cx);
                 cx.notify();
@@ -202,14 +204,11 @@ impl Updater {
         .detach();
     }
 
-    fn install(&mut self, candidate: Candidate, cx: &mut Context<Self>) {
+    fn install(&mut self, candidate: Candidate, window: AnyWindowHandle, cx: &mut Context<Self>) {
         let installation = match Installation::discover() {
             Ok(installation) => installation,
             Err(error) => {
-                self.state = State::Failed {
-                    error,
-                    candidate: Some(candidate),
-                };
+                self.install_failed(error, candidate, window, cx);
                 return;
             }
         };
@@ -230,13 +229,10 @@ impl Updater {
                 .await;
             let _ = weak.update(cx, |this, cx| {
                 this.progress = None;
-                this.state = match result {
-                    Ok(installed) => State::Installed(installed),
-                    Err(error) => State::Failed {
-                        error,
-                        candidate: Some(retry),
-                    },
-                };
+                match result {
+                    Ok(installed) => this.state = State::Installed(installed),
+                    Err(error) => this.install_failed(error, retry, window, cx),
+                }
                 this.schedule_next(cx);
                 cx.notify();
             });
@@ -264,6 +260,72 @@ impl Updater {
         .detach();
         cx.notify();
     }
+
+    fn install_failed(
+        &mut self,
+        error: String,
+        candidate: Candidate,
+        window: AnyWindowHandle,
+        cx: &mut Context<Self>,
+    ) {
+        self.state = State::Failed {
+            error: error.clone(),
+            candidate: Some(candidate),
+        };
+        cx.notify();
+        let language = self.preferences.read(cx).language;
+        // Toolbar installs need a visible error without requiring users to open settings.
+        // Update shared state first so closing the initiating window cannot lose the result.
+        let _ = window.update(cx, |_, window, cx| {
+            window.prompt(
+                PromptLevel::Warning,
+                language.text("update_error"),
+                Some(&error),
+                &[language.text("close")],
+                cx,
+            )
+        });
+    }
+
+    fn progress_status(&self) -> (Option<f32>, String) {
+        let (downloaded, total) = self
+            .progress
+            .as_ref()
+            .map(|progress| {
+                (
+                    progress.0.load(Ordering::Relaxed),
+                    progress.1.load(Ordering::Relaxed),
+                )
+            })
+            .unwrap_or_default();
+        let percentage =
+            (total > 0).then(|| ((downloaded as f64 / total as f64) * 100.0).min(100.0) as f32);
+        let progress = if let Some(percentage) = percentage {
+            format!("{}%", percentage.floor() as u32)
+        } else if downloaded > 0 {
+            format!("{:.1} MiB", downloaded as f64 / 1_048_576.0)
+        } else {
+            String::new()
+        };
+        (percentage, progress)
+    }
+
+    fn progress_circle(&self, cx: &App) -> ProgressCircle {
+        let preferences = self.preferences.read(cx);
+        let (percentage, progress) = self.progress_status();
+        ProgressCircle::new("workspace-update-progress-circle")
+            .color(Palette::new(preferences.light_theme).accent)
+            .w(px(18.0))
+            .h(px(18.0))
+            .value(percentage.unwrap_or(0.0))
+            // The download reaching 100% still leaves verification and installation to finish.
+            .loading(percentage.is_none_or(|value| value >= 100.0))
+            .accessibility_label(
+                preferences
+                    .language
+                    .format("update_installing", &[("progress", &progress)]),
+            )
+    }
 }
 
 impl Render for Updater {
@@ -283,30 +345,7 @@ impl Render for Updater {
                 language.format("update_available", &[("version", candidate.version())])
             }
             State::Installing => {
-                let (downloaded, total) = self
-                    .progress
-                    .as_ref()
-                    .map(|progress| {
-                        (
-                            progress.0.load(Ordering::Relaxed),
-                            progress.1.load(Ordering::Relaxed),
-                        )
-                    })
-                    .unwrap_or_default();
-                let progress = if total > 0 {
-                    format!(
-                        "{}%",
-                        downloaded
-                            .saturating_mul(100)
-                            .checked_div(total)
-                            .unwrap_or(0)
-                            .min(100)
-                    )
-                } else if downloaded > 0 {
-                    format!("{:.1} MiB", downloaded as f64 / 1_048_576.0)
-                } else {
-                    String::new()
-                };
+                let (_, progress) = self.progress_status();
                 language.format("update_installing", &[("progress", &progress)])
             }
             State::Installed(installed) => {
@@ -495,7 +534,8 @@ impl Tervia {
         let label = if installed {
             self.t("update_restart").to_owned()
         } else if installing {
-            self.t("update_wait").to_owned()
+            let (_, progress) = updater.progress_status();
+            self.f("update_installing", &[("progress", &progress)])
         } else {
             let candidate = updater.state.candidate()?;
             format!(
@@ -505,43 +545,60 @@ impl Tervia {
             )
         };
         let p = self.p();
+        let progress_label = label.clone();
         Some(
             div()
                 .debug_selector(|| "workspace-update".into())
                 .relative()
                 .size(px(28.0))
-                .child(
-                    icon_button(
-                        "workspace-update-button",
-                        if installed {
-                            IconName::RefreshCw
-                        } else {
-                            IconName::Download
-                        },
-                        label.clone(),
-                        p,
-                        cx,
+                .when(installing, |container| {
+                    container.child(
+                        div()
+                            .id("workspace-update-progress")
+                            .debug_selector(|| "workspace-update-progress".into())
+                            .size(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(updater.progress_circle(cx))
+                            .tooltip(move |window, cx| {
+                                Tooltip::new(progress_label.clone()).build(window, cx)
+                            }),
                     )
-                    .icon(icon(
-                        if installed {
-                            IconName::RefreshCw
-                        } else {
-                            IconName::Download
-                        },
-                        p.accent,
-                    ))
-                    .accessibility_label(label)
-                    .loading(installing)
-                    .disabled(updater.state.busy() || updater.confirming)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        if matches!(this.updater.read(cx).state, State::Installed(_)) {
-                            this.restart_after_update(window, cx);
-                        } else {
-                            this.updater
-                                .update(cx, |updater, cx| updater.confirm_install(window, cx));
-                        }
-                    })),
-                )
+                })
+                .when(!installing, |container| {
+                    container.child(
+                        icon_button(
+                            "workspace-update-button",
+                            if installed {
+                                IconName::RefreshCw
+                            } else {
+                                IconName::Download
+                            },
+                            label.clone(),
+                            p,
+                            cx,
+                        )
+                        .icon(icon(
+                            if installed {
+                                IconName::RefreshCw
+                            } else {
+                                IconName::Download
+                            },
+                            p.accent,
+                        ))
+                        .accessibility_label(label)
+                        .disabled(updater.state.busy() || updater.confirming)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            if matches!(this.updater.read(cx).state, State::Installed(_)) {
+                                this.restart_after_update(window, cx);
+                            } else {
+                                this.updater
+                                    .update(cx, |updater, cx| updater.confirm_install(window, cx));
+                            }
+                        })),
+                    )
+                })
                 .when(!installing, |button| {
                     button.child(
                         div()

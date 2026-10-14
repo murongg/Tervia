@@ -5,6 +5,61 @@ use std::sync::atomic::AtomicUsize;
 use tervia::updates::Settings;
 
 #[gpui_test::test]
+fn toolbar_progress_shows_download_percent_and_stays_busy_during_installation(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    for (downloaded, total, percentage, text) in [
+        (0, 0, None, ""),
+        (0, 1000, Some(0.0), "0%"),
+        (250, 1000, Some(25.0), "25%"),
+        (1000, 1000, Some(100.0), "100%"),
+        (1500, 1000, Some(100.0), "100%"),
+        (1_048_576, 0, None, "1.0 MiB"),
+    ] {
+        cx.update(|_, cx| {
+            view.read(cx).updater.clone().update(cx, |updater, cx| {
+                updater.preferences.update(cx, |preferences, cx| {
+                    preferences.language = tervia::locale::Language::English;
+                    cx.notify();
+                });
+                updater.state = State::Installing;
+                updater.progress = Some(Arc::new((
+                    AtomicU64::new(downloaded),
+                    AtomicU64::new(total),
+                )));
+                cx.notify();
+            });
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let progress = cx
+            .debug_bounds("workspace-update-progress")
+            .expect("The toolbar must replace its download icon with circular progress");
+        assert_eq!(
+            cx.update(|_, cx| view.read(cx).updater.read(cx).progress_status()),
+            (percentage, text.to_owned()),
+        );
+        let toolbar = cx.debug_bounds("workspace-update").unwrap();
+        assert!(toolbar.contains(&progress.center()));
+        cx.simulate_click(toolbar.center(), Modifiers::default());
+        assert!(
+            !cx.has_pending_prompt(),
+            "Installing must not allow a second install"
+        );
+        assert!(
+            cx.update(|_, cx| matches!(view.read(cx).updater.read(cx).state, State::Installing))
+        );
+    }
+}
+
+#[gpui_test::test]
 fn automatic_checks_repeat_after_failures_and_apply_live_settings(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let preferences = cx.new(|_| Preferences {

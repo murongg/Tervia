@@ -60,8 +60,6 @@ jobs:
       - name: macOS package
         if: runner.os == 'macOS'
         run: |
-          mkdir -p target/debug
-          cp target/release/tervia target/debug/tervia
           ./scripts/package.sh --no-build
       - name: Sign and notarize macOS app
         if: runner.os == 'macOS' && inputs.sign-macos
