@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0 (2026-10-14)
+
+### Features
+
+- **ui:** add native workspace menus (c0ddaa9d)
+- **workspace:** improve review and file browsing (43284137)
+- **git:** separate untracked changes in working copy (c3dd4ab9)
+- **git:** add commit graph and parent navigation (2a03efe7)
+
+### Fixes
+
+- **git:** centralize repository probing and error handling (0819d6c7)
+- **gpui:** retain row height estimates across layout changes (f562fae7)
+- **files:** align workbench dividers (5ef86b79)
+- **git:** hide expected non-repository probe errors (d5164d1a)
+
+### Other changes
+
+- **search:** compare native paths across platforms (22fcfe52)
+
 ## v0.2.0 (2026-10-14)
 
 ### Features
