@@ -345,7 +345,12 @@ impl Tervia {
         self.git_scans.running(root)
     }
 
-    fn rescan_repositories(&mut self, project: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn rescan_repositories(
+        &mut self,
+        project: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let root = self.git_states[project]
             .workspace
             .as_ref()

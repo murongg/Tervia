@@ -447,3 +447,52 @@ fn invalid_config_uses_defaults_and_save_errors_remain_visible(cx: &mut TestAppC
         "[ui.fonts]\ncode_size = 999"
     );
 }
+
+#[gpui_test::test]
+fn configured_startup_restores_open_projects_and_the_selected_directory(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let alpha = root.path().join("mock-alpha");
+    let beta = root.path().join("mock-beta");
+    fs::create_dir(&alpha).unwrap();
+    fs::create_dir(&beta).unwrap();
+    let alpha = alpha.canonicalize().unwrap();
+    let beta = beta.canonicalize().unwrap();
+    fs::write(
+        root.path().join("workspace.json"),
+        serde_json::json!({
+            "version": 1,
+            "projects": [
+                { "root": alpha, "directory": alpha },
+                { "root": beta, "directory": beta }
+            ],
+            "active": beta,
+            "sidebar_expanded": true
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(Ok(Config::new(root.path().join("config.toml"))), window, cx)
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|_, cx| {
+        let this = view.read(cx);
+        assert_eq!(this.state.projects.len(), 2);
+        assert_eq!(this.state.projects[0].root, alpha);
+        assert_eq!(this.state.project().root, beta);
+        assert!(this.state.sidebar_expanded);
+        assert_eq!(this.git_states.len(), 2);
+        assert_eq!(this.terminals.len(), 2);
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert_eq!(view.read(cx).state.project().root, beta);
+        assert!(view.read(cx).state.notice.is_empty());
+    });
+}

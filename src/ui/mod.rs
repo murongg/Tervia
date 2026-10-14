@@ -23,6 +23,7 @@ use tervia::locale::Language;
 use tervia::platform::Platform;
 use tervia::preferences::Preferences;
 use tervia::state::{Tab, Workspace};
+use tervia::workspace::Store;
 
 use theme::Palette;
 
@@ -67,6 +68,7 @@ pub struct Tervia {
     preferences: Entity<Preferences>,
     appearance: Preferences,
     config: Option<Config>,
+    workspace: Option<Store>,
     config_error: Entity<Option<String>>,
     preferences_window: Option<AnyWindowHandle>,
     updater: Entity<updates::Updater>,
@@ -99,7 +101,15 @@ impl Tervia {
 
     #[cfg(all(test, feature = "ui-tests"))]
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::build(Preferences::default(), None, None, window, cx)
+        Self::build(
+            Preferences::default(),
+            None,
+            None,
+            Workspace::empty(),
+            None,
+            window,
+            cx,
+        )
     }
 
     pub fn configured(
@@ -117,19 +127,32 @@ impl Tervia {
             }
             Err(error) => (Preferences::default(), None, Some(error)),
         };
-        Self::build(appearance, config, error, window, cx)
+        let mut workspace = config
+            .as_ref()
+            .map(|config| Store::new(config.path().with_file_name("workspace.json")));
+        let state = workspace.as_mut().map(Store::load).transpose();
+        let state = match state {
+            Ok(state) => state.unwrap_or_else(Workspace::empty),
+            Err(error) => {
+                let mut state = Workspace::empty();
+                state.notice = format!("{}\n{error}", appearance.language.text("workspace_error"));
+                state
+            }
+        };
+        Self::build(appearance, config, error, state, workspace, window, cx)
     }
 
     fn build(
         appearance: Preferences,
         config: Option<Config>,
         error: Option<String>,
+        mut state: Workspace,
+        workspace: Option<Store>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
         preferences::apply(&appearance, cx);
         let language = appearance.language;
-        let mut state = Workspace::empty();
         if let Some(error) = &error {
             state.notice = format!("{}\n{error}", language.text("config_error"));
         }
@@ -141,6 +164,7 @@ impl Tervia {
             preferences,
             appearance,
             config,
+            workspace,
             config_error: cx.new(|_| error),
             preferences_window: None,
             updater,
@@ -201,6 +225,21 @@ impl Tervia {
         for index in 0..view.state.projects.len() {
             view.init_project(index, window, cx);
         }
+        for index in 0..view.state.projects.len() {
+            view.refresh_git(index, window, cx);
+            let root = &view.state.projects[index].root;
+            // Separate child scans would replace the enclosing workspace's repository grouping.
+            if !view
+                .state
+                .projects
+                .iter()
+                .any(|project| project.root != *root && root.starts_with(&project.root))
+            {
+                view.rescan_repositories(index, window, cx);
+            }
+        }
+        view.subscriptions
+            .push(cx.observe_self(|this, cx| this.persist_workspace(cx)));
         view.git_poll = Some(cx.spawn_in(window, async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -332,8 +371,19 @@ impl Tervia {
     }
 
     pub(crate) fn shutdown_terminals(&mut self, cx: &mut Context<Self>) {
+        self.persist_workspace(cx);
         for console in self.terminals.iter().flatten().flatten() {
             console.update(cx, |console, _| console.shutdown());
+        }
+    }
+
+    fn persist_workspace(&mut self, cx: &mut Context<Self>) {
+        if let Some(workspace) = &mut self.workspace
+            && let Err(error) = workspace.save(&self.state)
+            && self.state.notice.is_empty()
+        {
+            self.state.notice = format!("{}\n{error}", self.t("workspace_error"));
+            cx.notify();
         }
     }
 
