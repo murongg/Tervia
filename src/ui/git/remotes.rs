@@ -3,7 +3,11 @@ use super::*;
 use gpui_kit::assets::IconName;
 
 impl Tervia {
-    pub(super) fn git_remotes(&self, snapshot: &Snapshot, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn git_remotes(
+        &self,
+        snapshot: &Snapshot,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::component::scroll::Scrollable<Stateful<Div>> {
         let project = self.state.active_project;
         let ui = &self.git_states[project];
         let p = self.git_p();

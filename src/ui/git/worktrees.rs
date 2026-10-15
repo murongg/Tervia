@@ -1,3 +1,4 @@
+use crate::ui::scroll::ListScrollbars as _;
 mod jobs;
 
 use super::super::controls::{icon, icon_button};
@@ -368,7 +369,7 @@ impl Tervia {
                 )
                 .flex_1()
                 .min_h_0()
-                .track_scroll(&ui.scroll),
+                .scrollbar(&ui.scroll),
             )
             .when(selected.is_some_and(|tree| !tree.main), |panel| {
                 panel.child(

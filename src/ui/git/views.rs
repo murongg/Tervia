@@ -5,6 +5,7 @@ use super::super::{
 use super::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable};
+use gpui_kit::component::scroll::ScrollableElement as _;
 
 impl Tervia {
     pub(super) fn git_p(&self) -> Palette {
@@ -332,13 +333,17 @@ impl Tervia {
         )
     }
 
-    pub(super) fn git_list(&self, id: &'static str, _width: f32) -> Stateful<Div> {
+    pub(super) fn git_list(
+        &self,
+        id: &'static str,
+        _width: f32,
+    ) -> gpui_kit::component::scroll::Scrollable<Stateful<Div>> {
         div()
             .id(id)
             .size_full()
             .min_h_0()
             .min_w_0()
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .flex()
             .flex_col()
             .bg(self.git_p().background)

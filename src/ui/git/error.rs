@@ -1,6 +1,7 @@
 use super::*;
 use crate::ui::controls::{icon, icon_button};
 use gpui_kit::assets::IconName;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use tervia::{git::ErrorKind, locale::Language};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -193,7 +194,7 @@ impl Tervia {
                         .debug_selector(|| "git-error-details".into())
                         .max_h(px(160.0))
                         .min_h_0()
-                        .overflow_y_scroll()
+                        .overflow_y_scrollbar()
                         .child(failure.details.clone()),
                 )
             })

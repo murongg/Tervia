@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::component::input::{Input, InputState};
 use std::sync::{
     Arc,
@@ -378,7 +379,7 @@ impl Tervia {
                 )
                 .flex_1()
                 .min_h_0()
-                .track_scroll(&finder.scroll),
+                .scrollbar(&finder.scroll),
             )
     }
 }

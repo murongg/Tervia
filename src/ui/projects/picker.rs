@@ -300,7 +300,7 @@ impl Tervia {
                     }),
                 )
                 .h(px((count as f32 * 36.0).min(252.0)))
-                .track_scroll(&self.navigation.scroll)
+                .scrollbar(&self.navigation.scroll)
                 .into_any_element()
             })
             .child(

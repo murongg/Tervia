@@ -1,8 +1,10 @@
 use super::super::controls::icon;
 use super::history::Reference;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::popover::{Popover, PopoverState};
+use gpui_kit::component::scroll::ScrollableElement as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum SwitchAnchor {
@@ -300,7 +302,7 @@ impl Tervia {
             .w(px(360.0))
             .max_h(px(430.0))
             .min_h_0()
-            .overflow_y_scroll()
+            .overflow_y_scrollbar()
             .flex()
             .flex_col()
             .gap(px(8.0))
@@ -477,7 +479,7 @@ impl Tervia {
                 )
                 .h(px((count as f32 * 36.0).min(216.0)))
                 .flex_shrink_0()
-                .track_scroll(&ui.switcher.scroll)
+                .scrollbar(&ui.switcher.scroll)
                 .into_any_element()
             })
             // Keep polling and checkout progress from shifting the selectable rows.
