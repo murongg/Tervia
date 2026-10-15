@@ -340,3 +340,355 @@ fn menu_branch_deletion_keeps_the_existing_confirmation_and_checkout(cx: &mut Te
     assert!(git(root.path(), &["branch", "--list", "mock-merged"]).is_empty());
     assert_eq!(git(root.path(), &["branch", "--show-current"]), "main");
 }
+
+#[gpui_test::test]
+fn double_clicking_a_branch_switches_after_a_single_click_only_browses(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(root.path());
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = Tervia::new(window, cx);
+            let project = view.state.open_directory(repo.root.clone());
+            view.init_project(project, window, cx);
+            view.state.set_tab(Tab::Git);
+            let snapshot = repo.snapshot(100).unwrap();
+            let ui = &mut view.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let branch = cx.debug_bounds("git-sidebar-branch-0").unwrap();
+    cx.simulate_click(branch.center(), Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(git(root.path(), &["branch", "--show-current"]), "main");
+    cx.simulate_event(MouseDownEvent {
+        position: branch.center(),
+        modifiers: Modifiers::default(),
+        button: MouseButton::Left,
+        click_count: 2,
+        first_mouse: false,
+    });
+    cx.simulate_event(MouseUpEvent {
+        position: branch.center(),
+        modifiers: Modifiers::default(),
+        button: MouseButton::Left,
+        click_count: 2,
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        git(root.path(), &["branch", "--show-current"]),
+        "feature/mock-history"
+    );
+}
+
+#[gpui_test::test]
+fn branch_switcher_shortcut_search_and_escape_preserve_the_active_module(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.bind_keys([KeyBinding::new(
+            "escape",
+            gpui_kit::base::actions::Cancel,
+            Some("Tervia"),
+        )]);
+    });
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(root.path());
+    let mut entity = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = Tervia::new(window, cx);
+            let project = view.state.open_directory(repo.root.clone());
+            view.init_project(project, window, cx);
+            view.state.set_tab(Tab::Files);
+            let snapshot = repo.snapshot(100).unwrap();
+            let ui = &mut view.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        entity = Some(view.clone());
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    let view = entity.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let shortcut = if tervia::platform::Platform::CURRENT == tervia::platform::Platform::Mac {
+        "cmd-alt-b"
+    } else {
+        "ctrl-alt-b"
+    };
+    cx.simulate_keystrokes(shortcut);
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-branch-picker").is_some());
+    cx.simulate_input("no-matching-branch");
+    cx.simulate_keystrokes("down enter");
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-branch-picker").is_some());
+    cx.simulate_keystrokes("escape");
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    view.update(cx, |view, cx| {
+        assert_eq!(cx.windows().len(), 1);
+        assert_eq!(view.state.project().tab, Tab::Files);
+    });
+    cx.simulate_keystrokes(shortcut);
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_input("FEATURE/MOCK-HISTORY");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-branch-picker").is_none());
+    assert_eq!(
+        git(root.path(), &["branch", "--show-current"]),
+        "feature/mock-history"
+    );
+    view.update(cx, |view, _| {
+        assert_eq!(view.state.project().tab, Tab::Files)
+    });
+}
+
+#[gpui_test::test]
+fn branch_switcher_keeps_checkout_failures_visible_and_preserves_dirty_files(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(root.path());
+    git(root.path(), &["switch", "feature/mock-history"]);
+    fs::write(
+        root.path().join("mock.txt"),
+        "Synthetic conflicting feature edit\n",
+    )
+    .unwrap();
+    git(root.path(), &["add", "."]);
+    git(
+        root.path(),
+        &["commit", "-m", "Synthetic conflicting feature commit"],
+    );
+    git(root.path(), &["switch", "main"]);
+    fs::write(
+        root.path().join("mock.txt"),
+        "Synthetic unsaved main edit\n",
+    )
+    .unwrap();
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = Tervia::new(window, cx);
+            let project = view.state.open_directory(repo.root.clone());
+            view.init_project(project, window, cx);
+            view.state.set_tab(Tab::Files);
+            let snapshot = repo.snapshot(100).unwrap();
+            let ui = &mut view.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let trigger = cx.debug_bounds("git-branch-switcher-navigation").unwrap();
+    cx.simulate_click(trigger.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_input("feature/mock-history");
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-branch-picker-error").is_some());
+    assert_eq!(git(root.path(), &["branch", "--show-current"]), "main");
+    assert_eq!(
+        fs::read_to_string(root.path().join("mock.txt")).unwrap(),
+        "Synthetic unsaved main edit\n"
+    );
+}
+
+#[gpui_test::test]
+fn branch_switcher_orders_recent_branches_and_keeps_selection_stable_after_refresh(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(root.path());
+    git(root.path(), &["branch", "aaa-mock-old"]);
+    git(root.path(), &["branch", "zzz-mock-recent"]);
+    git(
+        root.path(),
+        &["remote", "add", "origin", &root.path().to_string_lossy()],
+    );
+    git(
+        root.path(),
+        &[
+            "update-ref",
+            "refs/remotes/origin/mock-history",
+            "refs/heads/feature/mock-history",
+        ],
+    );
+    git(
+        root.path(),
+        &[
+            "branch",
+            "--set-upstream-to=origin/mock-history",
+            "feature/mock-history",
+        ],
+    );
+    let mut entity = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = Tervia::new(window, cx);
+            let project = view.state.open_directory(repo.root.clone());
+            view.init_project(project, window, cx);
+            view.state.set_tab(Tab::Files);
+            let snapshot = repo.snapshot(100).unwrap();
+            let ui = &mut view.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        entity = Some(view.clone());
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    let view = entity.unwrap();
+    for name in ["zzz-mock-recent", "main"] {
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.switch_branch(
+                    0,
+                    Reference::Branch {
+                        name: name.into(),
+                        remote: false,
+                    },
+                    window,
+                    cx,
+                );
+            })
+        });
+        cx.run_until_parked();
+    }
+    view.update(cx, |view, cx| {
+        let rows = view.branch_picker_rows(0, cx);
+        assert_eq!(rows[0].name, "main");
+        assert_eq!(rows[1].name, "zzz-mock-recent");
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let previous_navigation = view.git_states[0].worktrees.navigation.begin();
+            view.toggle_branch_picker(super::super::SwitchAnchor::Navigation, window, cx);
+            assert!(
+                !view.git_states[0]
+                    .worktrees
+                    .navigation
+                    .current(previous_navigation),
+                "Quick switching supersedes an earlier worktree open"
+            );
+        });
+        window.draw(cx).clear(cx);
+    });
+    let picker_bounds = cx.debug_bounds("git-branch-picker").unwrap();
+    view.update(cx, |view, cx| {
+        view.git_states[0].busy = true;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("git-branch-picker").unwrap(),
+        picker_bounds,
+        "Passive Git refresh must not move the branch choices"
+    );
+    view.update(cx, |view, cx| {
+        view.git_states[0].busy = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_keystrokes("down down");
+    let feature = Reference::Branch {
+        name: "feature/mock-history".into(),
+        remote: false,
+    };
+    view.update(cx, |view, _| {
+        assert_eq!(view.git_states[0].switcher.selected, Some(feature.clone()))
+    });
+    git(root.path(), &["branch", "000-mock-new"]);
+    cx.update(|window, cx| view.update(cx, |view, cx| view.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    assert_eq!(
+        git(root.path(), &["branch", "--show-current"]),
+        "feature/mock-history"
+    );
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.switch_branch(
+                0,
+                Reference::Branch {
+                    name: "main".into(),
+                    remote: false,
+                },
+                window,
+                cx,
+            );
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.switch_branch(
+                0,
+                Reference::Branch {
+                    name: "origin/mock-history".into(),
+                    remote: true,
+                },
+                window,
+                cx,
+            );
+        })
+    });
+    cx.run_until_parked();
+    assert_eq!(
+        git(root.path(), &["branch", "--show-current"]),
+        "feature/mock-history"
+    );
+    assert!(
+        git(root.path(), &["branch", "--list", "mock-history"]).is_empty(),
+        "Reuse the local tracking branch instead of creating another checkout target"
+    );
+}
+
+#[gpui_test::test]
+fn branch_shortcut_wins_over_a_console_binding_at_a_deeper_context(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.bind_keys([KeyBinding::new(
+            "secondary-alt-b",
+            gpui_kit::base::actions::Cancel,
+            Some("Console"),
+        )]);
+        super::super::init(cx);
+        let chord = if tervia::platform::Platform::CURRENT == tervia::platform::Platform::Mac {
+            "cmd-alt-b"
+        } else {
+            "ctrl-alt-b"
+        };
+        let contexts = [
+            KeyContext::parse("Tervia Terminal").unwrap(),
+            KeyContext::parse("Console").unwrap(),
+        ];
+        let (bindings, _) = cx
+            .key_bindings()
+            .borrow()
+            .bindings_for_input(&[Keystroke::parse(chord).unwrap()], &contexts);
+        assert!(
+            bindings[0]
+                .action()
+                .as_any()
+                .is::<super::super::QuickSwitchBranch>(),
+            "The branch shortcut must reach the app while the terminal has focus"
+        );
+    });
+}

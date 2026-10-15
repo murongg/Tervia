@@ -135,7 +135,7 @@ Child repository scanning runs in the background, traversing at most 3 child-dir
 - Native virtualized diffs with syntax highlighting, inline / side-by-side views, and staging / unstaging by file or hunk. Snapshots are checked before applying hunks, preserving CRLF and trailing whitespace.
 - Git review starts with a collapsed commit form, retains drafts, and offers an expanded Diff, previous/next file and change navigation, and Back to Diff after opening a full file. Recent reading positions are retained when the patch is unchanged.
 - Multiline commit messages, regular commits, and amend. Failed commits preserve the message, and commits include only the index. Local hooks and signing behavior are preserved.
-- Click a local branch, remote branch, or tag to browse its reachable commits without switching the checkout. Use the explicit switch action to change branches; right-click or open the history toolbar’s action menu for merge, rebase, rename, and delete. Section Plus buttons open compact branch/tag creation forms.
+- Click a local branch, remote branch, or tag to browse its reachable commits without switching the checkout. Double-click a branch to switch, or use the searchable branch menu in the top navigation or Git toolbar (⌘⌥B / Ctrl+Alt+B). Recently used branches are prioritized; keyboard selection keeps its branch identity across refreshes, and an existing local tracking branch is reused for remote targets. The picker preserves the active module and shows checkout errors without discarding local changes. Right-click or open the history toolbar’s action menu for merge, rebase, rename, and delete. Section Plus buttons open compact branch/tag creation forms.
 - Commit graphs show parent relationships, forks, and merges alongside branch/tag labels. Filter by author / message / ref / hash; gaps mark commits hidden by the filter. History loads up to 2,000 commits, preserving lanes across scrolling and pagination. Parent links open commit details even beyond the loaded page. Commit details include file navigation and merge changes relative to the first parent; full metadata remains expandable.
 - Create / switch / rename / delete local branches, track remote branches, and create / delete tags.
 - Worktrees share one project entry, with independent directory state and a collapsible Git sidebar list. Create from a new or existing branch, or detached HEAD; open, lock/unlock, safely remove, and prune missing registrations. Removal keeps the branch and checks Git changes and unsaved editor drafts; force removal is not exposed.
@@ -166,6 +166,7 @@ The native menu bar includes File, View and Terminal menus for opening folders/f
 | ⌘Shift+T | Ctrl+Shift+T | Reopen the last closed file tab |
 | ⌘F | Ctrl+F | Find in the editor |
 | ⌘⇧P | Ctrl+Shift+P | Quick actions |
+| ⌘⌥B | Ctrl+Alt+B | Search and switch Git branches |
 | ⌘, | Ctrl+, | Open the separate settings window |
 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V | Copy the terminal selection / paste into the terminal |
 | ⌘K | Ctrl+Shift+K | Clear the focused terminal's screen and scrollback, and request a redraw |

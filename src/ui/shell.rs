@@ -219,18 +219,7 @@ impl Tervia {
             );
         }
         nav.child(div().flex_1())
-            .when(active != Tab::Terminal, |nav| {
-                nav.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(6.0))
-                        .text_color(p.secondary)
-                        .text_size(px(11.0))
-                        .child(icon(IconName::GitBranch, p.muted))
-                        .child(self.state.project().branch.clone()),
-                )
-            })
+            .child(self.branch_switcher(super::git::SwitchAnchor::Navigation, cx))
     }
 
     pub(super) fn statusbar(&self, cx: &mut Context<Self>) -> Div {

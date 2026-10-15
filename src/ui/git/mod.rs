@@ -11,6 +11,8 @@ mod scans;
 pub(super) use scans::Scans;
 mod sidebar;
 mod stash;
+mod switcher;
+pub(super) use switcher::SwitchAnchor;
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
 mod viewer;
@@ -33,6 +35,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tervia::git::{FileStatus, Operation, Repository, Side, Snapshot};
 use tervia::state::Tab;
+
+gpui_kit::actions!(git, [QuickSwitchBranch]);
+
+pub(super) fn init(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("secondary-alt-b", QuickSwitchBranch, Some("Tervia")),
+        // Console key bindings are deeper than workspace bindings on Windows/Linux.
+        KeyBinding::new(
+            "secondary-alt-b",
+            QuickSwitchBranch,
+            Some("Tervia > Console"),
+        ),
+    ]);
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode {
@@ -58,6 +74,7 @@ pub(super) struct GitUi {
     history_scroll: UniformListScrollHandle,
     history: history::History,
     reference_form: branches::ReferenceForm,
+    switcher: switcher::Switcher,
     sidebar_scroll: UniformListScrollHandle,
     raw_scroll: UniformListScrollHandle,
     metadata_scroll: UniformListScrollHandle,
@@ -94,6 +111,7 @@ pub(super) struct GitUi {
 
 impl GitUi {
     fn reconcile_snapshot(&mut self, snapshot: &Snapshot, cx: &mut Context<Tervia>) {
+        self.switcher.observe(snapshot);
         if self
             .history
             .target
@@ -270,7 +288,20 @@ impl GitUi {
             }
         }
     }
-    pub fn subscribe(&self, subscriptions: &mut Vec<Subscription>, cx: &mut Context<Tervia>) {
+    pub fn subscribe(
+        &self,
+        project: usize,
+        subscriptions: &mut Vec<Subscription>,
+        cx: &mut Context<Tervia>,
+    ) {
+        subscriptions.push(cx.subscribe(
+            &self.switcher.input,
+            move |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.reset_branch_picker_selection(project, cx);
+                }
+            },
+        ));
         self.worktrees.subscribe(subscriptions, cx);
         for input in [&self.first, &self.second, &self.reference_form.input] {
             subscriptions.push(cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify()));
@@ -285,6 +316,7 @@ impl GitUi {
             history_scroll: UniformListScrollHandle::new(),
             history: history::History::default(),
             reference_form: branches::ReferenceForm::new(window, cx),
+            switcher: switcher::Switcher::new(window, cx),
             sidebar_scroll: UniformListScrollHandle::new(),
             raw_scroll: UniformListScrollHandle::new(),
             metadata_scroll: UniformListScrollHandle::new(),
@@ -601,6 +633,7 @@ impl Tervia {
                     | Operation::RenameBranch { .. }
             )
         );
+        let switching = matches!(operation, Some(Operation::Switch(_) | Operation::Track(_)));
         let limit = self.git_states[project].limit;
         self.git_states[project].busy = true;
         if mutating {
@@ -683,6 +716,10 @@ impl Tervia {
                         };
                         ui.fail_snapshot(error, origin);
                     }
+                }
+                if switching && success && ui.snapshot.is_some() {
+                    ui.switcher.open = None;
+                    ui.switcher.pending = None;
                 }
                 if reference_edit && success {
                     ui.reference_form.action = None;
@@ -810,6 +847,13 @@ impl Tervia {
         )
     }
 
+    pub(super) fn git_action_busy(&self, project: usize) -> bool {
+        self.git_states[project].busy
+            || self.git_mutating
+            || self.saving_file
+            || self.file_reads.has_reloads()
+    }
+
     fn git_button(
         &self,
         project: usize,
@@ -820,12 +864,7 @@ impl Tervia {
     ) -> Button {
         button
             .custom(icon_style(self.git_p(), cx))
-            .disabled(
-                self.git_states[project].busy
-                    || self.git_mutating
-                    || self.saving_file
-                    || self.file_reads.has_reloads(),
-            )
+            .disabled(self.git_action_busy(project))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.run_git_action(project, key, operation.clone(), window, cx)
             }))
@@ -839,11 +878,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.git_states[project].busy
-            || self.git_mutating
-            || self.saving_file
-            || self.file_reads.has_reloads()
-        {
+        if self.git_action_busy(project) {
             return;
         }
         let confirm = matches!(

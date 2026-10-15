@@ -323,7 +323,13 @@
     "git_current_branch": "当前分支",
     "git_reference_actions": "分支或标签操作",
     "git_history_failed": "无法加载提交历史",
-    "git_reference_base": "基于当前检出位置：{branch}"
+    "git_reference_base": "基于当前检出位置：{branch}",
+    "git_quick_switch": "快速切换分支",
+    "git_search_branches": "搜索分支…",
+    "git_no_matching_branch": "没有匹配的分支",
+    "git_recent_branch": "最近使用",
+    "git_branch_picker_hint": "↑↓ 选择 · Enter 切换 · Esc 关闭",
+    "git_branch_missing": "所选分支已不存在，请刷新后重试。"
   },
   "en": {
     "menu_file": "File",
@@ -649,7 +655,13 @@
     "git_current_branch": "Current branch",
     "git_reference_actions": "Branch or tag actions",
     "git_history_failed": "Unable to load commit history",
-    "git_reference_base": "From the current checkout: {branch}"
+    "git_reference_base": "From the current checkout: {branch}",
+    "git_quick_switch": "Quick switch branch",
+    "git_search_branches": "Search branches…",
+    "git_no_matching_branch": "No matching branches",
+    "git_recent_branch": "Recent",
+    "git_branch_picker_hint": "↑↓ Select · Enter Switch · Esc Close",
+    "git_branch_missing": "The selected branch is no longer available. Refresh and try again."
   },
   "ja": {
     "menu_file": "ファイル",
@@ -975,7 +987,13 @@
     "git_current_branch": "現在のブランチ",
     "git_reference_actions": "ブランチ・タグの操作",
     "git_history_failed": "コミット履歴を読み込めません",
-    "git_reference_base": "現在のチェックアウトから作成：{branch}"
+    "git_reference_base": "現在のチェックアウトから作成：{branch}",
+    "git_quick_switch": "ブランチをすばやく切り替え",
+    "git_search_branches": "ブランチを検索…",
+    "git_no_matching_branch": "一致するブランチがありません",
+    "git_recent_branch": "最近使用",
+    "git_branch_picker_hint": "↑↓ 選択 · Enter 切り替え · Esc 閉じる",
+    "git_branch_missing": "選択したブランチは存在しません。更新して再試行してください。"
   },
   "ko": {
     "menu_file": "파일",
@@ -1301,7 +1319,13 @@
     "git_current_branch": "현재 브랜치",
     "git_reference_actions": "브랜치 또는 태그 작업",
     "git_history_failed": "커밋 기록을 불러올 수 없습니다",
-    "git_reference_base": "현재 체크아웃 위치에서 생성: {branch}"
+    "git_reference_base": "현재 체크아웃 위치에서 생성: {branch}",
+    "git_quick_switch": "빠른 브랜치 전환",
+    "git_search_branches": "브랜치 검색…",
+    "git_no_matching_branch": "일치하는 브랜치 없음",
+    "git_recent_branch": "최근 사용",
+    "git_branch_picker_hint": "↑↓ 선택 · Enter 전환 · Esc 닫기",
+    "git_branch_missing": "선택한 브랜치가 더 이상 없습니다. 새로 고친 후 다시 시도하세요."
   },
   "fr": {
     "menu_file": "Fichier",
@@ -1627,7 +1651,13 @@
     "git_current_branch": "Branche actuelle",
     "git_reference_actions": "Actions de branche ou de tag",
     "git_history_failed": "Impossible de charger l’historique",
-    "git_reference_base": "Depuis la position actuelle : {branch}"
+    "git_reference_base": "Depuis la position actuelle : {branch}",
+    "git_quick_switch": "Changer rapidement de branche",
+    "git_search_branches": "Rechercher une branche…",
+    "git_no_matching_branch": "Aucune branche correspondante",
+    "git_recent_branch": "Récente",
+    "git_branch_picker_hint": "↑↓ Sélection · Entrée Changer · Échap Fermer",
+    "git_branch_missing": "La branche sélectionnée n’est plus disponible. Actualisez et réessayez."
   },
   "de": {
     "menu_file": "Datei",
@@ -1953,7 +1983,13 @@
     "git_current_branch": "Aktueller Branch",
     "git_reference_actions": "Branch- oder Tag-Aktionen",
     "git_history_failed": "Commit-Verlauf konnte nicht geladen werden",
-    "git_reference_base": "Vom aktuellen Checkout: {branch}"
+    "git_reference_base": "Vom aktuellen Checkout: {branch}",
+    "git_quick_switch": "Branch schnell wechseln",
+    "git_search_branches": "Branches suchen…",
+    "git_no_matching_branch": "Keine passenden Branches",
+    "git_recent_branch": "Zuletzt",
+    "git_branch_picker_hint": "↑↓ Auswahl · Enter Wechseln · Esc Schließen",
+    "git_branch_missing": "Der ausgewählte Branch ist nicht mehr verfügbar. Aktualisieren und erneut versuchen."
   },
   "es": {
     "menu_file": "Archivo",
@@ -2279,7 +2315,13 @@
     "git_current_branch": "Rama actual",
     "git_reference_actions": "Acciones de rama o etiqueta",
     "git_history_failed": "No se pudo cargar el historial",
-    "git_reference_base": "Desde la posición actual: {branch}"
+    "git_reference_base": "Desde la posición actual: {branch}",
+    "git_quick_switch": "Cambio rápido de rama",
+    "git_search_branches": "Buscar ramas…",
+    "git_no_matching_branch": "No hay ramas coincidentes",
+    "git_recent_branch": "Reciente",
+    "git_branch_picker_hint": "↑↓ Elegir · Intro Cambiar · Esc Cerrar",
+    "git_branch_missing": "La rama seleccionada ya no está disponible. Actualiza e inténtalo de nuevo."
   },
   "pt": {
     "menu_file": "Arquivo",
@@ -2605,7 +2647,13 @@
     "git_current_branch": "Branch atual",
     "git_reference_actions": "Ações de branch ou tag",
     "git_history_failed": "Não foi possível carregar o histórico",
-    "git_reference_base": "A partir do checkout atual: {branch}"
+    "git_reference_base": "A partir do checkout atual: {branch}",
+    "git_quick_switch": "Troca rápida de branch",
+    "git_search_branches": "Pesquisar branches…",
+    "git_no_matching_branch": "Nenhum branch correspondente",
+    "git_recent_branch": "Recente",
+    "git_branch_picker_hint": "↑↓ Selecionar · Enter Trocar · Esc Fechar",
+    "git_branch_missing": "O branch selecionado não está mais disponível. Atualize e tente novamente."
   },
   "ru": {
     "menu_file": "Файл",
@@ -2931,7 +2979,13 @@
     "git_current_branch": "Текущая ветка",
     "git_reference_actions": "Действия с веткой или тегом",
     "git_history_failed": "Не удалось загрузить историю коммитов",
-    "git_reference_base": "От текущей рабочей версии: {branch}"
+    "git_reference_base": "От текущей рабочей версии: {branch}",
+    "git_quick_switch": "Быстрое переключение ветки",
+    "git_search_branches": "Поиск веток…",
+    "git_no_matching_branch": "Нет подходящих веток",
+    "git_recent_branch": "Недавняя",
+    "git_branch_picker_hint": "↑↓ Выбор · Enter Переключить · Esc Закрыть",
+    "git_branch_missing": "Выбранная ветка больше недоступна. Обновите данные и повторите попытку."
   },
   "zh-TW": {
     "menu_file": "檔案",
@@ -3257,6 +3311,12 @@
     "git_current_branch": "目前分支",
     "git_reference_actions": "分支或標籤操作",
     "git_history_failed": "無法載入提交歷史",
-    "git_reference_base": "基於目前簽出位置：{branch}"
+    "git_reference_base": "基於目前簽出位置：{branch}",
+    "git_quick_switch": "快速切換分支",
+    "git_search_branches": "搜尋分支…",
+    "git_no_matching_branch": "沒有相符的分支",
+    "git_recent_branch": "最近使用",
+    "git_branch_picker_hint": "↑↓ 選擇 · Enter 切換 · Esc 關閉",
+    "git_branch_missing": "所選分支已不存在，請重新整理後再試。"
   }
 }

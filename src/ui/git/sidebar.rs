@@ -276,8 +276,12 @@ impl Tervia {
                                 row.child(icon(IconName::Check, p.accent))
                             }),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_git_reference(project, reference.clone(), window, cx);
+                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        if event.click_count() >= 2 {
+                            this.switch_branch(project, reference.clone(), window, cx);
+                        } else {
+                            this.select_git_reference(project, reference.clone(), window, cx);
+                        }
                     }))
                     .context_menu(move |menu, _, cx| {
                         if let Some(view) = owner.upgrade() {

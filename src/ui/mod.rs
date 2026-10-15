@@ -153,6 +153,7 @@ impl Tervia {
     ) -> Self {
         preferences::apply(&appearance, cx);
         projects::init(cx);
+        git::init(cx);
         let language = appearance.language;
         if let Some(error) = &error {
             state.notice = format!("{}\n{error}", language.text("config_error"));
@@ -364,7 +365,7 @@ impl Tervia {
         self.monitors.push(monitor::Monitor::default());
         self.terminals.push(vec![None; project.sessions.len()]);
         let git = git::GitUi::new(window, cx);
-        git.subscribe(&mut self.subscriptions, cx);
+        git.subscribe(project_index, &mut self.subscriptions, cx);
         self.git_states.push(git);
     }
 
@@ -455,6 +456,7 @@ impl Tervia {
         }
         self.navigation.cancel();
         for ui in &mut self.git_states {
+            ui.close_branch_picker();
             ui.cancel_worktree_navigation();
         }
         self.state.switch_project(index);
@@ -475,6 +477,7 @@ impl Tervia {
     fn change_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
         self.navigation.cancel();
         for ui in &mut self.git_states {
+            ui.close_branch_picker();
             ui.cancel_worktree_navigation();
         }
         if self.state.project().tab != tab {
@@ -508,7 +511,10 @@ impl Tervia {
         if self.navigation.open {
             self.navigation.open = false;
             cx.notify();
-        } else if self.state.dismiss_palette() {
+        } else if (!self.state.projects.is_empty()
+            && self.git_states[self.state.active_project].close_branch_picker())
+            || self.state.dismiss_palette()
+        {
             cx.notify();
         } else if !self.state.projects.is_empty()
             && self.state.project().tab == Tab::Files
@@ -612,6 +618,9 @@ impl Render for Tervia {
                     this.toggle_directory_picker(!this.navigation.open, window, cx);
                 }),
             )
+            .on_action(cx.listener(|this, _: &git::QuickSwitchBranch, window, cx| {
+                this.toggle_branch_picker(git::SwitchAnchor::Navigation, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
                 this.state.toggle_sidebar();
                 cx.notify();
