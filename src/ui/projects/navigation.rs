@@ -7,7 +7,9 @@ pub(in crate::ui) struct Navigation {
     pub selected: usize,
     pub scroll: UniformListScrollHandle,
     pub sidebar_scroll: UniformListScrollHandle,
-    generation: u64,
+    pub(super) generation: u64,
+    pub(in crate::ui) switcher: super::switcher::Switcher,
+    pub(super) closing: bool,
 }
 
 impl Navigation {
@@ -19,6 +21,8 @@ impl Navigation {
             scroll: UniformListScrollHandle::new(),
             sidebar_scroll: UniformListScrollHandle::new(),
             generation: 0,
+            switcher: super::switcher::Switcher::new(window, cx),
+            closing: false,
         }
     }
     pub fn cancel(&mut self) {
@@ -30,14 +34,7 @@ impl Navigation {
 impl Tervia {
     pub(in crate::ui) fn working_directory_owner(&self) -> usize {
         let active = self.state.active_project;
-        self.state
-            .project_rows()
-            .into_iter()
-            .find(|parent| {
-                self.state.folder(active) == Some(*parent)
-                    || self.state.same_project(*parent, active)
-            })
-            .unwrap_or(active)
+        self.state.project_owner(active).unwrap_or(active)
     }
 
     pub(in crate::ui) fn attach_navigation(&mut self, index: usize) -> usize {
@@ -70,6 +67,11 @@ impl Tervia {
         if index == count {
             self.init_project(index, window, cx);
             self.state.projects[index].tab = tervia::state::Tab::Terminal;
+        }
+        if let Some(owner) = self.state.project_owner(index)
+            && self.state.project_closed(owner)
+        {
+            self.state.reopen_project(owner);
         }
         let parent = self.attach_navigation(index);
         self.change_project(index, window, cx);

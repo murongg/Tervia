@@ -544,12 +544,23 @@ impl Tervia {
         }
     }
 
+    pub(super) fn cancel_repository_scan(&mut self, project: usize) {
+        self.git_scans
+            .invalidate(&self.state.projects[project].root);
+        if let Some(workspace) = &self.git_states[project].workspace {
+            self.git_scans.invalidate(&workspace.root);
+        }
+    }
+
     pub(super) fn rescan_repositories(
         &mut self,
         project: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.state.project_visible(project) {
+            return;
+        }
         let root = self.git_states[project]
             .workspace
             .as_ref()
@@ -609,6 +620,9 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.state.project_visible(project) {
+            return;
+        }
         self.git_job(project, None, false, window, cx);
     }
 

@@ -8,6 +8,7 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::state::Workspace;
+mod catalog;
 mod recovery;
 
 /// App-owned project history, stored separately from the user-editable configuration.
@@ -51,6 +52,7 @@ impl Store {
             let value = serde_json::from_str(source).map_err(|error| self.error(error))?;
             self.orphans =
                 recovery::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
+            catalog::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
         }
         self.saved = Some(
             snapshot(&workspace, &fallbacks, &self.orphans).map_err(|error| self.error(error))?,
@@ -147,7 +149,7 @@ fn snapshot(
     orphans: &[Value],
 ) -> Result<Value, serde_json::Error> {
     let projects = workspace
-        .project_rows()
+        .all_project_rows()
         .into_iter()
         .map(|index| {
             let project = &workspace.projects[index];
@@ -180,6 +182,7 @@ fn snapshot(
     let active = workspace
         .projects
         .get(workspace.active_project)
+        .filter(|_| workspace.project_visible(workspace.active_project))
         .map(|project| &project.root);
     Ok(json!({
         "version": 2,
@@ -187,6 +190,7 @@ fn snapshot(
         "active": serde_json::to_value(active)?,
         "sidebar_expanded": workspace.sidebar_expanded,
         "contexts": recovery::snapshot(workspace, orphans)?,
+        "catalog": catalog::snapshot(workspace)?,
     }))
 }
 

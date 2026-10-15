@@ -13,6 +13,8 @@ Bring terminal use, Git review, file navigation, and small code edits into one w
 
 ## Capabilities and Constraints
 - The left project sidebar collapses to a 56 logical-pixel icon rail and expands to a flat project list. Clicking a project restores its last working directory. Working directories switch from a searchable titlebar popover.
+- A global keyboard-driven project switcher searches names, paths and fuzzy abbreviations, including known working directories/worktrees. Empty searches rank favorites and recent projects; Back to Previous Project restores the prior project's last directory. Favorites stay above ordinary projects in the stable sidebar, with persisted drag ordering within each group and Move Up/Down menu alternatives.
+- Closing a logical project preserves all of its directory drafts/layout in workspace recovery before ending its owned terminals with a named confirmation. Failed persistence or active Git/file writes prevent closing. Closed projects remain searchable and reopenable across restarts; the welcome screen exposes Recently Closed Projects when all projects are closed. Reopening validates the directory, respects later navigation and creates new shells on demand. The project menu also copies its root path and reveals it in the system file manager.
 - The right workspace has three fixed tabs: Terminal, Git, and Files.
 - Each project retains its current tab, terminal sessions, file selection, and in-memory changes.
 - Terminal sessions now run the user's real login/interactive shell over a PTY, with native GPUI rendering backed by alacritty_terminal. Commands execute normally and the shell loads the user's existing configuration.

@@ -2,6 +2,157 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn catalog_round_trip_retains_favorites_order_recent_directories_and_closed_drafts() {
+    use tervia::state::{File, Tab};
+    let temporary = tempfile::tempdir().unwrap();
+    let alpha = directory(&temporary, "mock-alpha");
+    let beta = directory(&temporary, "mock-beta");
+    let gamma = directory(&temporary, "mock-gamma");
+    fs::create_dir(alpha.join("mock-web")).unwrap();
+    let child = alpha.join("mock-web");
+    let mut state = Workspace::new(alpha.clone());
+    state.open_directory(beta.clone());
+    state.open_directory(gamma.clone());
+    state.move_project(2, 0);
+    state.toggle_project_favorite(1);
+    state.switch_project(1);
+    let index = state.register_directory(child.clone());
+    state.attach_directory(0, index);
+    state.switch_project(index);
+    state.project_mut().tab = Tab::Files;
+    state.project_mut().files.push(File {
+        path: "mock.rs".into(),
+        disk_path: "mock.rs".into(),
+        language: "rust".into(),
+        saved: "base".into(),
+        draft: "closed synthetic draft".into(),
+    });
+    state.project_mut().open_file(0);
+    state.close_project(0);
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let mut restored = Store::new(path.clone()).load().unwrap();
+    let rows: Vec<_> = restored
+        .project_rows()
+        .iter()
+        .map(|index| restored.project_root(*index).clone())
+        .collect();
+    assert_eq!(rows, vec![beta.clone(), gamma]);
+    assert!(restored.project_favorite(restored.project_rows()[0]));
+    let closed = restored.closed_project_rows()[0];
+    assert_eq!(restored.project_root(closed), &alpha);
+    let target = restored.reopen_project(closed).unwrap();
+    assert_eq!(restored.projects[target].root, child);
+    assert_eq!(
+        restored.project().current_file().unwrap().draft,
+        "closed synthetic draft"
+    );
+    assert_eq!(restored.project().tab, Tab::Files);
+    let previous = restored.previous_project().unwrap();
+    assert_eq!(restored.projects[previous].root, beta);
+    for owner in restored.project_rows() {
+        restored.close_project(owner);
+    }
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&restored).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert!(
+        restored.project_rows().is_empty(),
+        "Recovery must not reopen closed projects"
+    );
+    assert_eq!(restored.closed_project_rows().len(), 3);
+}
+
+#[test]
+fn malformed_catalog_preserves_the_existing_recovery_file() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-project");
+    let state = Workspace::new(root);
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let mut saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    saved["catalog"] = serde_json::json!({"favorites": true});
+    let source = serde_json::to_string(&saved).unwrap();
+    fs::write(&path, &source).unwrap();
+    let mut store = Store::new(path.clone());
+    assert!(store.load().is_err());
+    assert!(store.save(&state).is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), source);
+}
+
+#[test]
+fn closed_linked_worktrees_stay_one_closed_project_after_restart_before_git_discovery() {
+    use tervia::state::File;
+    let temporary = tempfile::tempdir().unwrap();
+    let main = directory(&temporary, "mock-main");
+    let linked = directory(&temporary, "mock-linked");
+    let mut state = Workspace::new(main.clone());
+    state.associate_repository(0, main.join(".git"), Some(main.clone()));
+    state.projects[0].files.push(File {
+        path: "mock.rs".into(),
+        disk_path: "mock.rs".into(),
+        language: "rust".into(),
+        saved: "base".into(),
+        draft: "synthetic main draft".into(),
+    });
+    state.projects[0].open_file(0);
+    let worktree = state.open_directory(linked.clone());
+    state.associate_repository(worktree, main.join(".git"), None);
+    state.close_project(0);
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let mut restored = Store::new(path).load().unwrap();
+    assert!(restored.project_rows().is_empty());
+    assert_eq!(restored.closed_project_rows().len(), 1);
+    let owner = restored.closed_project_rows()[0];
+    let target = restored.reopen_project(owner).unwrap();
+    assert_eq!(restored.projects[target].root, linked);
+    assert_eq!(restored.project_rows().len(), 1);
+    let main = restored
+        .projects
+        .iter()
+        .find(|project| project.root == main)
+        .unwrap();
+    assert_eq!(main.current_file().unwrap().draft, "synthetic main draft");
+}
+
+#[test]
+fn reopened_project_retains_new_worktrees_and_its_latest_directory_on_restart() {
+    let temporary = tempfile::tempdir().unwrap();
+    let main = directory(&temporary, "mock-main");
+    let linked = directory(&temporary, "mock-linked");
+    let newer = directory(&temporary, "mock-newer");
+    let identity = main.join(".git");
+    let mut state = Workspace::new(main.clone());
+    state.associate_repository(0, identity.clone(), Some(main));
+    let linked_index = state.open_directory(linked);
+    state.associate_repository(linked_index, identity.clone(), None);
+    state.close_project(0);
+    state.reopen_project(0);
+    let newer_index = state.open_directory(newer.clone());
+    state.associate_repository(newer_index, identity, None);
+    assert_eq!(state.project_target(0), newer_index);
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.project_rows().len(), 1);
+    assert_eq!(
+        restored.projects[restored.project_target(restored.project_rows()[0])].root,
+        newer
+    );
+}
+
+#[test]
 fn recovery_keeps_tabs_layout_drafts_and_reading_positions_without_overwriting_disk() {
     use tervia::state::{File, ReadingPosition, Tab};
     let temporary = tempfile::tempdir().unwrap();

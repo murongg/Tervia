@@ -81,6 +81,22 @@ impl Tervia {
                         ),
                 )
                 .child(div().h(px(1.0)).bg(p.border).my(px(8.0)))
+                .when(!self.state.closed_project_rows().is_empty(), |actions| {
+                    actions.child(
+                        label_button(
+                            "welcome-recent-projects",
+                            self.t("project_recent_closed"),
+                            p,
+                        )
+                        .debug_selector(|| "welcome-recent-projects".into())
+                        .icon(icon(IconName::RotateCcw, p.secondary))
+                        .w_full()
+                        .h(px(32.0))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.show_project_switcher(true, window, cx)
+                        })),
+                    )
+                })
                 .child(
                     div()
                         .text_size(px(13.0))
@@ -124,6 +140,7 @@ impl Tervia {
                 ));
         div()
             .id("tervia-welcome")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -141,6 +158,16 @@ impl Tervia {
             )
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
+            .on_action(cx.listener(
+                |this, _: &super::projects::QuickSwitchProject, window, cx| {
+                    this.show_project_switcher(false, window, cx)
+                },
+            ))
+            .on_action(
+                cx.listener(|this, _: &super::projects::ReopenProject, window, cx| {
+                    this.show_project_switcher(true, window, cx)
+                }),
+            )
             .child(
                 div()
                     .h(px(48.0))
@@ -198,5 +225,8 @@ impl Tervia {
                         .child(actions),
                 ),
             )
+            .when(self.navigation.switcher.open, |view| {
+                view.child(self.project_switcher(cx))
+            })
     }
 }

@@ -7,7 +7,7 @@ pub(super) fn snapshot(
 ) -> Result<Vec<Value>, serde_json::Error> {
     let mut contexts = Vec::new();
     for (index, project) in workspace.projects.iter().enumerate() {
-        if !workspace.project_visible(index) {
+        if !workspace.project_available(index) {
             continue;
         }
         if project.sessions.is_empty()
