@@ -90,6 +90,14 @@ Save all edited files across projects and worktrees and wait for pending writes/
 
 On startup, Tervia restores the open project list, its order, the selected project and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. Missing project directories are skipped; an empty list opens the welcome page. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Terminal tabs reopen as new shells in their project directory; running processes and AI conversations are not automatically resumed.
 
+## Project management
+
+The sidebar Search control, File menu and Cmd+Option+P (Ctrl+Alt+P on Windows/Linux) open global project switching. Search names, paths or abbreviations to enter a project or a known working directory/worktree. Empty searches prioritize favorites, then recent projects; Back to Previous Project restores the prior project's last directory.
+
+Favorite projects with the star or context menu. Drag rows within the favorite or ordinary group to reorder them; Move Up/Down provides the same operation from the context menu. Sidebar order stays stable while switching projects and survives restarting.
+
+Close Project saves drafts, reading positions and layout to workspace recovery before ending that project's terminal sessions with a named confirmation. Failed recovery saves keep the project and terminals open; Git/file operations must finish before closing. Recently Closed Projects is available in the sidebar, File menu and welcome screen. Reopening restores the editing context and starts new shells when needed. Closing leaves project files on disk unchanged.
+
 ## Configuration
 
 Tervia creates a commented `config.toml` on first launch. Use **config.toml** at the bottom of the Settings sidebar to find it:
@@ -179,6 +187,7 @@ The native menu bar includes File, View and Terminal menus for opening folders/f
 | ⌘F | Ctrl+F | Find in the editor |
 | ⌘⇧P | Ctrl+Shift+P | Quick actions |
 | ⌘⌥B | Ctrl+Alt+B | Search and switch Git branches |
+| ⌘⌥P | Ctrl+Alt+P | Search projects and working directories |
 | ⌘, | Ctrl+, | Open the separate settings window |
 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V | Copy the terminal selection / paste into the terminal |
 | ⌘⇧C | Ctrl+Shift+C | Copy selected code with its path and line numbers in Files / Git Diff |

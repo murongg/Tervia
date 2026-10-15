@@ -20,6 +20,9 @@ impl Tervia {
 
     pub(super) fn capture_reading_positions(&mut self, cx: &App) {
         for project in 0..self.state.projects.len() {
+            if !self.state.project_visible(project) {
+                continue;
+            }
             let opened = self.state.projects[project].open_files.clone();
             for index in opened {
                 let file = &self.state.projects[project].files[index];

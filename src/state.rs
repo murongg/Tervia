@@ -1,4 +1,6 @@
 use std::path::PathBuf;
+mod projects;
+pub use projects::ProjectMatch;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -260,6 +262,7 @@ struct FolderGroup {
 #[derive(Clone, Debug)]
 pub struct Workspace {
     pub projects: Vec<Project>,
+    pub(crate) catalog: projects::Catalog,
     closed_projects: std::collections::BTreeSet<usize>,
     repositories: std::collections::BTreeMap<PathBuf, RepositoryGroup>,
     folders: std::collections::BTreeMap<usize, FolderGroup>,
@@ -279,6 +282,7 @@ impl Workspace {
     pub fn empty() -> Self {
         Self {
             projects: Vec::new(),
+            catalog: Default::default(),
             closed_projects: Default::default(),
             repositories: Default::default(),
             folders: Default::default(),
@@ -305,6 +309,10 @@ impl Workspace {
                 group.active = index;
             }
             self.active_project = index;
+            self.record_project_target(index);
+            self.catalog.recent.retain(|previous| *previous != index);
+            self.catalog.recent.insert(0, index);
+            self.catalog.recent.truncate(128);
             if let Some(identity) = &self.projects[index].repository
                 && let Some(group) = self.repositories.get_mut(identity)
             {
@@ -315,7 +323,7 @@ impl Workspace {
     }
 
     pub fn project_visible(&self, index: usize) -> bool {
-        index < self.projects.len() && !self.closed_projects.contains(&index)
+        self.project_available(index) && !self.catalog.hidden.contains(&index)
     }
 
     pub fn group_folder(&mut self, root: usize, children: &[usize]) {
@@ -367,11 +375,11 @@ impl Workspace {
                     .pinned
                     .iter()
                     .copied()
-                    .filter(|index| *index != root && self.project_visible(*index)),
+                    .filter(|index| *index != root && self.project_available(*index)),
             );
         }
         let active = self.project_target(root);
-        if self.project_visible(active) && !directories.contains(&active) {
+        if self.project_available(active) && !directories.contains(&active) {
             directories.push(active);
         }
         directories
@@ -430,11 +438,12 @@ impl Workspace {
         self.folders
             .iter()
             .find_map(|(root, group)| {
-                (self.project_visible(*root) && group.directories.contains(&index)).then_some(*root)
+                (self.project_available(*root) && group.directories.contains(&index))
+                    .then_some(*root)
             })
             .or_else(|| {
                 self.folders.iter().find_map(|(root, group)| {
-                    (self.project_visible(*root)
+                    (self.project_available(*root)
                         && group
                             .directories
                             .iter()
@@ -488,19 +497,38 @@ impl Workspace {
         }
         if index == self.active_project {
             group.active = index;
+            // Git identity can arrive after opening a new directory; retain that latest target.
+            self.record_project_target(index);
         }
     }
 
     pub fn project_rows(&self) -> Vec<usize> {
+        self.all_project_rows()
+            .into_iter()
+            .filter(|index| self.project_visible(*index))
+            .collect()
+    }
+
+    pub fn all_project_rows(&self) -> Vec<usize> {
         let mut repositories = std::collections::BTreeSet::new();
-        self.projects
+        let mut rows: Vec<_> = self
+            .projects
             .iter()
             .enumerate()
             .filter_map(|(index, project)| {
-                if !self.project_visible(index) {
+                if !self.project_available(index) {
                     return None;
                 }
                 if self.folder(index).is_some_and(|root| root != index) {
+                    return None;
+                }
+                // Recovered closed worktrees must stay grouped before background Git discovery.
+                if self.catalog.groups.iter().any(|(owner, (members, _))| {
+                    *owner != index
+                        && self.project_available(*owner)
+                        && members.contains(&index)
+                        && self.folder(index).is_none_or(|folder| folder == *owner)
+                }) {
                     return None;
                 }
                 if let Some(identity) = &project.repository
@@ -510,7 +538,19 @@ impl Workspace {
                 }
                 Some(index)
             })
-            .collect()
+            .collect();
+        rows.sort_by_key(|index| {
+            (
+                !self.project_favorite(*index),
+                self.catalog
+                    .order
+                    .iter()
+                    .position(|entry| entry == index)
+                    .unwrap_or(usize::MAX),
+                *index,
+            )
+        });
+        rows
     }
 
     pub fn same_project(&self, first: usize, second: usize) -> bool {
@@ -528,8 +568,13 @@ impl Workspace {
     }
 
     pub fn project_target(&self, index: usize) -> usize {
+        if let Some((_, target)) = self.catalog.groups.get(&index)
+            && self.project_available(*target)
+        {
+            return *target;
+        }
         if let Some(group) = self.folders.get(&index)
-            && self.project_visible(group.active)
+            && self.project_available(group.active)
         {
             return group.active;
         }
@@ -538,7 +583,7 @@ impl Workspace {
             .and_then(|project| project.repository.as_ref())
             .and_then(|identity| self.repositories.get(identity))
             .filter(|group| {
-                self.project_visible(group.active) && self.same_project(index, group.active)
+                self.project_available(group.active) && self.same_project(index, group.active)
             })
             .map(|group| group.active)
             .unwrap_or(index)
@@ -645,6 +690,11 @@ impl Workspace {
 
     pub fn open_directory(&mut self, root: std::path::PathBuf) -> usize {
         let index = self.register_directory(root);
+        if let Some(owner) = self.project_owner(index)
+            && self.project_closed(owner)
+        {
+            self.reopen_project(owner);
+        }
         self.switch_project(index);
         index
     }

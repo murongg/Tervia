@@ -61,6 +61,22 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
         ]),
         Menu::new(language.text("menu_file")).items([
             MenuItem::action(language.text("git_open_repository"), OpenProject),
+            MenuItem::action(
+                language.text("project_quick_switch"),
+                super::projects::QuickSwitchProject,
+            ),
+            MenuItem::action(
+                language.text("project_previous"),
+                super::projects::PreviousProject,
+            ),
+            MenuItem::action(
+                language.text("project_recent_closed"),
+                super::projects::ReopenProject,
+            ),
+            MenuItem::action(
+                language.text("project_close"),
+                super::projects::CloseProject,
+            ),
             MenuItem::action(language.text("git_open_file"), OpenFile),
             MenuItem::separator(),
             MenuItem::action(language.text("files_find_name"), QuickOpenFile),

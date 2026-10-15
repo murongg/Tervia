@@ -206,6 +206,23 @@ impl Tervia {
         view.subscriptions
             .push(cx.observe(&view.updater, |_, _, cx| cx.notify()));
         view.subscriptions.push(cx.subscribe_in(
+            &view.navigation.switcher.input,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.navigation.switcher.selected = 0;
+                    this.navigation
+                        .switcher
+                        .scroll
+                        .scroll_to_item(0, ScrollStrategy::Top);
+                    cx.notify();
+                } else if matches!(event, InputEvent::PressEnter { .. }) {
+                    // Native inputs consume Enter and emit an event before workspace actions.
+                    this.confirm_project_switcher(window, cx);
+                }
+            },
+        ));
+        view.subscriptions.push(cx.subscribe_in(
             &view.navigation.input,
             window,
             |this, _, event: &InputEvent, window, cx| {
@@ -263,9 +280,14 @@ impl Tervia {
             view.init_project(index, window, cx);
         }
         for index in 0..view.state.projects.len() {
-            view.restore_documents(index, window, cx);
+            if view.state.project_visible(index) {
+                view.restore_documents(index, window, cx);
+            }
         }
         for index in 0..view.state.projects.len() {
+            if !view.state.project_visible(index) {
+                continue;
+            }
             view.refresh_git(index, window, cx);
             let root = &view.state.projects[index].root;
             // Separate child scans would replace the enclosing workspace's repository grouping.
@@ -295,7 +317,7 @@ impl Tervia {
                 if weak
                     .update_in(cx, |this, window, cx| {
                         if this.files_active
-                            && !this.state.projects.is_empty()
+                            && this.state.project_visible(this.state.active_project)
                             && this.state.project().tab == Tab::Git
                         {
                             this.refresh_git(this.state.active_project, window, cx);
@@ -491,6 +513,9 @@ impl Tervia {
         {
             return;
         }
+        if self.navigation.switcher.open {
+            self.close_project_switcher(window, cx);
+        }
         self.navigation.cancel();
         for ui in &mut self.git_states {
             ui.close_branch_picker();
@@ -513,6 +538,9 @@ impl Tervia {
     }
 
     fn change_tab(&mut self, tab: Tab, window: &mut Window, cx: &mut Context<Self>) {
+        if self.navigation.switcher.open {
+            self.close_project_switcher(window, cx);
+        }
         self.navigation.cancel();
         for ui in &mut self.git_states {
             ui.close_branch_picker();
@@ -546,7 +574,9 @@ impl Tervia {
 
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Input Escape can bubble past the popover's own Cancel action.
-        if self.navigation.open {
+        if self.navigation.switcher.open {
+            self.close_project_switcher(window, cx);
+        } else if self.navigation.open {
             self.navigation.open = false;
             cx.notify();
         } else if (!self.state.projects.is_empty()
@@ -628,7 +658,7 @@ impl Tervia {
 impl Render for Tervia {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.p();
-        if self.state.projects.is_empty() {
+        if self.state.project_rows().is_empty() {
             return self.welcome(cx).into_any_element();
         }
         div()
@@ -651,6 +681,28 @@ impl Render for Tervia {
             // their own transient UI has been dismissed.
             .on_action(cx.listener(|this, _: &Cancel, window, cx| this.dismiss(window, cx)))
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.dismiss(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &projects::QuickSwitchProject, window, cx| {
+                    this.show_project_switcher(false, window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &projects::ReopenProject, window, cx| {
+                    this.show_project_switcher(true, window, cx)
+                }),
+            )
+            .when(self.state.previous_project().is_some(), |workspace| {
+                workspace.on_action(cx.listener(
+                    |this, _: &projects::PreviousProject, window, cx| {
+                        if let Some(index) = this.state.previous_project() {
+                            this.change_project(index, window, cx);
+                        }
+                    },
+                ))
+            })
+            .on_action(cx.listener(|this, _: &projects::CloseProject, window, cx| {
+                this.request_project_close(this.working_directory_owner(), window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &projects::SwitchWorkingDirectory, window, cx| {
                     this.toggle_directory_picker(!this.navigation.open, window, cx);
@@ -774,6 +826,9 @@ impl Render for Tervia {
             )
             .child(self.statusbar(cx))
             .when(self.state.palette_open, |this| this.child(self.palette(cx)))
+            .when(self.navigation.switcher.open, |this| {
+                this.child(self.project_switcher(cx))
+            })
             .into_any_element()
     }
 }
