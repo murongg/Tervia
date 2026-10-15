@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.0 (2026-10-15)
+
+### Features
+
+- **workspace:** streamline AI CLI coding workflows (03475cbb)
+
+### Fixes
+
+- **files:** expand syntax highlighting coverage (f9ab0308)
+
 ## v0.4.0 (2026-10-15)
 
 ### Features
