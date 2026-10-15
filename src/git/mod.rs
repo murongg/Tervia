@@ -1,5 +1,6 @@
 mod command;
 mod diff;
+mod discard;
 mod discovery;
 mod error;
 pub use error::{Error, ErrorKind};
@@ -96,6 +97,7 @@ pub enum Operation {
     Resolve(PathBuf),
     StageAll,
     UnstageAll,
+    DiscardFiles(Vec<FileStatus>),
     Hunk {
         file: FileStatus,
         side: Side,
