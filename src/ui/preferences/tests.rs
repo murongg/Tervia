@@ -8,6 +8,64 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn workspace_scrollbars_auto_hide_in_both_themes(cx: &mut TestAppContext) {
+    use gpui_kit::base::{ScrollbarMode, Theme};
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        for light in [false, true] {
+            super::apply(
+                &Preferences {
+                    light_theme: light,
+                    ..Preferences::default()
+                },
+                cx,
+            );
+            assert_eq!(Theme::global(cx).scrollbar.mode(), ScrollbarMode::Scrolling);
+        }
+    });
+}
+
+#[gpui_test::test]
+fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        super::apply(&Preferences::default(), cx);
+    });
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences {
+            ui_size: 16,
+            code_size: 24,
+            ..Preferences::default()
+        });
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let bar = cx
+        .debug_bounds("scrollbar-overlay")
+        .expect("The settings form needs a scrollbar");
+    cx.simulate_event(ScrollWheelEvent {
+        position: bar.center(),
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-24.0))),
+        ..Default::default()
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let from = point(bar.right() - px(8.0), bar.top() + px(24.0));
+    let to = point(from.x, bar.bottom() - px(24.0));
+    cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+    cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+    cx.update(|_, cx| assert!(settings.read(cx).scroll.offset().y < px(0.0)));
+}
+
+#[gpui_test::test]
 fn configured_update_policy_loads_into_the_scheduler_and_ui_edits_persist(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();

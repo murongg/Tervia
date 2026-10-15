@@ -1,5 +1,6 @@
 use super::super::controls::icon;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 use std::{
@@ -189,7 +190,7 @@ impl Tervia {
         )
         .flex_1()
         .min_h_0()
-        .track_scroll(&ui.changes_scroll);
+        .scrollbar(&ui.changes_scroll);
         let message = ui.message.read(cx).value().to_string();
         let has_message = !message.trim().is_empty();
         let staged = snapshot

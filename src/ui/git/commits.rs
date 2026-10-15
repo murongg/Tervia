@@ -1,5 +1,6 @@
 use super::super::controls::icon_button;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::diff::DiffFileStatus;
 
@@ -97,7 +98,7 @@ impl Tervia {
         )
         .flex_1()
         .min_h_0()
-        .track_scroll(&ui.commit_files_scroll);
+        .scrollbar(&ui.commit_files_scroll);
         div()
             .size_full()
             .min_h_0()

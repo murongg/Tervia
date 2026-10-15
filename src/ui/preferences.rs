@@ -644,7 +644,19 @@ impl Render for PreferencesWindow {
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .child(body)
+                            .child(
+                                div()
+                                    .relative()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(body)
+                                    .child(super::scroll::overlay(
+                                        &self.scroll,
+                                        gpui_kit::component::scroll::ScrollbarAxis::Vertical,
+                                    )),
+                            )
                             .when(show_footer, |pane| pane.child(footer)),
                     ),
             )

@@ -213,12 +213,17 @@ impl Tervia {
             );
         }
         div()
+            .relative()
             .h(px(41.0))
             .flex_shrink_0()
             .min_w_0()
             .border_b_1()
             .border_color(p.chrome_border())
             .child(strip)
+            .child(super::scroll::overlay(
+                &self.explorers[project].tabs_scroll,
+                gpui_kit::component::scroll::ScrollbarAxis::Horizontal,
+            ))
     }
 
     pub(super) fn reveal_file_tab(&self, project: usize) {

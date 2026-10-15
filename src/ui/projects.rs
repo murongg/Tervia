@@ -2,6 +2,7 @@ use super::{
     Tervia,
     controls::{icon, icon_style},
 };
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -193,7 +194,7 @@ impl Tervia {
                 }),
             )
             .size_full()
-            .track_scroll(&self.navigation.sidebar_scroll),
+            .scrollbar(&self.navigation.sidebar_scroll),
         );
         div()
             .w(px(if expanded { 232.0 } else { 56.0 }))

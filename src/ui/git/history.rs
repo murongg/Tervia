@@ -1,5 +1,7 @@
 use super::super::controls::badge;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use tervia::git::graph::VisibleRow;
 
 #[cfg(all(test, feature = "ui-tests"))]
@@ -140,7 +142,7 @@ impl Tervia {
         )
         .flex_1()
         .min_h_0()
-        .track_scroll(&ui.history_scroll);
+        .scrollbar(&ui.history_scroll);
         div()
             .size_full()
             .min_h_0()
@@ -245,7 +247,7 @@ impl Tervia {
                     .id("git-history-table")
                     .flex_1()
                     .min_h_0()
-                    .overflow_x_scroll()
+                    .overflow_x_scrollbar()
                     .child(
                         div()
                             .w_full()

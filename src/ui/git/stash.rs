@@ -1,5 +1,6 @@
 use super::super::controls::icon;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 
@@ -22,7 +23,7 @@ impl Tervia {
         )
         .flex_1()
         .min_h_0()
-        .track_scroll(&ui.stash_scroll);
+        .scrollbar(&ui.stash_scroll);
         div()
             .size_full()
             .min_h_0()

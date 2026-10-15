@@ -1,6 +1,7 @@
 use super::super::controls::{icon, icon_button};
 use super::history::Reference;
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
@@ -107,7 +108,7 @@ impl Tervia {
                     }),
                 )
                 .size_full()
-                .track_scroll(&ui.sidebar_scroll),
+                .scrollbar(&ui.sidebar_scroll),
             )
     }
 

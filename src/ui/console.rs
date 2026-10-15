@@ -21,6 +21,7 @@ use tervia::{
 };
 
 use super::theme::Palette;
+mod scroll;
 mod search;
 
 gpui_kit::actions!(
@@ -165,6 +166,9 @@ pub struct Console {
     cell_width: Pixels,
     cell_height: Pixels,
     selecting: bool,
+    mouse_reporting: bool,
+    selection_scroll: Option<Task<()>>,
+    scrollbar: scroll::TerminalScroll,
     link_hover: bool,
     link_pressed: bool,
     composition: String,
@@ -230,6 +234,9 @@ impl Console {
             cell_width: px(8.0),
             cell_height: px(23.0),
             selecting: false,
+            mouse_reporting: false,
+            selection_scroll: None,
+            scrollbar: scroll::TerminalScroll::default(),
             link_hover: false,
             link_pressed: false,
             composition: String::new(),
@@ -353,11 +360,16 @@ impl Console {
     }
 
     pub fn shutdown(&mut self) {
+        self.stop_selecting();
         self.session.take();
         self._reader.take();
     }
 
     fn focus_changed(&mut self, focused: bool, cx: &mut Context<Self>) {
+        if !focused {
+            self.stop_selecting();
+            self.mouse_reporting = false;
+        }
         self.buffer.term.is_focused = focused;
         if focused {
             if self.attention {
@@ -379,6 +391,7 @@ impl Console {
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.stop_selecting();
         // Clear the viewport first: Alacritty moves it into history on the main
         // screen, so clearing saved lines first would leave old output behind.
         self.buffer.term.clear_screen(ClearMode::All);
@@ -559,6 +572,8 @@ impl Console {
     }
 
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.stop_selecting();
+        self.mouse_reporting = false;
         self.link_pressed = false;
         self.focus.focus(window, cx);
         let open_link = if Platform::CURRENT == Platform::Mac {
@@ -579,6 +594,7 @@ impl Console {
             return;
         }
         if self.buffer.term.mode().intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
+            self.mouse_reporting = true;
             let (column, row) = self.viewport_point(event.position);
             self.send(
                 &mouse_bytes(0, column, row, false, *self.buffer.term.mode()),
@@ -600,7 +616,11 @@ impl Console {
         cx.notify();
     }
 
-    fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn mouse_move(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selecting && event.pressed_button != Some(MouseButton::Left) {
+            self.stop_selecting();
+            return;
+        }
         if self.link_pressed {
             return;
         }
@@ -621,12 +641,11 @@ impl Console {
             cx.notify();
         }
         if self.selecting {
-            let point = self.grid_point(event.position);
-            if let Some(selection) = self.buffer.term.selection.as_mut() {
-                selection.update(point, Side::Right);
-            }
+            self.update_selection(event.position);
+            self.start_selection_scroll(event.position, window, cx);
             cx.notify();
-        } else if event.pressed_button == Some(MouseButton::Left)
+        } else if self.mouse_reporting
+            && event.pressed_button == Some(MouseButton::Left)
             && self
                 .buffer
                 .term
@@ -646,9 +665,9 @@ impl Console {
         if std::mem::take(&mut self.link_pressed) {
             return;
         }
-        if !self.selecting
+        // Only a press delivered to the program may generate a release (scrollbar gestures never do).
+        if std::mem::take(&mut self.mouse_reporting)
             && self.buffer.term.mode().intersects(TermMode::MOUSE_MODE)
-            && !event.modifiers.shift
         {
             let (column, row) = self.viewport_point(event.position);
             self.send(
@@ -656,7 +675,11 @@ impl Console {
                 cx,
             );
         }
-        self.selecting = false;
+        if self.selecting {
+            self.update_selection(event.position);
+        }
+        self.stop_selecting();
+        cx.notify();
     }
 
     fn scroll(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -760,6 +783,199 @@ impl Console {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    struct ScrollFixture(Entity<Console>);
+
+    impl Render for ScrollFixture {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .p(px(40.0))
+                .child(div().w(px(420.0)).h(px(240.0)).child(self.0.clone()))
+        }
+    }
+
+    fn scroll_fixture(cx: &mut TestAppContext) -> (Entity<Console>, &mut VisualTestContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            super::super::preferences::apply(&Preferences::default(), cx);
+        });
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(mock_console);
+            console = Some(entity.clone());
+            let fixture = cx.new(|_| ScrollFixture(entity));
+            gpui_kit::base::Root::new(fixture, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            console.update(cx, |this, cx| {
+                for row in 0..200 {
+                    this.buffer
+                        .feed(format!("synthetic row {row:03}\r\n").as_bytes());
+                }
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
+        (console, cx)
+    }
+
+    fn hold_drag(cx: &mut VisualTestContext) {
+        cx.executor().advance_clock(Duration::from_millis(200));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    #[gpui_test::test]
+    fn terminal_drag_selection_scrolls_outside_both_edges_and_stops_on_release(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        let (bounds, output) = cx.update(|_, cx| {
+            let this = console.read(cx);
+            (this.bounds, this.output())
+        });
+        let start = bounds.center();
+        let above = point(start.x, bounds.top() - px(30.0));
+        let below = point(start.x, bounds.bottom() + px(30.0));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(above, Some(MouseButton::Left), Modifiers::default());
+        hold_drag(cx);
+        let (offset, selected) = cx.update(|_, cx| {
+            let this = console.read(cx);
+            (
+                this.buffer.term.grid().display_offset(),
+                this.buffer.selected_text(),
+            )
+        });
+        assert!(
+            offset > 0,
+            "Holding above the pane must scroll into history"
+        );
+        hold_drag(cx);
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert!(this.buffer.term.grid().display_offset() > offset);
+            assert!(this.buffer.selected_text().len() > selected.len());
+            assert!(this.buffer.selected_text().ends_with(&selected));
+        });
+        cx.simulate_mouse_move(start, Some(MouseButton::Left), Modifiers::default());
+        let offset = cx.update(|_, cx| console.read(cx).buffer.term.grid().display_offset());
+        hold_drag(cx);
+        cx.update(|_, cx| assert_eq!(console.read(cx).buffer.term.grid().display_offset(), offset));
+        cx.simulate_mouse_move(below, Some(MouseButton::Left), Modifiers::default());
+        hold_drag(cx);
+        cx.update(|_, cx| assert!(console.read(cx).buffer.term.grid().display_offset() < offset));
+        cx.simulate_mouse_up(below, MouseButton::Left, Modifiers::default());
+        let (offset, selected) = cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert!(
+                !this.selecting,
+                "Releasing outside the pane ends the selection"
+            );
+            assert_eq!(this.output(), output);
+            assert!(this.transmitted.is_empty());
+            (
+                this.buffer.term.grid().display_offset(),
+                this.buffer.selected_text(),
+            )
+        });
+        hold_drag(cx);
+        cx.simulate_mouse_move(above, None, Modifiers::default());
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.buffer.term.grid().display_offset(), offset);
+            assert_eq!(this.buffer.selected_text(), selected);
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_scrollbar_drags_history_without_selecting_or_sending_mouse_input(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        let bar = cx
+            .debug_bounds("terminal-scrollbar")
+            .expect("Terminal history needs a scrollbar");
+        cx.simulate_event(ScrollWheelEvent {
+            position: bar.center(),
+            delta: ScrollDelta::Pixels(point(px(0.0), px(24.0))),
+            ..Default::default()
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|_, cx| {
+            console.update(cx, |this, _| this.buffer.feed(b"\x1b[?1002h\x1b[?1006h"));
+        });
+        let bottom = point(bar.right() - px(8.0), bar.bottom() - px(24.0));
+        let top = point(bottom.x, bar.top() + px(24.0));
+        cx.simulate_mouse_down(bottom, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(top, Some(MouseButton::Left), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_up(top, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(
+                this.buffer.term.grid().display_offset(),
+                this.buffer.term.history_size()
+            );
+            assert!(!this.selecting);
+            assert!(this.buffer.selected_text().is_empty());
+            assert!(this.transmitted.is_empty());
+        });
+        cx.simulate_mouse_down(top, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(bottom, Some(MouseButton::Left), Modifiers::default());
+        cx.simulate_mouse_up(bottom, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.buffer.term.grid().display_offset(), 0);
+            assert!(this.transmitted.is_empty());
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_selection_scrolling_preserves_tui_mouse_mode_and_shift_override(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        let bounds = cx.update(|_, cx| {
+            console.update(cx, |this, _| this.buffer.feed(b"\x1b[?1002h\x1b[?1006h"));
+            console.read(cx).bounds
+        });
+        let start = bounds.center();
+        let above = point(start.x, bounds.top() - px(30.0));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(above, Some(MouseButton::Left), Modifiers::default());
+        hold_drag(cx);
+        cx.simulate_mouse_up(above, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert!(!this.selecting);
+            assert_eq!(this.buffer.term.grid().display_offset(), 0);
+            assert!(this.buffer.selected_text().is_empty());
+            assert!(!this.transmitted.is_empty());
+        });
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::default()
+        };
+        cx.simulate_mouse_down(start, MouseButton::Left, shift);
+        cx.simulate_mouse_move(above, Some(MouseButton::Left), shift);
+        hold_drag(cx);
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert!(this.buffer.term.grid().display_offset() > 0);
+            assert!(!this.buffer.selected_text().is_empty());
+        });
+        cx.update(|_, cx| console.update(cx, |this, cx| this.focus_changed(false, cx)));
+        let offset = cx.update(|_, cx| console.read(cx).buffer.term.grid().display_offset());
+        hold_drag(cx);
+        cx.update(|_, cx| {
+            assert!(!console.read(cx).selecting);
+            assert_eq!(console.read(cx).buffer.term.grid().display_offset(), offset);
+        });
+    }
 
     #[gpui_test::test]
     fn terminal_search_input_handles_enter_and_escape_without_sending_keys_to_the_shell(
@@ -968,6 +1184,9 @@ mod tests {
             cell_width: px(8.0),
             cell_height: px(23.0),
             selecting: false,
+            mouse_reporting: false,
+            selection_scroll: None,
+            scrollbar: scroll::TerminalScroll::default(),
             link_hover: false,
             link_pressed: false,
             composition: String::new(),
@@ -1202,40 +1421,53 @@ impl Render for Console {
             .on_scroll_wheel(cx.listener(Self::scroll))
             .children(search_bar)
             .child(
-                canvas(
-                    {
-                        let entity = entity.clone();
-                        move |bounds, window: &mut Window, cx: &mut App| {
-                            entity.update(cx, |this, cx| this.layout(bounds, window, cx))
-                        }
-                    },
-                    move |bounds, frame: Frame, window: &mut Window, cx: &mut App| {
-                        window.handle_input(
-                            &entity.read(cx).focus.clone(),
-                            ElementInputHandler::new(bounds, entity.clone()),
-                            cx,
-                        );
-                        for (bounds, color) in &frame.backgrounds {
-                            window.paint_quad(fill(*bounds, *color));
-                        }
-                        for (line, origin) in &frame.text {
-                            let _ = line.paint(
-                                *origin,
-                                frame.line_height,
-                                TextAlign::Left,
-                                None,
-                                window,
-                                cx,
-                            );
-                        }
-                        if let Some((bounds, color)) = frame.cursor {
-                            window.paint_quad(fill(bounds, color));
-                        }
-                    },
-                )
-                .flex_1()
-                .w_full()
-                .min_h_0(),
+                div()
+                    .relative()
+                    .flex_1()
+                    .w_full()
+                    .min_h_0()
+                    .debug_selector(|| "terminal-scrollbar".into())
+                    .child(
+                        canvas(
+                            {
+                                let entity = entity.clone();
+                                move |bounds, window: &mut Window, cx: &mut App| {
+                                    entity.update(cx, |this, cx| this.layout(bounds, window, cx))
+                                }
+                            },
+                            move |bounds, frame: Frame, window: &mut Window, cx: &mut App| {
+                                entity.update(cx, |this, cx| {
+                                    this.paint_selection_handlers(window, cx)
+                                });
+                                window.handle_input(
+                                    &entity.read(cx).focus.clone(),
+                                    ElementInputHandler::new(bounds, entity.clone()),
+                                    cx,
+                                );
+                                for (bounds, color) in &frame.backgrounds {
+                                    window.paint_quad(fill(*bounds, *color));
+                                }
+                                for (line, origin) in &frame.text {
+                                    let _ = line.paint(
+                                        *origin,
+                                        frame.line_height,
+                                        TextAlign::Left,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
+                                }
+                                if let Some((bounds, color)) = frame.cursor {
+                                    window.paint_quad(fill(bounds, color));
+                                }
+                            },
+                        )
+                        .size_full()
+                        .min_h_0(),
+                    )
+                    .child(gpui_kit::component::scroll::Scrollbar::vertical(
+                        &self.scrollbar,
+                    )),
             )
             .children(self.status.as_ref().map(|status| {
                 div()
@@ -1310,6 +1542,7 @@ impl Console {
                 self.status = Some(Status::Resize(error));
             }
         }
+        self.sync_scrollbar(bounds);
         let content = self.buffer.term.renderable_content();
         let selection = content.selection;
         let offset = content.display_offset;

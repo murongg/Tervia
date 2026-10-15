@@ -20,6 +20,10 @@ pub fn workspace_background(light: bool) -> Background {
 pub fn apply_palette(light: bool, cx: &mut App) {
     let p = Palette::new(light);
     Theme::update(cx, |theme| {
+        theme.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Scrolling;
+        theme.colors.scrollbar = p.background.opacity(0.0);
+        theme.colors.scrollbar_thumb = p.text.opacity(0.35);
+        theme.colors.scrollbar_thumb_hover = p.text.opacity(0.55);
         theme.colors.background = p.background;
         theme.colors.foreground = p.text;
         theme.colors.border = p.border;

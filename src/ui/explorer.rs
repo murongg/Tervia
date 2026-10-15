@@ -1,3 +1,4 @@
+use crate::ui::scroll::ListScrollbars as _;
 use std::path::PathBuf;
 
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
@@ -127,7 +128,7 @@ impl Tervia {
                     }),
                 )
                 .size_full()
-                .track_scroll(&ui.scroll),
+                .scrollbar(&ui.scroll),
             )
     }
 

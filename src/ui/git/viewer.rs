@@ -1,8 +1,10 @@
 use super::super::controls::{icon, icon_button};
 use super::*;
+use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::diff::{Diff, DiffSide};
 use gpui_kit::component::resizable::{h_resizable, resizable_panel};
+use gpui_kit::component::scroll::ScrollableElement as _;
 
 pub(super) fn commit_patch(detail: &str) -> &str {
     detail
@@ -512,7 +514,7 @@ impl Tervia {
                 .min_h_0()
                 .flex()
                 .flex_col()
-                .overflow_x_scroll()
+                .overflow_x_scrollbar()
                 .p(px(12.0))
                 .font_family(self.appearance.font_family.clone())
                 .text_size(px(self.appearance.code_size as f32))
@@ -533,7 +535,7 @@ impl Tervia {
                     )
                     .flex_1()
                     .min_h_0()
-                    .track_scroll(&ui.raw_scroll),
+                    .scrollbar(&ui.raw_scroll),
                 )
                 .into_any_element()
         };
@@ -579,7 +581,7 @@ impl Tervia {
                                     },
                                 )
                                 .size_full()
-                                .track_scroll(&ui.metadata_scroll),
+                                .scrollbar(&ui.metadata_scroll),
                             ),
                     )
                 },

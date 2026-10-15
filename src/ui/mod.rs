@@ -10,6 +10,7 @@ mod monitor;
 mod preferences;
 mod projects;
 mod recovery;
+mod scroll;
 mod shell;
 mod tabs;
 mod terminal;
