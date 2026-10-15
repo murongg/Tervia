@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.0 (2026-10-15)
+
+### Features
+
+- **git:** add searchable quick branch switching (76c37681)
+- **git:** browse branch history without switching checkouts (28bf9706)
+- **workspace:** move working directory switching to the titlebar (a0af4f8e)
+
 ## v0.3.1 (2026-10-15)
 
 ### Fixes
