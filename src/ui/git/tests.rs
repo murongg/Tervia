@@ -28,6 +28,14 @@ fn discard_buttons_confirm_single_and_group_changes_and_refresh_the_diff(cx: &mu
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();
     let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    // Keep the fixture bytes independent of the runner's checkout conversion policy.
+    let configured = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root.path())
+        .args(["config", "--local", "core.autocrlf", "false"])
+        .status()
+        .unwrap();
+    assert!(configured.success());
     fs::write(root.path().join("staged.txt"), "synthetic staged\n").unwrap();
     fs::write(root.path().join(".gitignore"), "ignored.txt\n").unwrap();
     repo.execute(Operation::StageAll).unwrap();
