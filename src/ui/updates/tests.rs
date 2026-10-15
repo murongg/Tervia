@@ -5,6 +5,55 @@ use std::sync::atomic::AtomicUsize;
 use tervia::updates::Settings;
 
 #[gpui_test::test]
+fn install_button_uses_the_workspace_accent_in_both_themes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let preferences = cx.new(|_| Preferences::default());
+    let displayed = preferences.clone();
+    let target = updates::Target::current().unwrap();
+    let release = self_update::Release::builder()
+        .version("9.0.0")
+        .asset(
+            self_update::ReleaseAsset::new(
+                target.asset_name("9.0.0"),
+                "https://example.test/synthetic.zip",
+            )
+            .with_digest(format!("sha256:{}", "ab".repeat(32))),
+        )
+        .build()
+        .unwrap();
+    let candidate = Candidate::from_release(release, "1.0.0", target)
+        .unwrap()
+        .unwrap();
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let updater = cx.new(|cx| {
+            let mut updater = Updater::with_checker(preferences, Arc::new(|| Ok(None)), cx);
+            updater.state = State::Available(candidate);
+            updater
+        });
+        gpui_kit::base::Root::new(updater, window, cx)
+    });
+    for light in [true, false] {
+        displayed.update(cx, |preferences, cx| {
+            preferences.light_theme = light;
+            super::super::preferences::apply(preferences, cx);
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let button = cx.debug_bounds("updates-install").unwrap();
+        cx.update(|window, _| {
+            let center = button.center().scale(window.scale_factor());
+            assert!(
+                window.painted_quads().iter().any(|quad| {
+                    quad.bounds.contains(&center)
+                        && quad.background == Background::from(Palette::new(light).accent)
+                }),
+                "The install action must use the workspace accent (light={light})"
+            );
+        });
+    }
+}
+
+#[gpui_test::test]
 fn toolbar_progress_shows_download_percent_and_stays_busy_during_installation(
     cx: &mut TestAppContext,
 ) {

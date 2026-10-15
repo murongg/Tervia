@@ -354,6 +354,7 @@ impl Render for Updater {
             State::Failed { .. } => language.text("update_error").into(),
         };
         let installed = matches!(self.state, State::Installed(_));
+        let install_disabled = self.confirming || self.state.busy();
         let (status_icon, status_color) = match self.state {
             State::Latest | State::Installed(_) => (IconName::Check, p.green),
             State::Failed { .. } => (IconName::Info, p.red),
@@ -476,11 +477,19 @@ impl Render for Updater {
                                                             p,
                                                         )
                                                         .primary()
+                                                        .bg(if install_disabled {
+                                                            p.raised
+                                                        } else {
+                                                            p.accent
+                                                        })
+                                                        .text_color(if install_disabled {
+                                                            p.muted
+                                                        } else {
+                                                            p.on_accent
+                                                        })
                                                         .h(px(32.0))
                                                         .px(px(12.0))
-                                                        .disabled(
-                                                            self.confirming || self.state.busy(),
-                                                        )
+                                                        .disabled(install_disabled)
                                                         .on_click(cx.listener(
                                                             |this, _, window, cx| {
                                                                 this.confirm_install(window, cx)
@@ -507,6 +516,8 @@ impl Render for Updater {
                                                 p,
                                             )
                                             .primary()
+                                            .bg(p.accent)
+                                            .text_color(p.on_accent)
                                             .h(px(32.0))
                                             .px(px(12.0))
                                             .on_click(cx.listener(|_, _, _, cx| cx.emit(Restart))),
