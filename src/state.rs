@@ -51,6 +51,9 @@ pub struct Project {
     pub active_session: usize,
     pub focused_session: usize,
     pub split_terminal: bool,
+    pub dock: Dock,
+    pub positions: std::collections::BTreeMap<PathBuf, ReadingPosition>,
+    pub restoring: std::collections::BTreeSet<PathBuf>,
     pub files: Vec<File>,
     pub open_files: Vec<usize>,
     pub active_file: usize,
@@ -212,6 +215,30 @@ impl Project {
             }
         }
         None
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Dock {
+    pub visible: bool,
+    pub size: u32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ReadingPosition {
+    pub line: u32,
+    pub column: u32,
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+    pub source: bool,
+}
+
+impl Default for Dock {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            size: 220,
+        }
     }
 }
 
@@ -657,6 +684,9 @@ impl Workspace {
             active_session: 0,
             focused_session: 0,
             split_terminal: false,
+            dock: Dock::default(),
+            positions: Default::default(),
+            restoring: Default::default(),
             files: Vec::new(),
             open_files: Vec::new(),
             active_file: 0,

@@ -32,6 +32,7 @@ pub(super) fn choose_detail(
             .find(|stash| &stash.hash == hash)
             .map(|stash| Detail::Stash(stash.hash.clone())),
         Detail::Commit(hash) => Some(Detail::Commit(hash.clone())),
+        Detail::Checkpoint(checkpoint) => Some(Detail::Checkpoint(checkpoint.clone())),
     });
     if retained.is_some() {
         return retained;

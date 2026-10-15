@@ -5,6 +5,23 @@ use alacritty_terminal::{
 use tervia::terminal::{TerminalBuffer, key_bytes, paste_bytes};
 
 #[test]
+fn terminal_search_finds_literal_unicode_and_wrapped_history_without_touching_output() {
+    let mut terminal = TerminalBuffer::new(12, 3);
+    terminal.feed("first mock[1]\r\n合成 mock[1]\r\nlast MOCK[1]\r\nend\r\n".as_bytes());
+    let before = terminal.text();
+    let matches = terminal.find("mock[1]");
+    assert_eq!(matches.len(), 3);
+    terminal.reveal_match(&matches[0]);
+    assert_eq!(terminal.selected_text(), "mock[1]");
+    assert!(terminal.term.grid().display_offset() > 0);
+    assert_eq!(terminal.find("MOCK[1]").len(), 1);
+    assert_eq!(terminal.find("合成").len(), 1);
+    assert!(terminal.find("").is_empty());
+    assert!(terminal.find("missing").is_empty());
+    assert_eq!(terminal.text(), before);
+}
+
+#[test]
 fn cursor_queries_produce_replies_across_split_pty_reads() {
     use alacritty_terminal::event::Event;
     let mut terminal = TerminalBuffer::new(40, 8);

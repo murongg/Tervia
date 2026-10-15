@@ -22,12 +22,16 @@ pub(super) struct FileJump {
 
 #[derive(Default)]
 pub(super) struct Review {
+    pub marks: tervia::git::Reviews,
+    pub checkpoint: Option<String>,
+    pub busy: bool,
     pub commit_expanded: bool,
     pub focused: bool,
     cache: VecDeque<CachedDiff>,
     pub restore: Option<CachedDiff>,
     pub files: Vec<Detail>,
     pub range: Option<DiffLineRange>,
+    pub copying: Option<String>,
     jump: Option<FileJump>,
     observation: Option<Subscription>,
 }
@@ -68,6 +72,13 @@ fn same_target(left: &Detail, right: &Detail) -> bool {
 }
 
 impl GitUi {
+    pub(in crate::ui) fn code_context(&self, cx: &App) -> Option<String> {
+        if !matches!(self.mode, Mode::Changes | Mode::History | Mode::Stash) {
+            return None;
+        }
+        super::super::context::diff_context(self.diff.read(cx), cx)
+    }
+
     pub(super) fn observe_diff(&mut self, cx: &mut Context<Tervia>) {
         self.review.observation = Some(cx.observe(&self.diff, |this, diff, cx| {
             // Toolbar focus clears the live selection before click; keep its source bookmark.
@@ -106,6 +117,7 @@ impl GitUi {
     pub(super) fn prepare_diff(&mut self, target: Option<&Detail>, cx: &mut Context<Tervia>) {
         self.remember_diff();
         self.review.range = None;
+        self.review.copying = None;
         let mode = self.diff.read(cx).mode();
         self.review.restore = target.and_then(|target| {
             let index = self
@@ -120,7 +132,7 @@ impl GitUi {
     }
 
     pub(super) fn file_position(&self, cx: &App) -> (usize, usize) {
-        if self.mode == Mode::Changes {
+        if self.mode == Mode::Changes && !matches!(self.selected, Some(Detail::Checkpoint(_))) {
             let files = &self.review.files;
             let index = self
                 .selected
@@ -154,7 +166,7 @@ impl Tervia {
             index.checked_sub(1)
         };
         let Some(target) = target else { return };
-        if ui.mode == Mode::Changes {
+        if ui.mode == Mode::Changes && !matches!(ui.selected, Some(Detail::Checkpoint(_))) {
             let detail = ui.review.files[target].clone();
             self.git_detail(project, detail.clone(), window, cx);
             self.git_states[project].reveal_change(&detail);

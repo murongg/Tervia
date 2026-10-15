@@ -7,8 +7,10 @@ pub mod graph;
 pub use discovery::{Discovery, Scan, ScanLimit};
 mod operations;
 mod pipe;
+mod review;
 mod stash;
 mod status;
+pub use review::{ReviewKey, Reviews};
 mod worktree;
 pub use worktree::{Worktree, WorktreeCheckout, WorktreeOperation};
 

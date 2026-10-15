@@ -26,6 +26,7 @@ enum Open {
     Pinned,
     Preview,
     Reload,
+    Recovery,
     Match { line: usize, column: usize },
 }
 #[cfg(all(test, feature = "ui-tests"))]
@@ -243,6 +244,7 @@ impl Tervia {
         };
         let external = self.monitors[owner].external.get(&file.disk_path).copied();
         let tabs = self.file_tabs(cx);
+        let context = self.file_context(owner, active, cx);
         let breadcrumbs = div()
             .h(px(35.0))
             .flex_shrink_0()
@@ -291,6 +293,21 @@ impl Tervia {
                             editor.focus(window, cx);
                             editor.open_search(false, cx);
                         });
+                    })),
+            )
+            .child(
+                label_button("copy-file-context", self.t("copy_code_context"), p)
+                    .debug_selector(|| "file-copy-code-context".into())
+                    .disabled(context.is_none())
+                    .icon(icon(IconName::Copy, p.secondary))
+                    .tooltip(
+                        tervia::platform::Platform::CURRENT
+                            .hint(self.t("copy_code_context_shortcut")),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(context) = context.clone() {
+                            this.copy_context(context, cx);
+                        }
                     })),
             )
             .child(
@@ -348,6 +365,16 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) {
         self.read_real_file(project, path, Open::Pinned, window, cx);
+    }
+
+    pub(super) fn restore_clean_file(
+        &mut self,
+        project: usize,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.read_real_file(project, path, Open::Recovery, window, cx);
     }
 
     pub(super) fn open_preview_file(
@@ -469,6 +496,7 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) {
         let reload = matches!(open, Open::Reload);
+        let recovery = matches!(open, Open::Recovery);
         self.invalidate_disk_sync(project);
         let root = self.state.projects[project].root.clone();
         if !self.state.project_visible(project) || self.worktree_removing(&root.join(&path)) {
@@ -479,7 +507,7 @@ impl Tervia {
             .iter()
             .find(|file| file.disk_path == path)
             .map(|file| file.draft.clone());
-        let selection = if reload {
+        let selection = if reload || recovery {
             self.file_reads.selection(project)
         } else {
             self.file_reads.select(project)
@@ -505,6 +533,7 @@ impl Tervia {
                         return;
                     }
                     tervia::files::ReadOutcome::Edited => {
+                        this.state.projects[project].restoring.remove(&path);
                         if this.state.active_project == project {
                             this.state.notice = "git_reload_skipped".into();
                         }
@@ -513,6 +542,7 @@ impl Tervia {
                     }
                     tervia::files::ReadOutcome::Apply => {}
                 }
+                this.state.projects[project].restoring.remove(&path);
                 match result {
                     Ok(content) => {
                         let (contents, image) = match content {
@@ -553,6 +583,11 @@ impl Tervia {
                                     .line_number(true)
                                     .default_value(contents)
                             });
+                            this.subscriptions.push(cx.observe(&editor, |this, _, cx| {
+                                if this.state.project().tab == Tab::Files {
+                                    cx.notify();
+                                }
+                            }));
                             this.subscriptions.push(cx.subscribe_in(
                                 &editor,
                                 window,
@@ -578,8 +613,12 @@ impl Tervia {
                             this.install_image(project, index, image);
                         }
                         this.register_directory(project, directory, window, cx);
+                        if recovery {
+                            this.restore_reading_position(project, index, window, cx);
+                        }
                         // A slower read may populate its document, but cannot steal a newer selection.
-                        if this.state.active_project == project
+                        if !recovery
+                            && this.state.active_project == project
                             && this.file_reads.selected(project, selection)
                         {
                             if matches!(open, Open::Preview) {

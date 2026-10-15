@@ -21,6 +21,251 @@ fn review_patch(path: &str) -> String {
     )
 }
 
+#[gpui_test::test]
+fn review_progress_invalidates_changed_files_and_checkpoint_compares_the_next_round(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("mock.rs"), "synthetic first\n").unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this
+                .state
+                .open_directory(root.path().canonicalize().unwrap());
+            this.init_project(project, window, cx);
+            let snapshot = repo.snapshot(10).unwrap();
+            let file = snapshot.status.files[0].clone();
+            let ui = &mut this.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            let generation = ui.begin_detail(Detail::File(file.clone(), Side::Worktree), cx);
+            ui.install_detail(
+                generation,
+                Ok(repo.diff(&file, Side::Worktree).unwrap()),
+                cx,
+            );
+            this.toggle_reviewed(project, window, cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| view.update(cx, |this, cx| this.capture_checkpoint(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert!(
+            view.read(cx).git_states[0]
+                .review
+                .marks
+                .contains(&tervia::git::ReviewKey::new(
+                    "mock.rs".into(),
+                    Side::Worktree
+                ))
+        );
+        assert!(view.read(cx).git_states[0].review.checkpoint.is_some());
+    });
+    fs::write(root.path().join("mock.rs"), "synthetic second\n").unwrap();
+    cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            assert!(
+                !this.git_states[0]
+                    .review
+                    .marks
+                    .contains(&tervia::git::ReviewKey::new(
+                        "mock.rs".into(),
+                        Side::Worktree
+                    ))
+            );
+            this.show_checkpoint(0, window, cx);
+        });
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let ui = &view.read(cx).git_states[0];
+        assert!(ui.detail.contains("-synthetic first"));
+        assert!(ui.detail.contains("+synthetic second"));
+        window.draw(cx).clear(cx);
+    });
+    assert!(cx.debug_bounds("git-checkpoint-view").is_some());
+}
+
+#[gpui_test::test]
+fn code_context_diff_excerpts_keep_versions_renamed_paths_and_sparse_line_numbers(
+    cx: &mut TestAppContext,
+) {
+    use gpui_kit::component::diff::{DiffFile, DiffLineRange, DiffSide, DiffState};
+    cx.update(gpui_kit::init);
+    cx.update(|cx| {
+        let patch = "diff --git a/old.rs b/new.rs\n--- a/old.rs\n+++ b/new.rs\n@@ -2,2 +2,2 @@\n-synthetic old\n+synthetic new\n same\n@@ -30 +30 @@\n-last old\n+last new\n";
+        let diff = cx.new(|cx| DiffState::new(DiffFile::parse(patch).unwrap(), cx));
+        diff.update(cx, |state, cx| state.set_selected_lines(Some(DiffLineRange::new("new.rs", DiffSide::Original, 2, 30)), cx));
+        let parts = diff.read(cx).selected_excerpts(cx);
+        assert_eq!(parts.len(), 2, "Missing patch context must not be invented");
+        assert_eq!((parts[0].path.as_ref(), parts[0].start, parts[0].end, parts[0].text.as_str()), ("old.rs", 2, 3, "synthetic old\nsame\n"));
+        assert_eq!((parts[1].start, parts[1].end), (30, 30));
+        diff.update(cx, |state, cx| state.set_selected_lines(Some(DiffLineRange::new("new.rs", DiffSide::Original, 2, 2).with_end_side(DiffSide::Modified)), cx));
+        let parts = diff.read(cx).selected_excerpts(cx);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].side, DiffSide::Original);
+        assert_eq!(parts[0].text, "synthetic old\n");
+        assert_eq!(parts[1].side, DiffSide::Modified);
+        assert_eq!(parts[1].text, "synthetic new\n");
+    });
+}
+
+#[gpui_test::test]
+fn code_context_diff_toolbar_copies_selection_after_focus_changes(cx: &mut TestAppContext) {
+    use gpui_kit::component::diff::{DiffLineRange, DiffMode, DiffSide};
+    use gpui_kit::{Focusable as _, Modifiers, MouseButton, point, px};
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory("/synthetic/context-diff".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let ui = &mut this.git_states[project];
+            ui.snapshot = Some(std::sync::Arc::new(Snapshot::default()));
+            let generation = ui.begin_detail(Detail::Commit("mock-hash".into()), cx);
+            ui.install_detail(generation, Ok(review_patch("mock.rs")), cx);
+            ui.diff.update(cx, |state, cx| {
+                state.set_selected_lines(
+                    Some(DiffLineRange::new("mock.rs", DiffSide::Modified, 2, 2)),
+                    cx,
+                )
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    let button = cx
+        .debug_bounds("git-copy-code-context")
+        .expect("Context copying is discoverable beside the diff");
+    cx.update(|_, cx| {
+        assert!(
+            view.read(cx).git_states[0].code_context(cx).is_some(),
+            "The rendered diff still owns its selection before clicking"
+        )
+    });
+    cx.simulate_mouse_down(
+        button.center(),
+        gpui_kit::MouseButton::Left,
+        gpui_kit::Modifiers::default(),
+    );
+    cx.update(|_, cx| {
+        assert!(
+            view.read(cx).git_states[0].review.copying.is_some(),
+            "The copy gesture keeps its source until release"
+        )
+    });
+    cx.simulate_mouse_up(
+        button.center(),
+        gpui_kit::MouseButton::Left,
+        gpui_kit::Modifiers::default(),
+    );
+    cx.update(|_, cx| {
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "mock.rs:2 (modified)\n```\nsynthetic new\n```"
+        )
+    });
+    for mode in [DiffMode::Unified, DiffMode::Split] {
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                let ui = &mut this.git_states[0];
+                ui.review.focused = true;
+                ui.diff.update(cx, |state, cx| {
+                    state.set_mode(mode, cx);
+                    state.set_selected_lines(None, cx);
+                });
+                ui.diff.read(cx).focus_handle(cx).focus(window, cx);
+            });
+            window.draw(cx).clear(cx);
+        });
+        let source = cx.debug_bounds("diff-source-0-Modified-2").unwrap();
+        let start = source.origin + point(px(0.1), source.size.height * 0.5);
+        let end = point(source.right() - px(0.1), start.y);
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| {
+            assert_eq!(
+                view.read(cx).git_states[0].diff.read(cx).selected_text(cx),
+                "synthetic new"
+            );
+            window.draw(cx).clear(cx);
+        });
+        let button = cx.debug_bounds("git-copy-code-context").unwrap();
+        cx.simulate_click(button.center(), Modifiers::default());
+        cx.update(|_, cx| {
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().unwrap(),
+                "mock.rs:2 (modified)\n```\nsynthetic new\n```"
+            )
+        });
+    }
+    cx.update(|window, cx| {
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+            "synthetic sentinel".into(),
+        ));
+        view.update(cx, |this, cx| {
+            this.git_states[0].diff.update(cx, |state, cx| {
+                state.set_selected_lines(
+                    Some(DiffLineRange::new("mock.rs", DiffSide::Original, 2, 2)),
+                    cx,
+                )
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    let button = cx.debug_bounds("git-copy-code-context").unwrap();
+    cx.simulate_mouse_down(button.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_up(
+        point(px(1.0), px(1.0)),
+        MouseButton::Left,
+        Modifiers::default(),
+    );
+    cx.update(|_, cx| {
+        assert!(view.read(cx).git_states[0].review.copying.is_none());
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "synthetic sentinel"
+        );
+    });
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            let ui = &mut this.git_states[0];
+            ui.diff.update(cx, |state, cx| {
+                state.set_selected_lines(
+                    Some(DiffLineRange::new("mock.rs", DiffSide::Original, 2, 2)),
+                    cx,
+                )
+            });
+            ui.mode = Mode::Remotes;
+            this.copy_code_context(cx);
+        });
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "synthetic sentinel",
+            "A hidden Diff must not supply context while managing remotes"
+        );
+    });
+}
+
 #[test]
 fn hunk_lines_identify_modified_ranges_and_use_original_lines_for_deletions() {
     use gpui_kit::component::diff::DiffSide;

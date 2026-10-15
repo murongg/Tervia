@@ -13,6 +13,17 @@ pub enum DiffSide {
     Modified,
 }
 
+/// An exact selected source fragment, with one-based inclusive line numbers.
+/// Separate fragments preserve version boundaries and missing patch context.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DiffExcerpt {
+    pub path: SharedString,
+    pub side: DiffSide,
+    pub start: usize,
+    pub end: usize,
+    pub text: String,
+}
+
 impl DiffSide {
     pub(crate) fn other(self) -> Self {
         match self {

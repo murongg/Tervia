@@ -1,5 +1,7 @@
 pub(crate) mod console;
+mod context;
 mod controls;
+mod dock;
 mod explorer;
 mod files;
 mod git;
@@ -7,6 +9,7 @@ mod menus;
 mod monitor;
 mod preferences;
 mod projects;
+mod recovery;
 mod shell;
 mod tabs;
 mod terminal;
@@ -57,7 +60,9 @@ gpui_kit::actions!(
         PreviousFileTab,
         ReopenFileTab,
         QuickOpenFile,
-        SearchProjectText
+        SearchProjectText,
+        CopyCodeContext,
+        ToggleTerminalDock
     ]
 );
 
@@ -68,6 +73,7 @@ pub struct Tervia {
     appearance: Preferences,
     config: Option<Config>,
     workspace: Option<Store>,
+    workspace_save: Option<Task<()>>,
     config_error: Entity<Option<String>>,
     preferences_window: Option<AnyWindowHandle>,
     updater: Entity<updates::Updater>,
@@ -167,6 +173,7 @@ impl Tervia {
             appearance,
             config,
             workspace,
+            workspace_save: None,
             config_error: cx.new(|_| error),
             preferences_window: None,
             updater,
@@ -252,6 +259,9 @@ impl Tervia {
             view.init_project(index, window, cx);
         }
         for index in 0..view.state.projects.len() {
+            view.restore_documents(index, window, cx);
+        }
+        for index in 0..view.state.projects.len() {
             view.refresh_git(index, window, cx);
             let root = &view.state.projects[index].root;
             // Separate child scans would replace the enclosing workspace's repository grouping.
@@ -272,7 +282,7 @@ impl Tervia {
             view.state.attach_directory(parent, parent);
         }
         view.subscriptions
-            .push(cx.observe_self(|this, cx| this.persist_workspace(cx)));
+            .push(cx.observe_self(|this, cx| this.schedule_workspace_save(cx)));
         view.git_poll = Some(cx.spawn_in(window, async move |weak, cx| {
             loop {
                 cx.background_executor()
@@ -331,6 +341,11 @@ impl Tervia {
                     })
                     .default_value(file.draft.clone())
             });
+            self.subscriptions.push(cx.observe(&editor, |this, _, cx| {
+                if this.state.project().tab == Tab::Files {
+                    cx.notify();
+                }
+            }));
             // Capture the owner: a late input event must never edit the newly selected project.
             self.subscriptions.push(cx.subscribe_in(
                 &editor,
@@ -386,6 +401,18 @@ impl Tervia {
         let cwd = tervia::pty::initial_directory(project_path, &home);
         let preferences = self.preferences.clone();
         let console = cx.new(|cx| console::Console::new(cwd, preferences, window, cx));
+        self.subscriptions.push(
+            cx.subscribe(&console, |_, _, _: &console::AttentionChanged, cx| {
+                cx.notify()
+            }),
+        );
+        self.subscriptions.push(cx.subscribe_in(
+            &console,
+            window,
+            move |this, _, link: &tervia::terminal::FileLink, window, cx| {
+                this.open_terminal_link(project, link.clone(), window, cx);
+            },
+        ));
         self.subscriptions.push(cx.subscribe(
             &console,
             move |this, _, _: &console::IdentityChanged, cx| {
@@ -419,6 +446,7 @@ impl Tervia {
     }
 
     pub(crate) fn shutdown_terminals(&mut self, cx: &mut Context<Self>) {
+        self.workspace_save.take();
         self.persist_workspace(cx);
         for console in self.terminals.iter().flatten().flatten() {
             console.update(cx, |console, _| console.shutdown());
@@ -426,6 +454,10 @@ impl Tervia {
     }
 
     fn persist_workspace(&mut self, cx: &mut Context<Self>) {
+        if self.workspace.is_none() {
+            return;
+        }
+        self.capture_reading_positions(cx);
         if let Some(workspace) = &mut self.workspace
             && let Err(error) = workspace.save(&self.state)
             && self.state.notice.is_empty()
@@ -460,6 +492,7 @@ impl Tervia {
             ui.cancel_worktree_navigation();
         }
         self.state.switch_project(index);
+        self.persist_workspace(cx);
         self.refresh_git(index, window, cx);
         if self.state.project().tab == Tab::Files {
             self.load_directory(index, PathBuf::new(), false, window, cx);
@@ -677,21 +710,26 @@ impl Render for Tervia {
                 },
             )
             .on_action(cx.listener(|this, _: &NewSession, window, cx| {
-                this.change_tab(Tab::Terminal, window, cx);
+                if !this.state.project().dock.visible {
+                    this.change_tab(Tab::Terminal, window, cx);
+                }
                 this.new_session(window, cx);
             }))
             .on_action(
                 cx.listener(|this, _: &SplitTerminal, window, cx| this.split_terminal(window, cx)),
             )
-            .when(self.state.project().tab == Tab::Terminal, |workspace| {
-                workspace
-                    .on_action(
-                        cx.listener(|this, _: &ClearTerminal, _, cx| this.clear_terminal(cx)),
-                    )
-                    .on_action(cx.listener(|this, _: &CopyTerminalOutput, _, cx| {
-                        this.copy_terminal_output(cx)
-                    }))
-            })
+            .when(
+                self.state.project().tab == Tab::Terminal || self.state.project().dock.visible,
+                |workspace| {
+                    workspace
+                        .on_action(
+                            cx.listener(|this, _: &ClearTerminal, _, cx| this.clear_terminal(cx)),
+                        )
+                        .on_action(cx.listener(|this, _: &CopyTerminalOutput, _, cx| {
+                            this.copy_terminal_output(cx)
+                        }))
+                },
+            )
             .on_action(
                 cx.listener(|this, _: &ToggleTheme, window, cx| this.toggle_theme(window, cx)),
             )
@@ -700,6 +738,16 @@ impl Render for Tervia {
                 this.focus.focus(window, cx);
                 cx.notify();
             }))
+            .when(self.state.project().tab != Tab::Terminal, |workspace| {
+                workspace.on_action(cx.listener(|this, _: &ToggleTerminalDock, window, cx| {
+                    this.toggle_terminal_dock(window, cx)
+                }))
+            })
+            .when(self.state.project().tab != Tab::Terminal, |workspace| {
+                workspace.on_action(
+                    cx.listener(|this, _: &CopyCodeContext, _, cx| this.copy_code_context(cx)),
+                )
+            })
             .on_action(cx.listener(|this, _: &OpenPreferences, _, cx| this.open_preferences(cx)))
             .child(self.titlebar(cx))
             .child(
@@ -716,11 +764,7 @@ impl Render for Tervia {
                             .flex()
                             .flex_col()
                             .child(self.navigation(cx))
-                            .child(match self.state.project().tab {
-                                Tab::Terminal => self.terminal(window, cx).into_any_element(),
-                                Tab::Git => self.git(window, cx).into_any_element(),
-                                Tab::Files => self.files(window, cx).into_any_element(),
-                            }),
+                            .child(self.workspace_body(window, cx)),
                     ),
             )
             .child(self.statusbar(cx))

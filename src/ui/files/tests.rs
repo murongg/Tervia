@@ -3,6 +3,204 @@ use core::prelude::v1::test;
 use gpui_test::TestAppContext;
 use std::fs;
 
+#[gpui_test::test]
+fn configured_recovery_loads_clean_files_from_disk_and_preserves_unsaved_drafts(
+    cx: &mut TestAppContext,
+) {
+    use tervia::{
+        config::Config,
+        state::{ReadingPosition, Workspace},
+        workspace::Store,
+    };
+    cx.update(gpui_kit::init);
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("mock-recovery");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    fs::write(root.join("dirty.rs"), "external first\nexternal second\n").unwrap();
+    fs::write(root.join("clean.rs"), "current clean\n").unwrap();
+    let mut state = Workspace::new(root.clone());
+    state.new_session();
+    let project = state.project_mut();
+    project.tab = Tab::Files;
+    project.dock.visible = true;
+    project.files = vec![
+        File {
+            path: "dirty.rs".into(),
+            disk_path: "dirty.rs".into(),
+            language: "rust".into(),
+            saved: "base\n".into(),
+            draft: "synthetic first\nsynthetic second\n".into(),
+        },
+        File {
+            path: "clean.rs".into(),
+            disk_path: "clean.rs".into(),
+            language: "rust".into(),
+            saved: "old clean\n".into(),
+            draft: "old clean\n".into(),
+        },
+    ];
+    project.open_files = vec![0, 1];
+    project.positions.insert(
+        "dirty.rs".into(),
+        ReadingPosition {
+            line: 1,
+            column: 3,
+            source: true,
+            ..Default::default()
+        },
+    );
+    let mut store = Store::new(temporary.path().join("workspace.json"));
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(
+                Ok(Config::new(temporary.path().join("config.toml"))),
+                window,
+                cx,
+            )
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let this = view.read(cx);
+        assert_eq!(this.state.project().tab, Tab::Files);
+        assert_eq!(
+            this.state.project().active_file,
+            0,
+            "Restoring a clean background tab must not steal selection"
+        );
+        assert_eq!(
+            this.state.project().files[0].draft,
+            "synthetic first\nsynthetic second\n"
+        );
+        assert_eq!(this.state.project().files[1].draft, "current clean\n");
+        assert_eq!(this.editors[0][0].read(cx).cursor_position().line, 1);
+        assert_eq!(this.state.project().sessions.len(), 2);
+        assert!(this.state.project().dock.visible);
+        window.draw(cx).clear(cx);
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.focus(window, cx);
+                editor.select_all(window, cx);
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    cx.simulate_input("synthetic latest draft\n");
+    cx.update(|_, cx| {
+        let this = view.read(cx);
+        assert_eq!(
+            this.state.project().files[0].draft,
+            "synthetic latest draft\n",
+            "Editor value: {}",
+            this.editors[0][0].read(cx).value()
+        );
+        assert!(
+            this.workspace_save.is_some(),
+            "Typing schedules a recovery flush"
+        );
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert!(
+            view.read(cx).state.notice.is_empty(),
+            "{}",
+            view.read(cx).state.notice
+        )
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(350));
+    cx.run_until_parked();
+    let recovered = Store::new(temporary.path().join("workspace.json"))
+        .load()
+        .unwrap();
+    assert_eq!(
+        recovered.project().files[0].draft,
+        "synthetic latest draft\n",
+        "Debounced edits must reach durable recovery state"
+    );
+}
+
+#[gpui_test::test]
+fn code_context_file_toolbar_copies_unsaved_selection_with_source_lines(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    cx.update(super::super::bind_menu_keys);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory("/synthetic/context-files".into());
+            this.state.projects[project].files.push(File {
+                path: "src/mock.rs".into(),
+                disk_path: "src/mock.rs".into(),
+                language: "rust".into(),
+                saved: "old".into(),
+                draft: "first\n合成 draft\nlast\n".into(),
+            });
+            this.init_project(project, window, cx);
+            this.state.set_tab(Tab::Files);
+            this.state.open_file(0);
+            this.editors[project][0].update(cx, |editor, cx| editor.set_selected_range(6..19, cx));
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let button = cx
+        .debug_bounds("file-copy-code-context")
+        .expect("Context copying is visible beside Find and Save");
+    cx.simulate_click(button.center(), Modifiers::default());
+    cx.update(|_, cx| {
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "src/mock.rs:2\n```\n合成 draft\n```"
+        );
+        assert!(view.as_ref().unwrap().read(cx).state.project().files[0].dirty());
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        cx.write_to_clipboard(ClipboardItem::new_string("synthetic sentinel".into()));
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.set_selected_range(6..19, cx);
+                editor.focus(window, cx);
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    cx.simulate_keystrokes(
+        if tervia::platform::Platform::CURRENT == tervia::platform::Platform::Mac {
+            "cmd-shift-c"
+        } else {
+            "ctrl-shift-c"
+        },
+    );
+    cx.update(|window, cx| {
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "src/mock.rs:2\n```\n合成 draft\n```"
+        );
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| editor.set_selected_range(0..0, cx))
+        });
+        cx.write_to_clipboard(ClipboardItem::new_string("synthetic sentinel".into()));
+        window.dispatch_action(Box::new(super::super::CopyCodeContext), cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "synthetic sentinel"
+        );
+    });
+}
+
 struct FilesSurface(Entity<Tervia>);
 
 impl Render for FilesSurface {

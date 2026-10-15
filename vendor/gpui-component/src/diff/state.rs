@@ -14,7 +14,7 @@ use gpui::{
 use gpui_base::{TextSelection, TextSelectionContentKey, TextSelectionEvent, TextSelectionHandle};
 
 use super::{
-    DiffAnnotation, DiffConflictResolution, DiffFile, DiffFileStatus, DiffInlineUnit,
+    DiffAnnotation, DiffConflictResolution, DiffExcerpt, DiffFile, DiffFileStatus, DiffInlineUnit,
     DiffLinePosition, DiffLineRange, DiffMode, DiffSide,
     conflict::ConflictPart,
     presentation::{FilePresentation, PresentationOptions, SyntaxHighlighters},
@@ -758,6 +758,72 @@ impl DiffState {
             .and_then(|file| file.source(side).get(range))
             .unwrap_or("")
             .to_owned()
+    }
+
+    /// Returns source fragments for either gutter or native text selection.
+    /// Never reads working files: old, staged and historical source belongs to this patch.
+    pub fn selected_excerpts(&self, cx: &App) -> Vec<DiffExcerpt> {
+        let mut parts: Vec<DiffExcerpt> = Vec::new();
+        let mut append = |file: &DiffFile, side: DiffSide, ix: usize, range: Range<usize>| {
+            let line = &file.lines(side)[ix];
+            let start = range.start.max(line.source().start);
+            let end = range.end.min(line.source().end);
+            if start >= end {
+                return;
+            }
+            let Some(text) = file.source(side).get(start..end) else {
+                return;
+            };
+            let path = file.side_path(side).unwrap_or(file.path());
+            if let Some(last) = parts.last_mut()
+                && last.path == *path
+                && last.side == side
+                && last.end + 1 == line.line_number()
+            {
+                last.end = line.line_number();
+                last.text.push_str(text);
+            } else {
+                parts.push(DiffExcerpt {
+                    path: path.clone(),
+                    side,
+                    start: line.line_number(),
+                    end: line.line_number(),
+                    text: text.to_owned(),
+                });
+            }
+        };
+        if self.selection.has_local_selection(cx)
+            && let Some(selected) = self.selected_span()
+        {
+            match selected {
+                SelectedLines::Side { file, side, lines } => {
+                    let file = &self.files[file];
+                    for (ix, line) in file.lines(side).iter().enumerate() {
+                        if lines.contains(&line.line_number()) {
+                            append(file, side, ix, line.source());
+                        }
+                    }
+                }
+                SelectedLines::Patch { file, patch } => {
+                    let file = &self.files[file];
+                    for line in &file.patch_lines()[patch] {
+                        let (side, ix) = match line.line(DiffSide::Modified) {
+                            Some(ix) => (DiffSide::Modified, ix),
+                            None => (DiffSide::Original, line.line(DiffSide::Original).unwrap()),
+                        };
+                        append(file, side, ix, file.lines(side)[ix].source());
+                    }
+                }
+            }
+        } else if let Some((file, side, range)) =
+            super::selection::selected_source_range(&self.selection, cx)
+            && let Some(file) = self.files.get(file)
+        {
+            for (ix, _) in file.lines(side).iter().enumerate() {
+                append(file, side, ix, range.clone());
+            }
+        }
+        parts
     }
 
     /// Reveals and scrolls to a source line, expanding its file and hidden

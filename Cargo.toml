@@ -18,6 +18,7 @@ serde_json = "=1.0.154"
 notify = "=8.2.0"
 ignore = "=0.4.33"
 regex = "=1.13.1"
+sha2 = "=0.10.9"
 dirs = "=6.0.0"
 tempfile = "=3.27.0"
 toml_edit = "=0.25.17"
@@ -48,7 +49,6 @@ debug = 1
 embed-resource = "=3.0.12"
 
 [dev-dependencies]
-sha2 = "=0.10.9"
 zip = { version = "=8.6.0", default-features = false }
 
 [profile.dev.package."*"]

@@ -7,6 +7,7 @@ mod history;
 mod navigation;
 mod remotes;
 mod review;
+mod rounds;
 mod scans;
 pub(super) use scans::Scans;
 mod sidebar;
@@ -65,6 +66,7 @@ enum Detail {
     Commit(String),
     Stash(String),
     Conflict(PathBuf),
+    Checkpoint(String),
 }
 
 pub(super) struct GitUi {
@@ -232,6 +234,7 @@ impl GitUi {
                     self.error.recovered();
                 }
                 if self.detail != detail {
+                    self.review.copying = None;
                     let files = DiffFile::parse(&detail).unwrap_or_default();
                     // Reuse a position only after the fresh patch matches its saved document.
                     if let Some(saved) = self
@@ -280,6 +283,7 @@ impl GitUi {
             }
             Err(error) => {
                 self.review.range = None;
+                self.review.copying = None;
                 self.detail.clear();
                 self.raw_lines = Arc::from([]);
                 self.metadata_lines = Arc::from([]);
@@ -402,6 +406,7 @@ impl Tervia {
         }
         self.attach_navigation(index);
         self.state.set_tab(Tab::Git);
+        self.persist_workspace(cx);
         self.refresh_git(index, window, cx);
         cx.notify();
     }
@@ -728,9 +733,12 @@ impl Tervia {
                     ui.message
                         .update(cx, |input, cx| input.set_value("", window, cx));
                 }
-                if let Some(detail) = ui.selected.clone() {
+                if let Some(detail) = ui.selected.clone()
+                    && !matches!(detail, Detail::Checkpoint(_))
+                {
                     this.read_git_detail(project, detail, error::Origin::Probe, window, cx);
                 }
+                this.refresh_review_marks(project, window, cx);
                 if this.git_states[project].mode == Mode::History
                     && this.git_states[project].history.target.is_some()
                 {
@@ -782,6 +790,9 @@ impl Tervia {
                         Detail::File(file, side) => repository.diff(&file, side),
                         Detail::Commit(hash) => repository.show_commit(&hash),
                         Detail::Stash(reference) => repository.show_stash(&reference),
+                        Detail::Checkpoint(checkpoint) => {
+                            repository.compare_checkpoint(&checkpoint)
+                        }
                         Detail::Conflict(path) => {
                             let mut output = String::new();
                             for (stage, title) in [

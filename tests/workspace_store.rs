@@ -1,6 +1,140 @@
 use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
+#[test]
+fn recovery_keeps_tabs_layout_drafts_and_reading_positions_without_overwriting_disk() {
+    use tervia::state::{File, ReadingPosition, Tab};
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-recovery");
+    let path = temporary.path().join("workspace.json");
+    fs::write(root.join("mock.rs"), "base\n").unwrap();
+    fs::write(root.join("clean.rs"), "clean\n").unwrap();
+    let mut state = Workspace::new(root.clone());
+    state.new_session();
+    state.new_session();
+    let project = state.project_mut();
+    project.tab = Tab::Files;
+    project.dock.visible = true;
+    project.dock.size = 260;
+    project.files = vec![
+        File {
+            path: "mock.rs".into(),
+            disk_path: "mock.rs".into(),
+            language: "rust".into(),
+            saved: "base\n".into(),
+            draft: "unsaved synthetic\n".into(),
+        },
+        File {
+            path: "clean.rs".into(),
+            disk_path: "clean.rs".into(),
+            language: "rust".into(),
+            saved: "clean\n".into(),
+            draft: "clean\n".into(),
+        },
+    ];
+    project.open_files = vec![1, 0];
+    project.active_file = 0;
+    project.positions.insert(
+        "mock.rs".into(),
+        ReadingPosition {
+            line: 4,
+            column: 3,
+            scroll_x: 0.0,
+            scroll_y: -80.0,
+            source: true,
+        },
+    );
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    fs::write(root.join("mock.rs"), "external synthetic\n").unwrap();
+    let restored = Store::new(path.clone()).load().unwrap();
+    let project = restored.project();
+    assert_eq!(project.tab, Tab::Files);
+    assert_eq!(project.sessions.len(), 3);
+    assert_eq!(project.active_session, 2);
+    assert!(project.dock.visible);
+    assert_eq!(project.dock.size, 260);
+    let file = project
+        .files
+        .iter()
+        .find(|file| file.disk_path == std::path::Path::new("mock.rs"))
+        .unwrap();
+    assert_eq!(file.draft, "unsaved synthetic\n");
+    assert_eq!(file.saved, "base\n");
+    assert_eq!(project.files[project.active_file].path, "mock.rs");
+    assert_eq!(project.positions[std::path::Path::new("mock.rs")].line, 4);
+    assert!(project.restoring.contains(std::path::Path::new("clean.rs")));
+    assert!(tervia::files::write(&root, &file.disk_path, &file.draft, &file.saved).is_err());
+    assert_eq!(
+        fs::read_to_string(root.join("mock.rs")).unwrap(),
+        "external synthetic\n"
+    );
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(saved["version"], 2);
+}
+
+#[test]
+fn unavailable_directories_cannot_cause_recovery_drafts_to_be_discarded_on_save() {
+    use tervia::state::File;
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-unavailable");
+    let path = temporary.path().join("workspace.json");
+    let mut state = Workspace::new(root.clone());
+    state.project_mut().files.push(File {
+        path: "mock.rs".into(),
+        disk_path: "mock.rs".into(),
+        language: "rust".into(),
+        saved: "base".into(),
+        draft: "synthetic recovery draft".into(),
+    });
+    state.project_mut().open_files.push(0);
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    fs::remove_dir(&root).unwrap();
+    let mut store = Store::new(path.clone());
+    let mut restored = store.load().unwrap();
+    restored.open_directory(directory(&temporary, "mock-other"));
+    store.save(&restored).unwrap();
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("synthetic recovery draft")
+    );
+    fs::create_dir(&root).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert!(restored.projects.iter().any(|project| {
+        project
+            .files
+            .iter()
+            .any(|file| file.draft == "synthetic recovery draft")
+    }));
+}
+
+#[test]
+fn aliased_recovery_directories_are_rejected_instead_of_overwriting_a_draft() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-alias");
+    fs::create_dir(root.join("sub")).unwrap();
+    let path = temporary.path().join("workspace.json");
+    let context = |root: PathBuf, draft: &str| {
+        serde_json::json!({
+            "root": root, "sessions": ["shell"], "files": [{"path": "mock.rs", "saved": "base", "draft": draft}]
+        })
+    };
+    let source = serde_json::json!({
+        "version": 2, "projects": [{"root": root, "directory": root}], "active": root,
+        "contexts": [context(root.clone(), "synthetic first draft"), context(root.join("sub/.."), "synthetic second draft")]
+    }).to_string();
+    fs::write(&path, &source).unwrap();
+    let mut store = Store::new(path.clone());
+    assert!(store.load().is_err());
+    assert!(store.save(&Workspace::new(root)).is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), source);
+}
+
 fn directory(root: &tempfile::TempDir, name: &str) -> PathBuf {
     let path = root.path().join(name);
     fs::create_dir(&path).unwrap();

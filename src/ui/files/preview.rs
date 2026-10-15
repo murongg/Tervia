@@ -9,7 +9,7 @@ pub(in crate::ui) struct Previews {
 }
 
 impl Previews {
-    pub(super) fn reading(&self, file: &File, index: usize) -> bool {
+    pub(in crate::ui) fn reading(&self, file: &File, index: usize) -> bool {
         file.is_image() || (file.language == "markdown" && !self.sources.contains(&index))
     }
 }

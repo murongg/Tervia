@@ -141,8 +141,56 @@ impl Tervia {
                     .flex_1()
                     .text_size(px(12.0))
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Diff"),
+                    .child(if matches!(ui.selected, Some(Detail::Checkpoint(_))) {
+                        self.t("git_checkpoint_title")
+                    } else {
+                        "Diff"
+                    }),
             );
+        }
+        if matches!(ui.selected, Some(Detail::Checkpoint(_))) {
+            header = header
+                .debug_selector(|| "git-checkpoint-view".into())
+                .child(
+                    label_button("git-checkpoint-back", self.t("git_working_copy"), p).on_click(
+                        cx.listener(move |this, _, window, cx| {
+                            this.return_working_diff(project, window, cx)
+                        }),
+                    ),
+                )
+                .child(
+                    label_button(
+                        "git-checkpoint-refresh",
+                        self.t("git_checkpoint_compare"),
+                        p,
+                    )
+                    .disabled(ui.detail_loading || ui.review.busy)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.show_checkpoint(project, window, cx)
+                    })),
+                );
+        } else if let Some(Detail::File(file, side)) = &ui.selected {
+            let reviewed = ui
+                .review
+                .marks
+                .contains(&tervia::git::ReviewKey::new(file.path.clone(), *side));
+            header =
+                header.child(
+                    label_button(
+                        "git-mark-reviewed",
+                        self.t(if reviewed {
+                            "git_reviewed"
+                        } else {
+                            "git_mark_reviewed"
+                        }),
+                        p,
+                    )
+                    .debug_selector(|| "git-mark-reviewed".into())
+                    .disabled(ui.detail_loading || ui.busy || ui.review.busy || file.conflicted)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.toggle_reviewed(project, window, cx)
+                    })),
+                );
         }
         let mut tools = div()
             .min_h(px(32.0))
@@ -230,6 +278,50 @@ impl Tervia {
             );
         }
         tools = tools.child(div().flex_1());
+        tools = tools
+            .child(
+                label_button(
+                    "git-capture-checkpoint",
+                    self.t("git_checkpoint_capture"),
+                    p,
+                )
+                .debug_selector(|| "git-capture-checkpoint".into())
+                .h(px(24.0))
+                .text_size(px(11.0))
+                .disabled(
+                    ui.repository.is_none()
+                        || ui.busy
+                        || ui.review.busy
+                        || self.git_mutating
+                        || ui
+                            .snapshot
+                            .as_ref()
+                            .is_some_and(|snapshot| snapshot.status.operation.is_some()),
+                )
+                .tooltip(self.t("git_checkpoint_hint"))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.capture_checkpoint(project, window, cx)
+                })),
+            )
+            .when(
+                ui.review.checkpoint.is_some()
+                    && !matches!(ui.selected, Some(Detail::Checkpoint(_))),
+                |tools| {
+                    tools.child(
+                        label_button(
+                            "git-compare-checkpoint",
+                            self.t("git_checkpoint_compare"),
+                            p,
+                        )
+                        .h(px(24.0))
+                        .text_size(px(11.0))
+                        .disabled(ui.busy || ui.review.busy)
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| this.show_checkpoint(project, window, cx),
+                        )),
+                    )
+                },
+            );
         for (index, mode, key) in [
             (0usize, DiffMode::Unified, "diff_inline"),
             (1, DiffMode::Split, "diff_split"),
@@ -279,6 +371,43 @@ impl Tervia {
                 cx.notify();
             })),
         );
+        tools = tools.child({
+            let context = super::super::context::diff_context(ui.diff.read(cx), cx);
+            let pressed_context = context.clone();
+            label_button("git-copy-code-context", self.t("copy_code_context"), p)
+                .h(px(24.0))
+                .text_size(px(11.0))
+                .debug_selector(|| "git-copy-code-context".into())
+                .disabled(context.is_none() && ui.review.copying.is_none())
+                .tooltip(
+                    tervia::platform::Platform::CURRENT.hint(self.t("copy_code_context_shortcut")),
+                )
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        // Window text selection clears on press; retain only this copy gesture's source.
+                        this.git_states[project].review.copying = pressed_context.clone();
+                        cx.notify();
+                    }),
+                )
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        this.git_states[project].review.copying = None;
+                        cx.notify();
+                    }),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(context) = this.git_states[project]
+                        .review
+                        .copying
+                        .take()
+                        .or_else(|| context.clone())
+                    {
+                        this.copy_context(context, cx);
+                    }
+                }))
+        });
         tools = tools.child(
             icon_button("git-copy-detail", IconName::Copy, self.t("git_copy"), p, cx)
                 .accessibility_label(self.t("git_copy"))
@@ -332,6 +461,8 @@ impl Tervia {
                     div().text_size(px(13.0)).text_color(p.secondary).child(
                         self.t(if ui.detail_loading {
                             "git_running"
+                        } else if matches!(ui.selected, Some(Detail::Checkpoint(_))) {
+                            "git_checkpoint_empty"
                         } else if ui.mode == Mode::Changes
                             && ui
                                 .snapshot
