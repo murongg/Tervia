@@ -533,17 +533,13 @@ impl Tervia {
                         if existing.is_none() {
                             this.invalidate_disk_sync(project);
                             let language = if image.is_some() {
-                                "image"
+                                "image".to_owned()
                             } else {
-                                match path.extension().and_then(|extension| extension.to_str()) {
-                                    Some("rs") => "rust",
-                                    Some("toml") => "toml",
-                                    Some("md") => "markdown",
-                                    Some("ts" | "tsx" | "js" | "jsx") => "typescript",
-                                    _ => "plaintext",
-                                }
-                            }
-                            .to_owned();
+                                gpui_kit::component::highlighter::language_for_path(
+                                    &path.to_string_lossy(),
+                                )
+                                .to_string()
+                            };
                             this.state.projects[project].files.push(File {
                                 path: path.to_string_lossy().into_owned(),
                                 disk_path: path,

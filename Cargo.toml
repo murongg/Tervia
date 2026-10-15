@@ -28,7 +28,7 @@ portable-pty = { version = "=0.9.0", optional = true }
 async-channel = { version = "2", optional = true }
 # Select application-owned Windows resources even when transitive dependencies enable GPUI defaults.
 gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, features = ["windows-manifest-provided-by-host"] }
-gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-rust", "tree-sitter-toml", "tree-sitter-markdown", "tree-sitter-typescript"] }
+gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-languages"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Pipes"] }
