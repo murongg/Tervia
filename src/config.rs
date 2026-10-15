@@ -146,6 +146,7 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
     let ui = section(document.get("ui"), "ui", &empty)?;
     let fonts = section(ui.get("fonts"), "ui.fonts", &empty)?;
     let updates = section(document.get("updates"), "updates", &empty)?;
+    let files = section(document.get("files"), "files", &empty)?;
     let theme = string(ui.get("theme"), "ui.theme", "dark")?;
     let light_theme = match theme {
         "dark" => false,
@@ -183,6 +184,7 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
         )?,
         light_theme,
         language,
+        file_nesting: boolean(files.get("nesting"), "files.nesting", defaults.file_nesting)?,
         updates: Settings {
             auto_check: boolean(
                 updates.get("auto_check"),
@@ -262,6 +264,10 @@ fn language_code(language: Language) -> &'static str {
 }
 
 fn write(document: &mut DocumentMut, preferences: &Preferences) {
+    set(
+        &mut document["files"]["nesting"],
+        Value::from(preferences.file_nesting),
+    );
     set(
         &mut document["ui"]["theme"],
         Value::from(if preferences.light_theme {

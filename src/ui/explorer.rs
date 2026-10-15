@@ -148,6 +148,7 @@ impl Tervia {
             Row::Entry { entry, depth } => {
                 let path = entry.path.clone();
                 let folder = entry.kind == EntryKind::Directory;
+                let nested = self.explorers[project].tree.has_nested(&path);
                 let expanded = self.explorers[project].tree.is_expanded(&path);
                 let owner = &self.state.projects[project];
                 let file = owner.files.iter().position(|file| file.disk_path == path);
@@ -165,21 +166,71 @@ impl Tervia {
                     .items_center()
                     .w_full()
                     .gap(px(6.0))
-                    .pr(px(12.0))
-                    .pl(px(8.0 + *depth as f32 * 14.0));
-                content = content.child(if folder {
-                    icon(
-                        if expanded {
-                            IconName::ChevronDown
-                        } else {
-                            IconName::ChevronRight
-                        },
-                        p.secondary,
-                    )
-                    .into_any_element()
+                    .pr(px(12.0));
+                let disclosure = if nested {
+                    let path = path.clone();
+                    div()
+                        .debug_selector(move || format!("explorer-nesting-{}", path.display()))
+                        .child(
+                            icon_button(
+                                ("explorer-nesting", index),
+                                if expanded {
+                                    IconName::ChevronDown
+                                } else {
+                                    IconName::ChevronRight
+                                },
+                                self.t(if expanded {
+                                    "git_collapse"
+                                } else {
+                                    "git_expand"
+                                }),
+                                p,
+                                cx,
+                            )
+                            .w(px(20.0))
+                            .h(px(28.0))
+                            .accessibility_label(format!(
+                                "{} {}",
+                                self.t(if expanded {
+                                    "git_collapse"
+                                } else {
+                                    "git_expand"
+                                }),
+                                entry.path.display()
+                            ))
+                            .on_click(cx.listener({
+                                let path = entry.path.clone();
+                                move |this, _, _, cx| {
+                                    this.explorers[project].tree.toggle_nested(&path);
+                                    cx.notify();
+                                }
+                            })),
+                        )
+                        .into_any_element()
+                } else if folder {
+                    let path = path.clone();
+                    div()
+                        .w(px(20.0))
+                        .flex()
+                        .justify_center()
+                        .child(icon(
+                            if expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            },
+                            p.secondary,
+                        ))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, window, cx| {
+                                this.toggle_directory(project, path.clone(), window, cx);
+                            }),
+                        )
+                        .into_any_element()
                 } else {
-                    div().w(px(15.0)).into_any_element()
-                });
+                    div().w(px(20.0)).into_any_element()
+                };
                 content = content
                     .child(icon(
                         if folder {
@@ -233,28 +284,60 @@ impl Tervia {
                     .id(("explorer-row", index))
                     .h(px(30.0))
                     .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(2.0))
+                    .pl(px(8.0 + *depth as f32 * 14.0))
                     .bg(if selected { p.selected } else { p.background })
                     .hover(|style| style.bg(p.raised))
+                    .child(disclosure)
                     .child(
-                        label_button(("explorer-entry", index), "", p)
-                            .text()
+                        div()
+                            .debug_selector({
+                                let path = path.clone();
+                                move || format!("explorer-file-{}", path.display())
+                            })
+                            .flex_1()
+                            .min_w_0()
                             .h_full()
-                            .w_full()
-                            .rounded(px(0.0))
-                            .accessibility_label(description)
-                            .tooltip(path.to_string_lossy().into_owned())
-                            .child(content)
-                            .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
-                                if folder {
-                                    this.toggle_directory(project, path.clone(), window, cx);
-                                } else {
-                                    if event.click_count() >= 2 {
-                                        this.open_real_file(project, path.clone(), window, cx);
-                                    } else {
-                                        this.open_preview_file(project, path.clone(), window, cx);
-                                    }
-                                }
-                            })),
+                            .child(
+                                label_button(("explorer-entry", index), "", p)
+                                    .text()
+                                    .h_full()
+                                    .w_full()
+                                    .rounded(px(0.0))
+                                    .accessibility_label(description)
+                                    .tooltip(path.to_string_lossy().into_owned())
+                                    .child(content)
+                                    .on_click(cx.listener(
+                                        move |this, event: &ClickEvent, window, cx| {
+                                            if folder {
+                                                this.toggle_directory(
+                                                    project,
+                                                    path.clone(),
+                                                    window,
+                                                    cx,
+                                                );
+                                            } else {
+                                                if event.click_count() >= 2 {
+                                                    this.open_real_file(
+                                                        project,
+                                                        path.clone(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                } else {
+                                                    this.open_preview_file(
+                                                        project,
+                                                        path.clone(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                }
+                                            }
+                                        },
+                                    )),
+                            ),
                     );
                 if folder && let Some(path) = relative {
                     let view = cx.weak_entity();

@@ -47,6 +47,41 @@ fn partial_config_uses_defaults_and_loads_all_supported_preferences() {
 }
 
 #[test]
+fn file_nesting_defaults_off_and_round_trips_without_losing_comments() {
+    let (_root, mut config) =
+        fixture("[files]\nnesting = true # synthetic preference\nfuture_option = 'synthetic'\n");
+    let mut preferences = config.load().unwrap();
+    assert!(preferences.file_nesting);
+    preferences.file_nesting = false;
+    config.save(&preferences).unwrap();
+    assert!(
+        !Config::new(config.path().into())
+            .load()
+            .unwrap()
+            .file_nesting
+    );
+    let source = fs::read_to_string(config.path()).unwrap();
+    assert!(source.contains("# synthetic preference"));
+    assert!(source.contains("future_option = 'synthetic'"));
+    let (_root, mut config) = fixture("");
+    assert!(!config.load().unwrap().file_nesting);
+}
+
+#[test]
+fn invalid_file_nesting_settings_leave_the_config_untouched() {
+    for source in [
+        "files = false",
+        "[files]\nnesting = 'yes'",
+        "[files]\nnesting = 1",
+    ] {
+        let (_root, mut config) = fixture(source);
+        assert!(config.load().unwrap_err().contains("files"));
+        assert!(config.save(&Preferences::default()).is_err());
+        assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+    }
+}
+
+#[test]
 fn update_settings_round_trip_with_custom_intervals_and_preserve_comments() {
     let (_root, mut config) = fixture(
         "[updates]\nauto_check = false # synthetic switch\ninterval_minutes = 37 # synthetic interval\nfuture_option = 'synthetic'\n",

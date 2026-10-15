@@ -104,7 +104,7 @@ Set `TERVIA_CONFIG_FILE` to an absolute file path to override this location. The
 
 The app stores project history in `workspace.json` alongside `config.toml`, including when `TERVIA_CONFIG_FILE` overrides the configuration location. Opening or switching projects, changing the sidebar and removing worktrees save this state automatically. Writes replace the file atomically. Invalid state or changes made by another running instance display a project-history warning and preserve the existing file; fix the file and restart to resume saving. Preferences remain independent of project history. Recovery uses workspace schema v2, reads legacy v1 history, and coalesces ordinary writes over 300 ms; project navigation and quitting flush immediately. Missing directories with unsaved drafts remain in the state file for later recovery. Each directory supports recovery of up to 64 shell tabs and 512 open files; oversized or invalid state reports an error without replacing the existing file.
 
-Top-level tables represent feature domains: `ui` contains appearance and its `fonts` subtable, and `updates` contains automatic-check settings. Future terminal, editor, Git and workspace settings can use separate top-level domains without flattening unrelated options together.
+Top-level tables represent feature domains: `ui` contains appearance and its `fonts` subtable, `files` controls explorer grouping, and `updates` contains automatic-check settings. Future terminal, editor, Git and workspace settings can use separate top-level domains without flattening unrelated options together.
 
 ```toml
 [ui]
@@ -116,12 +116,17 @@ code_family = "Menlo" # Installed font shared by terminal and editor
 code_size = 14        # 11–24
 ui_size = 13          # 11–16
 
+[files]
+nesting = false       # Group related files in the explorer
+
 [updates]
 auto_check = true
 interval_minutes = 60 # 5–10080; default: 1 hour
 ```
 
 The default code font is Menlo on macOS, Consolas on Windows and DejaVu Sans Mono on Linux. Omitted settings use defaults. See [the commented template](assets/config.toml) for all supported settings.
+
+Enable **Settings → Interface → File list → Nest related files** to group companion files in the same directory. Built-in rules cover `.env`, Docker, package managers, Rust, Python and common source/test pairs, inspired by [antfu's File Nesting Config](https://github.com/antfu/vscode-file-nesting-config). Groups start collapsed; the arrow expands them while the filename opens the file. The switch applies immediately across projects and is off by default.
 
 Settings-window changes, the theme toggle and Restore defaults apply immediately and save to the same file. Saves preserve comments and unknown settings, replace the file atomically and retain dotfile symlinks. Manual edits take effect after restarting Tervia. If the file changes while the app is running, saving stops and asks you to restart instead of overwriting those edits.
 

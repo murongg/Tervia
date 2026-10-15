@@ -66,6 +66,31 @@ fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
 }
 
 #[gpui_test::test]
+fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut shared = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        shared = Some(preferences.clone());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let settings = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        gpui_kit::base::Root::new(settings, window, cx)
+    });
+    let shared = shared.unwrap();
+    cx.simulate_resize(size(px(800.0), px(800.0)));
+    for enabled in [true, false] {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let control = cx
+            .debug_bounds("file-nesting-switch")
+            .expect("File nesting is discoverable in Interface settings");
+        cx.simulate_click(control.center(), Modifiers::default());
+        cx.update(|_, cx| assert_eq!(shared.read(cx).file_nesting, enabled));
+    }
+}
+
+#[gpui_test::test]
 fn configured_update_policy_loads_into_the_scheduler_and_ui_edits_persist(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();

@@ -8,6 +8,7 @@ use gpui_kit::component::{
     IndexPath, Sizable, Theme, ThemeMode,
     button::{Button, ButtonVariants},
     select::{Select, SelectEvent, SelectState},
+    switch::Switch,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -539,6 +540,46 @@ impl Render for PreferencesWindow {
                                                 .line_height(relative(1.4))
                                                 .child("Aa Bb 012345  {}"),
                                         ),
+                                ),
+                        )
+                        .child(div().h(px(1.0)).bg(p.border))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(self.heading("settings_files"))
+                                .child(
+                                    self.row(
+                                        "file_nesting",
+                                        "file-nesting-control",
+                                        div()
+                                            .debug_selector(|| "file-nesting-switch".into())
+                                            .flex()
+                                            .items_center()
+                                            .h_full()
+                                            .child(
+                                                Switch::new("file-nesting")
+                                                    .checked(self.current.file_nesting)
+                                                    .accessibility_label(self.t("file_nesting"))
+                                                    .on_change(cx.listener(
+                                                        |this, enabled, _, cx| {
+                                                            this.preferences.update(
+                                                                cx,
+                                                                |prefs, cx| {
+                                                                    prefs.file_nesting = *enabled;
+                                                                    cx.notify();
+                                                                },
+                                                            );
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(11.0))
+                                        .text_color(p.secondary)
+                                        .child(self.t("file_nesting_hint")),
                                 ),
                         ),
                 )

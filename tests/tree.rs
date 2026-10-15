@@ -194,3 +194,216 @@ fn directory_resolution_rejects_a_folder_replaced_by_an_external_symlink() {
         assert!(tervia::files::directory(root.path(), std::path::Path::new("mock-child")).is_err());
     }
 }
+
+fn visible(tree: &Tree) -> Vec<(PathBuf, usize)> {
+    tree.rows()
+        .iter()
+        .filter_map(|row| match row {
+            Row::Entry { entry, depth } => Some((entry.path.clone(), *depth)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn nesting_is_optional_and_groups_related_files_without_changing_paths() {
+    let mut tree = Tree::default();
+    let entries = [
+        ".dockerignore",
+        ".env",
+        ".env.example",
+        ".env.production.local",
+        ".npmrc",
+        "Dockerfile",
+        "Dockerfile.dev",
+        "docker-compose.yml",
+        "package.json",
+        "pnpm-lock.yaml",
+    ]
+    .map(|path| entry(path, EntryKind::File))
+    .to_vec();
+    install(&mut tree, "", entries.clone());
+    assert_eq!(tree.rows().len(), entries.len());
+    tree.set_nesting(true);
+    assert_eq!(
+        visible(&tree),
+        vec![
+            (".env".into(), 0),
+            ("Dockerfile".into(), 0),
+            ("package.json".into(), 0)
+        ]
+    );
+    assert!(tree.has_nested(".env".as_ref()));
+    assert!(tree.toggle_nested(".env".as_ref()));
+    assert_eq!(
+        &visible(&tree)[..3],
+        &[
+            (".env".into(), 0),
+            (".env.example".into(), 1),
+            (".env.production.local".into(), 1)
+        ]
+    );
+    assert!(tree.toggle_nested("Dockerfile".as_ref()));
+    assert!(tree.toggle_nested("package.json".as_ref()));
+    let rows = visible(&tree);
+    assert_eq!(rows.len(), entries.len());
+    for path in [
+        ".dockerignore",
+        "Dockerfile.dev",
+        "docker-compose.yml",
+        ".npmrc",
+        "pnpm-lock.yaml",
+    ] {
+        assert!(rows.contains(&(path.into(), 1)));
+    }
+    tree.set_nesting(false);
+    assert_eq!(
+        visible(&tree),
+        entries
+            .iter()
+            .map(|entry| (entry.path.clone(), 0))
+            .collect::<Vec<_>>()
+    );
+    assert!(!tree.has_nested(".env".as_ref()));
+    tree.set_nesting(true);
+    assert!(
+        tree.is_expanded(".env".as_ref()),
+        "Switching settings preserves group expansion"
+    );
+    assert!(!tree.toggle_nested(".env".as_ref()));
+    assert!(!tree.is_expanded(".env".as_ref()));
+}
+
+#[test]
+fn nested_files_never_become_directories_or_scan_requests() {
+    let mut tree = Tree::default();
+    tree.set_nesting(true);
+    install(
+        &mut tree,
+        "",
+        vec![
+            entry("Cargo.lock", EntryKind::File),
+            entry("Cargo.toml", EntryKind::File),
+        ],
+    );
+    assert!(tree.toggle_nested("Cargo.toml".as_ref()));
+    assert!(!tree.toggle("Cargo.toml".as_ref()));
+    assert!(tree.begin("Cargo.toml".into(), false).is_none());
+    assert_eq!(tree.directories(), vec![PathBuf::new()]);
+    assert_eq!(tree.expanded(), vec![PathBuf::new()]);
+    assert_eq!(
+        tree.refresh()
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>(),
+        vec![PathBuf::new()]
+    );
+}
+
+#[test]
+fn nesting_requires_a_regular_parent_in_the_same_directory() {
+    let mut tree = Tree::default();
+    tree.set_nesting(true);
+    install(
+        &mut tree,
+        "",
+        vec![
+            entry("src", EntryKind::Directory),
+            entry(".env", EntryKind::Symlink),
+            entry(".env.local", EntryKind::File),
+            entry("Cargo.lock", EntryKind::File),
+            entry("Dockerfile", EntryKind::Directory),
+            entry("Dockerfile.dev", EntryKind::File),
+        ],
+    );
+    assert_eq!(visible(&tree).len(), 6);
+    assert!(!tree.has_nested(".env".as_ref()));
+    assert!(!tree.toggle_nested("Cargo.lock".as_ref()));
+    tree.toggle("src".as_ref());
+    install(
+        &mut tree,
+        "src",
+        vec![
+            entry("src/.env", EntryKind::File),
+            entry("src/.env.local", EntryKind::File),
+        ],
+    );
+    assert!(tree.toggle_nested("src/.env".as_ref()));
+    assert!(visible(&tree).contains(&("src/.env.local".into(), 2)));
+    assert!(visible(&tree).contains(&(".env.local".into(), 0)));
+    tree.toggle("src".as_ref());
+    tree.toggle("src".as_ref());
+    assert!(visible(&tree).contains(&("src/.env.local".into(), 2)));
+}
+
+#[test]
+fn nesting_flattens_companions_and_never_hides_files_in_cycles() {
+    let mut tree = Tree::default();
+    tree.set_nesting(true);
+    install(
+        &mut tree,
+        "",
+        [
+            "mock.js",
+            "mock.js.map",
+            "mock.test.ts",
+            "mock.ts",
+            "mock.ts.map",
+            "mock.tsx",
+        ]
+        .map(|path| entry(path, EntryKind::File))
+        .to_vec(),
+    );
+    assert!(tree.toggle_nested("mock.ts".as_ref()));
+    let rows = visible(&tree);
+    assert_eq!(
+        rows.len(),
+        6,
+        "Overlapping source rules must keep every file reachable exactly once"
+    );
+    for path in ["mock.js", "mock.js.map", "mock.test.ts", "mock.ts.map"] {
+        assert!(rows.contains(&(path.into(), 1)), "{path}: {rows:?}");
+    }
+    assert!(rows.contains(&("mock.tsx".into(), 0)));
+}
+
+#[test]
+fn refreshing_nesting_releases_orphans_and_rebuilds_groups() {
+    let mut tree = Tree::default();
+    tree.set_nesting(true);
+    install(
+        &mut tree,
+        "",
+        vec![
+            entry(".env", EntryKind::File),
+            entry(".env.local", EntryKind::File),
+        ],
+    );
+    tree.toggle_nested(".env".as_ref());
+    let token = tree.begin("".into(), true).unwrap();
+    tree.finish(
+        "".as_ref(),
+        token,
+        Ok(vec![entry(".env.local", EntryKind::File)]),
+    );
+    assert_eq!(visible(&tree), vec![(".env.local".into(), 0)]);
+    assert!(!tree.has_nested(".env".as_ref()));
+    let token = tree.begin("".into(), true).unwrap();
+    tree.finish(
+        "".as_ref(),
+        token,
+        Ok(vec![
+            entry(".env", EntryKind::File),
+            entry(".env.staging", EntryKind::File),
+        ]),
+    );
+    assert!(tree.has_nested(".env".as_ref()));
+    assert!(
+        tree.toggle_nested(".env".as_ref()),
+        "A deleted group loses its old expansion state"
+    );
+    assert_eq!(
+        visible(&tree),
+        vec![(".env".into(), 0), (".env.staging".into(), 1)]
+    );
+}
