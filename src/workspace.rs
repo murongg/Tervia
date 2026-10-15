@@ -189,6 +189,7 @@ fn snapshot(
         "projects": projects,
         "active": serde_json::to_value(active)?,
         "sidebar_expanded": workspace.sidebar_expanded,
+        "window_maximized": workspace.window_maximized,
         "contexts": recovery::snapshot(workspace, orphans)?,
         "catalog": catalog::snapshot(workspace)?,
     }))
@@ -215,6 +216,12 @@ fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), Stri
         Some(value) => value
             .as_bool()
             .ok_or("sidebar_expanded must be a boolean")?,
+    };
+    workspace.window_maximized = match saved.get("window_maximized") {
+        None => false,
+        Some(value) => value
+            .as_bool()
+            .ok_or("window_maximized must be a boolean")?,
     };
     let mut selected = 0;
     let mut fallbacks = BTreeMap::new();

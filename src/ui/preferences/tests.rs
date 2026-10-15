@@ -8,6 +8,49 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn window_resize_records_restored_state_before_an_immediate_quit(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(Ok(Config::new(root.path().join("config.toml"))), window, cx)
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    view.update(cx, |this, cx| {
+        this.state.window_maximized = true;
+        this.persist_workspace(cx);
+    });
+    cx.simulate_resize(size(px(1000.0), px(700.0)));
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert!(!this.state.window_maximized);
+            this.shutdown_terminals(cx);
+        });
+    });
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("workspace.json")).unwrap())
+            .unwrap();
+    assert_eq!(saved["window_maximized"], false);
+}
+
+#[gpui_test::test]
+fn fullscreen_resize_preserves_the_previous_window_maximization(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let (view, cx) = cx.add_window_view(Tervia::new);
+    view.update(cx, |this, _| this.state.window_maximized = true);
+    cx.update(|window, _| window.toggle_fullscreen());
+    cx.simulate_resize(size(px(1920.0), px(1080.0)));
+    view.update(cx, |this, _| assert!(this.state.window_maximized));
+    cx.update(|window, _| window.toggle_fullscreen());
+    cx.simulate_resize(size(px(1000.0), px(700.0)));
+    view.update(cx, |this, _| assert!(!this.state.window_maximized));
+}
+
+#[gpui_test::test]
 fn workspace_scrollbars_auto_hide_in_both_themes(cx: &mut TestAppContext) {
     use gpui_kit::base::{ScrollbarMode, Theme};
     cx.update(gpui_kit::init);

@@ -254,6 +254,19 @@ impl Tervia {
             .push(cx.observe_window_activation(window, |this, window, cx| {
                 this.monitor_activation(window.is_window_active(), window, cx);
             }));
+        view.subscriptions
+            .push(cx.observe_window_bounds(window, |this, window, cx| {
+                // Fullscreen has its own size; retain the zoom state to restore on the next launch.
+                if window.is_fullscreen() || window.is_simple_fullscreen() {
+                    return;
+                }
+                // macOS reports zoomed bounds as Windowed, so query the native maximization state.
+                let maximized = window.is_maximized();
+                if this.state.window_maximized != maximized {
+                    this.state.window_maximized = maximized;
+                    this.schedule_workspace_save(cx);
+                }
+            }));
         view.subscriptions.push(cx.observe_in(
             &view.preferences,
             window,
@@ -347,6 +360,14 @@ impl Tervia {
             }
         }));
         view.focus.focus(window, cx);
+        if view.state.window_maximized {
+            // Restore after the window and its bounds observer are registered.
+            window.defer(cx, |window, _| {
+                if !window.is_maximized() {
+                    window.zoom_window();
+                }
+            });
+        }
         view
     }
 
