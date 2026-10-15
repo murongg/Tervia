@@ -36,6 +36,69 @@ fn divider_surface(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::
 }
 
 #[gpui_test::test]
+fn opening_files_uses_their_grammar_and_matches_git_diff(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory(root.path().into());
+            this.init_project(project, window, cx);
+        });
+    });
+    for (path, source, expected) in [
+        ("mock.py", "count = 42\n", "python"),
+        ("mock.go", "package mock\n", "go"),
+        ("mock.js", "const count = 42;\n", "javascript"),
+        ("mock.jsx", "const mock = <p>Mock</p>;\n", "javascript"),
+        ("mock.tsx", "const mock = <p>Mock</p>;\n", "tsx"),
+        ("mock.JSON", "{\"mock\": 42}\n", "json"),
+        ("mock.yaml", "mock: 42\n", "yaml"),
+        ("mock.html", "<p>Mock</p>\n", "html"),
+        ("mock.css", "p { color: red; }\n", "css"),
+        ("Makefile", "MOCK = value\n", "make"),
+        ("Cargo.lock", "version = 4\n", "toml"),
+        ("mock.unknown", "Synthetic text\n", "text"),
+    ] {
+        fs::write(root.path().join(path), source).unwrap();
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.open_preview_file(0, path.into(), window, cx);
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                let file = this.state.project().active_file;
+                assert_eq!(
+                    this.state.project().files[file].language,
+                    expected,
+                    "{path}"
+                );
+                assert_eq!(
+                    this.editors[0][file].read(cx).language_name().as_str(),
+                    expected,
+                    "{path}"
+                );
+                assert_eq!(
+                    gpui_kit::component::diff::DiffFile::unchanged(path, source)
+                        .language()
+                        .as_str(),
+                    expected,
+                    "{path} must use the same grammar in Files and Git"
+                );
+            });
+        });
+    }
+}
+
+#[gpui_test::test]
 fn files_top_divider_spans_the_explorer_and_empty_editor(cx: &mut TestAppContext) {
     let (view, cx) = divider_surface(cx);
     for light in [false, true] {

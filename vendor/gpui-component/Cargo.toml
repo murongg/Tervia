@@ -91,7 +91,7 @@ tree-sitter-cmake = [
     "dep:tree-sitter-cmake",
 ]
 tree-sitter-cpp = [
-    "tree-sitter",
+    "tree-sitter-c",
     "dep:tree-sitter-cpp",
 ]
 tree-sitter-csharp = [
@@ -237,7 +237,7 @@ tree-sitter-toml = [
     "dep:tree-sitter-toml-ng",
 ]
 tree-sitter-tsx = [
-    "tree-sitter",
+    "tree-sitter-javascript",
     "dep:tree-sitter-typescript",
 ]
 tree-sitter-typescript = [

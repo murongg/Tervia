@@ -1,4 +1,4 @@
-# Tervia's Diff header patch
+# Tervia's component patches
 
 This directory contains the crates.io source of `gpui-component` **0.7.2**, published from GPUI Kit revision `c61937007769b0d09158b4c175368a392489e637`, under its original Apache-2.0 license. The original crate archive SHA-256 is `fb68a4725f3ef44c772e1490f775cf8950a17e8e5836572f080dc5bbcaede5db`.
 
@@ -8,4 +8,8 @@ Git operations, disabled states, patch validation, scrolling, folding, selection
 
 Run `cargo test --locked --features ui-tests --bin tervia review_hunk_actions` to check icon size and placement inside the right side of each header in unified and split modes, including staged and deletion-only sections.
 
-Remove this directory and its `[patch.crates-io]` entry when the pinned upstream component exposes a hunk-header action slot. Do not edit the shared Cargo registry source.
+The syntax patch exposes `highlighter::language_for_path` so file editors and diffs share filename detection, including common aliases and extensionless build/shell files. It wires the existing Swift, C#, and CMake highlight queries, supplies GraphQL and Protobuf queries, combines C++ with its C rules and JavaScript/TSX with JSX rules, and selects Ruby injections for ERB. C++ and TSX features enable the dependencies that supply their inherited queries. The application enables the full `tree-sitter-languages` feature; SQL's grammar currently requires `cc ~1.2.1`, so the lockfile uses the compatible 1.2 series.
+
+Run `cargo test --locked --features ui-tests --test highlight` for parsing, light/dark token styles, aliases, JSX and language injections. Run `cargo test --locked --features ui-tests --bin tervia opening_files_uses_their_grammar_and_matches_git_diff` to check editor/Diff agreement through real file opens.
+
+Remove this directory and its `[patch.crates-io]` entry when the pinned upstream component includes both the hunk-header slot and equivalent syntax support. Do not edit the shared Cargo registry source.

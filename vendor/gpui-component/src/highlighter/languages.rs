@@ -1,4 +1,5 @@
 use gpui::SharedString;
+use std::borrow::Cow;
 
 use crate::highlighter::GrammarConfig;
 
@@ -497,7 +498,12 @@ impl Language {
                 "",
             ),
             #[cfg(feature = "tree-sitter-swift")]
-            Self::Swift => (tree_sitter_swift::LANGUAGE, "", "", ""),
+            Self::Swift => (
+                tree_sitter_swift::LANGUAGE,
+                tree_sitter_swift::HIGHLIGHTS_QUERY,
+                "",
+                "",
+            ),
             #[cfg(feature = "tree-sitter-scala")]
             Self::Scala => (
                 tree_sitter_scala::LANGUAGE,
@@ -513,11 +519,26 @@ impl Language {
                 "",
             ),
             #[cfg(feature = "tree-sitter-csharp")]
-            Self::CSharp => (tree_sitter_c_sharp::LANGUAGE, "", "", ""),
+            Self::CSharp => (
+                tree_sitter_c_sharp::LANGUAGE,
+                tree_sitter_c_sharp::HIGHLIGHTS_QUERY,
+                "",
+                "",
+            ),
             #[cfg(feature = "tree-sitter-graphql")]
-            Self::GraphQL => (tree_sitter_graphql::LANGUAGE, "", "", ""),
+            Self::GraphQL => (
+                tree_sitter_graphql::LANGUAGE,
+                include_str!("languages/graphql/highlights.scm"),
+                "",
+                "",
+            ),
             #[cfg(feature = "tree-sitter-proto")]
-            Self::Proto => (tree_sitter_proto::LANGUAGE, "", "", ""),
+            Self::Proto => (
+                tree_sitter_proto::LANGUAGE,
+                include_str!("languages/proto/highlights.scm"),
+                "",
+                "",
+            ),
             #[cfg(feature = "tree-sitter-make")]
             Self::Make => (
                 tree_sitter_make::LANGUAGE,
@@ -526,7 +547,12 @@ impl Language {
                 "",
             ),
             #[cfg(feature = "tree-sitter-cmake")]
-            Self::CMake => (tree_sitter_cmake::LANGUAGE, "", "", ""),
+            Self::CMake => (
+                tree_sitter_cmake::LANGUAGE,
+                tree_sitter_cmake::HIGHLIGHTS_QUERY,
+                "",
+                "",
+            ),
             #[cfg(feature = "tree-sitter-typescript")]
             Self::TypeScript => (
                 tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
@@ -537,8 +563,8 @@ impl Language {
             #[cfg(feature = "tree-sitter-tsx")]
             Self::Tsx => (
                 tree_sitter_typescript::LANGUAGE_TSX,
-                tree_sitter_typescript::HIGHLIGHTS_QUERY,
-                "",
+                include_str!("languages/typescript/highlights.scm"),
+                include_str!("languages/javascript/injections.scm"),
                 tree_sitter_typescript::LOCALS_QUERY,
             ),
             #[cfg(feature = "tree-sitter-diff")]
@@ -559,7 +585,7 @@ impl Language {
             Self::Erb => (
                 tree_sitter_embedded_template::LANGUAGE,
                 tree_sitter_embedded_template::HIGHLIGHTS_QUERY,
-                tree_sitter_embedded_template::INJECTIONS_EJS_QUERY,
+                tree_sitter_embedded_template::INJECTIONS_ERB_QUERY,
                 "",
             ),
             #[cfg(feature = "tree-sitter-ejs")]
@@ -608,11 +634,25 @@ impl Language {
 
         let language = tree_sitter::Language::new(language);
 
+        // C++ queries extend C; JSX/TSX also need the host language's rules.
+        // Registering a parser with only the extension query silently leaves base tokens plain.
+        let query: Cow<'_, str> = match self {
+            #[cfg(feature = "tree-sitter-cpp")]
+            Self::Cpp => format!("{}\n{query}", tree_sitter_c::HIGHLIGHT_QUERY).into(),
+            #[cfg(feature = "tree-sitter-javascript")]
+            Self::JavaScript => {
+                format!("{query}\n{}", tree_sitter_javascript::JSX_HIGHLIGHT_QUERY).into()
+            }
+            #[cfg(feature = "tree-sitter-tsx")]
+            Self::Tsx => format!("{query}\n{}", tree_sitter_javascript::JSX_HIGHLIGHT_QUERY).into(),
+            _ => query.into(),
+        };
+
         GrammarConfig::new(
             self.name(),
             language,
             self.injection_languages(),
-            query,
+            &query,
             injection,
             locals,
         )

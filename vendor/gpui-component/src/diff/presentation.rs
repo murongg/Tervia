@@ -7,6 +7,7 @@ use gpui_base::input::HighlightStyleResolver;
 use similar::{ChangeTag, TextDiff};
 
 use super::{DiffFile, DiffSide, document::SourceLine};
+pub(crate) use crate::highlighter::language_for_path as detected_language;
 use crate::{Rope, highlighter::SyntaxHighlighter};
 
 /// The unit inline changes are compared and emphasized in.
@@ -285,35 +286,6 @@ fn push_run(runs: &mut Vec<Range<u32>>, range: Range<usize>, text: &str, unit: D
         }
     }
     runs.push(range.start as u32..range.end as u32);
-}
-
-/// File paths may come from another platform. Only the final component
-/// determines the language; dots in a directory are not extensions.
-pub(crate) fn detected_language(path: &str) -> SharedString {
-    let name = path.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
-    let language = match name.as_str() {
-        "makefile" | "gnumakefile" => "make",
-        "cmakelists.txt" => "cmake",
-        _ => match name.rsplit_once('.').map(|(_, extension)| extension) {
-            Some("jsx" | "mjs" | "cjs") => "javascript",
-            Some("mts" | "cts") => "typescript",
-            Some("cc" | "cxx" | "hpp" | "hxx") => "cpp",
-            Some("h") => "c",
-            Some("htm") => "html",
-            Some("gql") => "graphql",
-            Some("exs") => "elixir",
-            Some(
-                extension @ ("astro" | "sh" | "bash" | "c" | "cmake" | "cs" | "cpp" | "css"
-                | "scss" | "diff" | "ejs" | "ex" | "erb" | "go" | "graphql" | "html"
-                | "java" | "js" | "json" | "jsonc" | "kt" | "kts" | "lua" | "md"
-                | "mdx" | "php" | "php3" | "php4" | "php5" | "phtml" | "proto" | "py"
-                | "pyi" | "rb" | "rs" | "scala" | "sql" | "svelte" | "swift" | "toml"
-                | "tsx" | "ts" | "yaml" | "yml" | "zig"),
-            ) => extension,
-            _ => "text",
-        },
-    };
-    crate::highlighter::language_name(language)
 }
 
 #[cfg(test)]
