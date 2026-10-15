@@ -90,6 +90,84 @@ fn folder_history_restores_one_parent_its_selected_child_and_its_folded_state() 
 }
 
 #[test]
+fn explicitly_added_working_directories_survive_restart_without_scanned_candidates() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    let parent = directory(&temporary, "mock-project");
+    let alpha = parent.join("mock-alpha");
+    let beta = parent.join("mock-beta");
+    let scanned = parent.join("mock-scanned");
+    for child in [&alpha, &beta, &scanned] {
+        fs::create_dir(child).unwrap();
+    }
+    let mut state = Workspace::new(parent.clone());
+    for child in [&alpha, &beta] {
+        let index = state.register_directory(child.clone());
+        state.attach_directory(0, index);
+    }
+    let candidate = state.register_directory(scanned.clone());
+    state.group_folder(0, &[candidate]);
+    state.switch_project(0);
+    let mut store = Store::new(path.clone());
+    store.load().unwrap();
+    store.save(&state).unwrap();
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        saved["projects"][0]["directories"],
+        serde_json::json!([parent, alpha, beta])
+    );
+    let restored = Store::new(path.clone()).load().unwrap();
+    assert_eq!(restored.project_rows(), vec![0]);
+    assert!(
+        restored
+            .projects
+            .iter()
+            .any(|project| project.root == alpha)
+    );
+    assert!(restored.projects.iter().any(|project| project.root == beta));
+    assert!(
+        !restored
+            .projects
+            .iter()
+            .any(|project| project.root == scanned)
+    );
+    fs::remove_dir(&beta).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.project().root, parent);
+    assert!(
+        restored
+            .projects
+            .iter()
+            .any(|project| project.root == alpha)
+    );
+    assert!(!restored.projects.iter().any(|project| project.root == beta));
+}
+
+#[test]
+fn legacy_folder_history_keeps_its_selected_directory_available_after_returning_to_root() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    let parent = directory(&temporary, "mock-project");
+    let child = parent.join("mock-child");
+    fs::create_dir(&child).unwrap();
+    fs::write(
+        &path,
+        serde_json::json!({
+            "version": 1,
+            "projects": [{"root": parent, "directory": child, "folder": true}],
+            "active": child
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut restored = Store::new(path).load().unwrap();
+    let child = restored.active_project;
+    restored.switch_project(0);
+    assert_eq!(restored.working_directories(0), vec![0, child]);
+}
+
+#[test]
 fn worktree_groups_remember_the_last_directory_and_fall_back_when_it_is_removed() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("workspace.json");

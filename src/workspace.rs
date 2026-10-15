@@ -147,6 +147,13 @@ fn snapshot(
             if workspace.folder(index) == Some(index) {
                 saved["folder"] = json!(true);
                 saved["children_expanded"] = json!(workspace.folder_expanded(index));
+                saved["directories"] = serde_json::to_value(
+                    workspace
+                        .saved_directories(index)
+                        .iter()
+                        .map(|index| &workspace.projects[*index].root)
+                        .collect::<Vec<_>>(),
+                )?;
             }
             Ok(saved)
         })
@@ -214,6 +221,23 @@ fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), Stri
                 parent_index
             };
             workspace.group_folder(parent_index, &[index]);
+            // Older history only stored the selected directory; keep it in the new explicit list.
+            workspace.attach_directory(parent_index, index);
+            if let Some(directories) = project.get("directories") {
+                let directories = directories
+                    .as_array()
+                    .ok_or("directories must be an array")?;
+                for saved in directories {
+                    let path = directory(saved)?;
+                    if path.is_dir() {
+                        let path = fs::canonicalize(&path).map_err(|error| error.to_string())?;
+                        if path.starts_with(&workspace.projects[parent_index].root) {
+                            let child = workspace.register_directory(path);
+                            workspace.attach_directory(parent_index, child);
+                        }
+                    }
+                }
+            }
             let expanded = project
                 .get("children_expanded")
                 .map(|value| value.as_bool().ok_or("children_expanded must be a boolean"))

@@ -380,6 +380,65 @@ fn branches_tags_stashes_and_history_have_complete_metadata() {
 }
 
 #[test]
+fn reference_history_follows_ancestry_without_switching_the_checkout() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    let base = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.git(&["switch", "-c", "feature/mock-history"]);
+    fixture.write("feature.txt", "Synthetic feature content\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "Synthetic feature commit"]);
+    let feature = fixture.git(&["rev-parse", "HEAD"]);
+    fixture.git(&["branch", "mock-collision"]);
+    fixture.git(&["tag", "mock-collision", &base]);
+    fixture.git(&["update-ref", "refs/remotes/origin/mock-history", &feature]);
+    fixture.git(&["switch", "main"]);
+    fixture.write("main.txt", "Synthetic main content\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "Synthetic main commit"]);
+    fixture.write("sample.txt", "Synthetic unsaved working change\n");
+    let repo = fixture.repo();
+    let main = fixture.git(&["rev-parse", "HEAD"]);
+    assert!(
+        repo.snapshot(10)
+            .unwrap()
+            .branches
+            .iter()
+            .any(|branch| branch.name == "mock-collision" && !branch.remote)
+    );
+    assert_eq!(
+        repo.history_for("refs/heads/main", 1).unwrap()[0].hash,
+        main
+    );
+    for reference in [
+        "refs/heads/feature/mock-history",
+        "refs/heads/mock-collision",
+        "refs/remotes/origin/mock-history",
+    ] {
+        let commits = repo.history_for(reference, 10).unwrap();
+        assert_eq!(
+            commits
+                .iter()
+                .map(|commit| commit.hash.as_str())
+                .collect::<Vec<_>>(),
+            vec![feature.as_str(), base.as_str()]
+        );
+        assert_eq!(repo.history_for(reference, 1).unwrap().len(), 1);
+    }
+    let tagged = repo.history_for("refs/tags/mock-collision", 10).unwrap();
+    assert_eq!(tagged.len(), 1);
+    assert_eq!(tagged[0].hash, base);
+    assert!(repo.history_for("--all", 10).is_err());
+    assert!(repo.history_for("refs/heads/mock-missing", 10).is_err());
+    assert_eq!(fixture.git(&["branch", "--show-current"]), "main");
+    assert_eq!(fixture.git(&["rev-parse", "HEAD"]), main);
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("sample.txt")).unwrap(),
+        "Synthetic unsaved working change\n"
+    );
+}
+
+#[test]
 fn individual_commit_metadata_can_follow_parents_beyond_the_loaded_history() {
     let fixture = Fixture::new();
     fixture.seed();

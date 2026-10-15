@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::{assets::IconName, component::button::ButtonVariants as _, *};
 use tervia::files::{EntryKind, Row, Tree};
 
@@ -221,7 +222,13 @@ impl Tervia {
                 } else {
                     self.f("open_file", &[("path", &path.to_string_lossy())])
                 };
-                div()
+                let parent = self.working_directory_owner();
+                let directory = self.state.projects[project].root.join(&path);
+                let relative = directory
+                    .strip_prefix(&self.state.projects[parent].root)
+                    .ok()
+                    .map(PathBuf::from);
+                let row = div()
                     .id(("explorer-row", index))
                     .h(px(30.0))
                     .w_full()
@@ -247,8 +254,23 @@ impl Tervia {
                                     }
                                 }
                             })),
-                    )
+                    );
+                if folder && let Some(path) = relative {
+                    let view = cx.weak_entity();
+                    let label = self.t("working_directory_set");
+                    row.context_menu(move |menu, _, _| {
+                        let view = view.clone();
+                        let path = path.clone();
+                        menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
+                            let _ = view.update(cx, |this, cx| {
+                                this.activate_directory(parent, path.clone(), window, cx)
+                            });
+                        }))
+                    })
                     .into_any_element()
+                } else {
+                    row.into_any_element()
+                }
             }
             Row::Loading { depth, .. } | Row::Empty { depth, .. } => div()
                 .h(px(30.0))

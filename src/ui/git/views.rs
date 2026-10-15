@@ -135,13 +135,7 @@ impl Tervia {
             .bg(p.toolbar)
             .border_b_1()
             .border_color(p.border)
-            .child(icon(IconName::GitBranch, p.accent))
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(status.branch.clone()),
-            )
+            .child(self.branch_switcher(SwitchAnchor::Toolbar, cx))
             .child(
                 div()
                     .text_size(px(11.0))
@@ -287,7 +281,6 @@ impl Tervia {
                             .child(self.git_viewer(cx)),
                     )
                     .into_any_element(),
-                Mode::Branches => self.git_branches(snapshot, cx).into_any_element(),
                 Mode::Remotes => self.git_remotes(snapshot, cx).into_any_element(),
                 Mode::Worktrees => self.git_worktrees(snapshot, cx).into_any_element(),
             }

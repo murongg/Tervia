@@ -53,6 +53,10 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action(language.text("toggle_projects"), ToggleSidebar),
             MenuItem::action(language.text("quick_actions"), TogglePalette),
+            MenuItem::action(
+                language.text("git_quick_switch"),
+                super::git::QuickSwitchBranch,
+            ),
             MenuItem::action(language.text("toggle_theme"), ToggleTheme),
         ]),
         Menu::new(language.text("terminal")).items([

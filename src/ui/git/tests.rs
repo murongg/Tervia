@@ -829,16 +829,16 @@ fn history_graph_is_cached_and_rebuilt_when_parent_relationships_change(cx: &mut
             };
             let ui = &mut this.git_states[project];
             ui.reconcile_snapshot(&snapshot, cx);
-            assert_eq!(ui.history_graph.rows.len(), 1);
-            assert_eq!(ui.history_graph.rows[0].below.len(), 1);
-            let graph = ui.history_graph.clone();
+            assert_eq!(ui.history.graph.rows.len(), 1);
+            assert_eq!(ui.history.graph.rows[0].below.len(), 1);
+            let graph = ui.history.graph.clone();
             ui.snapshot = Some(std::sync::Arc::new(snapshot.clone()));
             ui.reconcile_snapshot(&snapshot, cx);
-            assert!(std::sync::Arc::ptr_eq(&graph, &ui.history_graph));
+            assert!(std::sync::Arc::ptr_eq(&graph, &ui.history.graph));
             snapshot.commits[0].parents.clear();
             ui.reconcile_snapshot(&snapshot, cx);
-            assert!(!std::sync::Arc::ptr_eq(&graph, &ui.history_graph));
-            assert!(ui.history_graph.rows[0].below.is_empty());
+            assert!(!std::sync::Arc::ptr_eq(&graph, &ui.history.graph));
+            assert!(ui.history.graph.rows[0].below.is_empty());
         })
     });
 }
@@ -1143,6 +1143,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
             assert_eq!(this.state.active_project, existing);
             assert_eq!(this.state.projects.len(), 4);
             assert_eq!(this.state.project_rows(), vec![existing, 1]);
+            assert_eq!(this.working_directory_rows(1, cx), vec![1, 2, 3]);
             assert_eq!(
                 this.git_states[existing].message.read(cx).value().as_ref(),
                 "Synthetic draft"
@@ -1167,6 +1168,7 @@ fn workspace_discovery_registers_siblings_without_switching_projects_or_losing_d
                 "Removed repositories keep their project and drafts"
             );
             assert_eq!(this.state.project_rows(), vec![existing, 1]);
+            assert_eq!(this.working_directory_rows(1, cx), vec![1, 2]);
             for ui in &this.git_states[1..] {
                 assert_eq!(ui.workspace.as_ref().unwrap().repositories.len(), 1);
             }
@@ -1403,7 +1405,7 @@ fn large_workbench_lists_only_build_visible_rows(cx: &mut TestAppContext) {
             this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot));
         })
     });
-    for mode in [Mode::History, Mode::Changes, Mode::Branches, Mode::Stash] {
+    for mode in [Mode::History, Mode::Changes, Mode::Stash] {
         cx.update(|_, cx| {
             workspace.update(cx, |this, _| {
                 this.git_states[0].mode = mode;
@@ -1463,7 +1465,7 @@ fn workbench_selection_follows_real_changes_without_losing_an_explicit_selection
 }
 
 #[test]
-fn history_and_stash_defaults_use_immutable_ids_and_branch_selection_has_a_safe_fallback() {
+fn history_and_stash_defaults_use_immutable_ids() {
     let mut snapshot = Snapshot::default();
     snapshot.commits.push(tervia::git::Commit {
         hash: "synthetic-commit".into(),
@@ -1486,33 +1488,6 @@ fn history_and_stash_defaults_use_immutable_ids_and_branch_selection_has_a_safe_
         super::navigation::choose_detail(Mode::Stash, None, &snapshot)
             == Some(Detail::Stash("synthetic-stash".into()))
     );
-    snapshot.branches = vec![
-        tervia::git::Branch {
-            name: "main".into(),
-            current: true,
-            remote: false,
-            upstream: String::new(),
-        },
-        tervia::git::Branch {
-            name: "feature/synthetic".into(),
-            current: false,
-            remote: false,
-            upstream: String::new(),
-        },
-    ];
-    assert_eq!(
-        super::navigation::branch_target(Some("feature/synthetic"), &snapshot)
-            .unwrap()
-            .name,
-        "feature/synthetic"
-    );
-    assert_eq!(
-        super::navigation::branch_target(Some("removed"), &snapshot)
-            .unwrap()
-            .name,
-        "main"
-    );
-    assert!(super::navigation::choose_detail(Mode::Branches, None, &snapshot).is_none());
 }
 
 #[gpui_test::test]

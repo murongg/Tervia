@@ -1,7 +1,9 @@
 use super::super::controls::{icon, icon_button};
+use super::history::Reference;
 use super::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::menu::ContextMenuExt as _;
 
 #[derive(Clone)]
 enum SidebarRow {
@@ -121,7 +123,8 @@ impl Tervia {
         match row {
             SidebarRow::Navigation(index, mode, key, glyph, count) => {
                 let mode = *mode;
-                let active = ui.mode == mode;
+                let active =
+                    ui.mode == mode && (mode != Mode::History || ui.history.target.is_none());
                 label_button(("git-mode", *index), "", p)
                     .h(px(32.0))
                     .w_full()
@@ -205,22 +208,8 @@ impl Tervia {
                                 cx.notify();
                             })),
                     )
-                    .when(key == "git_local_branches", |row| {
-                        row.child(
-                            icon_button(
-                                "git-branch-manage",
-                                IconName::Plus,
-                                self.t("git_branches"),
-                                p,
-                                cx,
-                            )
-                            .accessibility_label(self.t("git_branches"))
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.select_git_mode(project, Mode::Branches, window, cx)
-                                },
-                            )),
-                        )
+                    .when(key == "git_local_branches" || key == "git_tags", |row| {
+                        row.child(self.reference_form_trigger(project, key == "git_tags", cx))
                     })
                     .when(key == "git_worktrees", |row| {
                         row.child(
@@ -244,10 +233,19 @@ impl Tervia {
             SidebarRow::Branch(index) => {
                 let branch = &snapshot.branches[*index];
                 let name = branch.name.clone();
-                let selected = ui.mode == Mode::Branches
-                    && navigation::branch_target(ui.branch.as_deref(), snapshot)
-                        .is_some_and(|target| target.name == name);
+                let reference = Reference::Branch {
+                    name: name.clone(),
+                    remote: branch.remote,
+                };
+                let selected =
+                    ui.mode == Mode::History && ui.history.target.as_ref() == Some(&reference);
+                let menu_reference = reference.clone();
+                let owner = cx.weak_entity();
                 label_button(("git-sidebar-branch", *index), "", p)
+                    .debug_selector({
+                        let index = *index;
+                        move || format!("git-sidebar-branch-{index}")
+                    })
                     .h(px(32.0))
                     .w_full()
                     .rounded(px(0.0))
@@ -278,11 +276,25 @@ impl Tervia {
                                 row.child(icon(IconName::Check, p.accent))
                             }),
                     )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_git_mode(project, Mode::Branches, window, cx);
-                        this.git_states[project].branch = Some(name.clone());
-                        cx.notify();
+                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        if event.click_count() >= 2 {
+                            this.switch_branch(project, reference.clone(), window, cx);
+                        } else {
+                            this.select_git_reference(project, reference.clone(), window, cx);
+                        }
                     }))
+                    .context_menu(move |menu, _, cx| {
+                        if let Some(view) = owner.upgrade() {
+                            view.read(cx).reference_menu(
+                                project,
+                                &menu_reference,
+                                menu,
+                                owner.clone(),
+                            )
+                        } else {
+                            menu
+                        }
+                    })
                     .into_any_element()
             }
             SidebarRow::Worktree(index) => {
@@ -325,11 +337,23 @@ impl Tervia {
                     .into_any_element()
             }
             SidebarRow::Tag(index) => {
-                let tag = &snapshot.tags[*index];
+                let tag = snapshot.tags[*index].clone();
+                let reference = Reference::Tag(tag.clone());
+                let menu_reference = reference.clone();
+                let owner = cx.weak_entity();
                 label_button(("git-sidebar-tag", *index), "", p)
                     .h(px(32.0))
                     .w_full()
                     .rounded(px(0.0))
+                    .bg(
+                        if ui.mode == Mode::History
+                            && ui.history.target.as_ref() == Some(&reference)
+                        {
+                            p.selected
+                        } else {
+                            p.sidebar
+                        },
+                    )
                     .accessibility_label(tag.clone())
                     .tooltip(tag.clone())
                     .child(
@@ -350,8 +374,20 @@ impl Tervia {
                             ),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_git_mode(project, Mode::Branches, window, cx)
+                        this.select_git_reference(project, reference.clone(), window, cx)
                     }))
+                    .context_menu(move |menu, _, cx| {
+                        if let Some(view) = owner.upgrade() {
+                            view.read(cx).reference_menu(
+                                project,
+                                &menu_reference,
+                                menu,
+                                owner.clone(),
+                            )
+                        } else {
+                            menu
+                        }
+                    })
                     .into_any_element()
             }
             SidebarRow::Hint(key) => div()
