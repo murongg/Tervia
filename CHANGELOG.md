@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.7.0 (2026-10-15)
+
+### Features
+
+- **git:** add file and bulk discard actions (3065de05)
+
+### Fixes
+
+- **ui:** restore window maximization after restart (25ea8267)
+
+### Documentation
+
+- **git:** use the correct discard screenshot extension (907e7f5d)
+
+### Other changes
+
+- **git:** make discard fixture line endings deterministic (87234cde)
+
 ## v0.6.0 (2026-10-15)
 
 ### Features
