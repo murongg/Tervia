@@ -11,7 +11,14 @@ fn project_window(
 ) {
     cx.update(|cx| {
         gpui_kit::init(cx);
-        super::init(cx);
+        // Match main(): console forwarding precedes Tervia's application shortcuts.
+        super::super::console::init(cx);
+        // Exercise the non-macOS console collision on macOS too.
+        cx.bind_keys([KeyBinding::new(
+            "secondary-alt-p",
+            super::super::console::CopySelection,
+            Some("Console"),
+        )]);
     });
     let root = tempfile::tempdir().unwrap();
     let root_path = root.path().canonicalize().unwrap();
@@ -206,7 +213,6 @@ fn project_switch_shortcut_works_from_a_console_and_escape_restores_that_console
     cx: &mut TestAppContext,
 ) {
     let (_root, view, cx) = project_window(cx);
-    cx.update(|_, cx| super::super::console::init(cx));
     let console = cx.update(|window, cx| {
         view.update(cx, |view, cx| {
             view.change_tab(tervia::state::Tab::Terminal, window, cx);
