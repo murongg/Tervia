@@ -1,6 +1,6 @@
 use std::{
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -62,6 +62,208 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn discard_restores_one_file_to_the_index_and_preserves_other_edits() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write("sample.txt", "synthetic staged\n");
+    fixture.git(&["add", "sample.txt"]);
+    fixture.write("sample.txt", "synthetic unstaged\n");
+    fixture.write("other.txt", "synthetic other\n");
+    let repo = fixture.repo();
+    let file = repo
+        .status()
+        .unwrap()
+        .files
+        .into_iter()
+        .find(|file| file.path == Path::new("sample.txt"))
+        .unwrap();
+    repo.execute(Operation::DiscardFiles(vec![file])).unwrap();
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("sample.txt")).unwrap(),
+        "synthetic staged\n"
+    );
+    assert_eq!(fixture.git(&["show", ":sample.txt"]), "synthetic staged");
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("other.txt")).unwrap(),
+        "synthetic other\n"
+    );
+    assert!(fixture.git(&["diff", "--", "sample.txt"]).is_empty());
+}
+
+#[test]
+fn discard_all_restores_deletions_and_staged_renames_without_changing_the_index() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write("deleted.txt", "synthetic deleted\n");
+    fixture.git(&["add", "."]);
+    fixture.git(&["commit", "-m", "Synthetic additional file"]);
+    fixture.git(&["mv", "sample.txt", "renamed.txt"]);
+    fixture.write("renamed.txt", "synthetic unstaged rename\n");
+    fs::remove_file(fixture.0.join("deleted.txt")).unwrap();
+    let index = fixture.git(&["diff", "--cached"]);
+    let repo = fixture.repo();
+    repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+        .unwrap();
+    assert_eq!(fixture.git(&["diff", "--cached"]), index);
+    assert!(fixture.git(&["diff"]).is_empty());
+    assert!(!fixture.0.join("sample.txt").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("renamed.txt")).unwrap(),
+        "first\nsecond\nthird\n"
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("deleted.txt")).unwrap(),
+        "synthetic deleted\n"
+    );
+}
+
+#[test]
+fn discard_untracked_files_uses_exact_paths_and_preserves_ignored_and_later_files() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write(".gitignore", "ignored.txt\n");
+    fixture.git(&["add", ".gitignore"]);
+    fixture.git(&["commit", "-m", "Synthetic ignore rule"]);
+    fixture.write("mock[1].txt", "synthetic selected\n");
+    fixture.write("mock1.txt", "synthetic neighbor\n");
+    fixture.write("ignored.txt", "synthetic ignored\n");
+    let repo = fixture.repo();
+    let files = repo
+        .status()
+        .unwrap()
+        .files
+        .into_iter()
+        .filter(|file| file.path == Path::new("mock[1].txt"))
+        .collect();
+    fixture.write("later.txt", "synthetic later\n");
+    repo.execute(Operation::DiscardFiles(files)).unwrap();
+    assert!(!fixture.0.join("mock[1].txt").exists());
+    for name in ["mock1.txt", "ignored.txt", "later.txt"] {
+        assert!(fixture.0.join(name).exists(), "{name} must survive");
+    }
+}
+
+#[test]
+fn discard_supports_unborn_repositories_and_keeps_staged_additions() {
+    let fixture = Fixture::new();
+    fixture.write("staged.txt", "synthetic staged\n");
+    fixture.git(&["add", "staged.txt"]);
+    fixture.write("staged.txt", "synthetic unstaged\n");
+    fixture.write("untracked.txt", "synthetic untracked\n");
+    let repo = fixture.repo();
+    repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("staged.txt")).unwrap(),
+        "synthetic staged\n"
+    );
+    assert!(!fixture.0.join("untracked.txt").exists());
+    let files = repo.status().unwrap().files;
+    assert_eq!(files.len(), 1);
+    assert_eq!((files[0].index, files[0].worktree), ('A', '.'));
+}
+
+#[test]
+fn discard_rejects_changed_staging_state_before_mutating_any_file() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write("sample.txt", "synthetic edit\n");
+    fixture.write("untracked.txt", "synthetic untracked\n");
+    let repo = fixture.repo();
+    let files = repo.status().unwrap().files;
+    fixture.git(&["add", "untracked.txt"]);
+    assert!(repo.execute(Operation::DiscardFiles(files)).is_err());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("sample.txt")).unwrap(),
+        "synthetic edit\n"
+    );
+    assert!(fixture.0.join("untracked.txt").exists());
+}
+
+#[test]
+fn discard_refuses_nested_repositories_before_restoring_other_files() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.write("sample.txt", "synthetic edit\n");
+    let nested = fixture.0.join("nested");
+    fs::create_dir(&nested).unwrap();
+    Repository::initialize(&nested).unwrap();
+    fs::write(nested.join("mock.txt"), "synthetic nested\n").unwrap();
+    let repo = fixture.repo();
+    assert!(
+        repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+            .is_err()
+    );
+    assert!(nested.join("mock.txt").exists());
+    assert_eq!(
+        fs::read_to_string(fixture.0.join("sample.txt")).unwrap(),
+        "synthetic edit\n"
+    );
+}
+
+#[test]
+fn discard_rejects_conflicts_without_changing_the_worktree() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.git(&["switch", "-c", "mock-conflict"]);
+    fixture.write("sample.txt", "synthetic branch\n");
+    fixture.git(&["commit", "-am", "Synthetic branch change"]);
+    fixture.git(&["switch", "main"]);
+    fixture.write("sample.txt", "synthetic main\n");
+    fixture.git(&["commit", "-am", "Synthetic main change"]);
+    assert!(
+        fixture
+            .repo()
+            .execute(Operation::Merge("mock-conflict".into()))
+            .is_err()
+    );
+    let before = fs::read(fixture.0.join("sample.txt")).unwrap();
+    let repo = fixture.repo();
+    assert!(
+        repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+            .is_err()
+    );
+    assert_eq!(fs::read(fixture.0.join("sample.txt")).unwrap(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn discard_removes_an_untracked_symlink_without_following_it() {
+    let fixture = Fixture::new();
+    fixture.seed();
+    let outside = tempfile::tempdir().unwrap();
+    let target = outside.path().join("mock.txt");
+    fs::write(&target, "synthetic outside\n").unwrap();
+    std::os::unix::fs::symlink(&target, fixture.0.join("link.txt")).unwrap();
+    let repo = fixture.repo();
+    repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+        .unwrap();
+    assert!(fs::symlink_metadata(fixture.0.join("link.txt")).is_err());
+    assert_eq!(fs::read_to_string(target).unwrap(), "synthetic outside\n");
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn discard_moves_untracked_files_to_the_system_trash() {
+    let fixture = Fixture::new();
+    let name = format!(
+        "tervia-discard-mock-{}-{}.txt",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    let trashed = dirs::home_dir().unwrap().join(".Trash").join(&name);
+    assert!(!trashed.exists());
+    fixture.write(&name, "synthetic recoverable file\n");
+    let repo = fixture.repo();
+    repo.execute(Operation::DiscardFiles(repo.status().unwrap().files))
+        .unwrap();
+    let content = fs::read_to_string(&trashed);
+    let _ = fs::remove_file(&trashed);
+    assert_eq!(content.unwrap(), "synthetic recoverable file\n");
+    assert!(!fixture.0.join(name).exists());
 }
 
 #[test]

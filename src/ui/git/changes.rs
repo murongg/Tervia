@@ -420,6 +420,41 @@ impl Tervia {
                                 cx.notify();
                             })),
                     )
+                    .when(matches!(group, 1 | 3), |header| {
+                        let key = if group == 3 {
+                            "git_delete_all_untracked"
+                        } else {
+                            "git_discard_all"
+                        };
+                        header.child(
+                            self.git_action_for(
+                                project,
+                                ("git-discard-all", group as usize),
+                                key,
+                                Operation::DiscardFiles(
+                                    group_files(&snapshot.status.files, group)
+                                        .map(|(_, file)| file.clone())
+                                        .collect(),
+                                ),
+                                cx,
+                            )
+                            .debug_selector(move || format!("git-discard-all-{group}"))
+                            .label("")
+                            .icon(icon(
+                                if group == 3 {
+                                    IconName::Trash
+                                } else {
+                                    IconName::Undo2
+                                },
+                                p.secondary,
+                            ))
+                            .tooltip(self.t(key))
+                            .accessibility_label(self.t(key))
+                            .w(px(24.0))
+                            .h(px(24.0))
+                            .disabled(self.git_action_busy(project) || *count == 0),
+                        )
+                    })
                     .when(group > 0, |header| {
                         header.child(
                             self.git_action_for(
@@ -648,6 +683,36 @@ impl Tervia {
                                 this.git_detail(project, selection.clone(), window, cx)
                             })),
                     )
+                    .when(matches!(group, 1 | 3), |row| {
+                        let key = if group == 3 {
+                            "git_delete_untracked"
+                        } else {
+                            "git_discard"
+                        };
+                        row.child(
+                            self.git_action_for(
+                                project,
+                                ("git-discard-file", row_id),
+                                key,
+                                Operation::DiscardFiles(vec![file.clone()]),
+                                cx,
+                            )
+                            .debug_selector(move || format!("git-discard-file-{row_id}"))
+                            .label("")
+                            .icon(icon(
+                                if group == 3 {
+                                    IconName::Trash
+                                } else {
+                                    IconName::Undo2
+                                },
+                                p.secondary,
+                            ))
+                            .w(px(26.0))
+                            .h(px(26.0))
+                            .tooltip(self.t(key))
+                            .accessibility_label(format!("{} {path}", self.t(key))),
+                        )
+                    })
                     .child(
                         self.git_action_for(project, ("git-stage", row_id), action_key, action, cx)
                             .label("")

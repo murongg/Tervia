@@ -4,6 +4,7 @@ impl Repository {
     pub fn execute(&self, operation: Operation) -> Result<String, Error> {
         let mut args: Vec<OsString>;
         match operation {
+            Operation::DiscardFiles(files) => return self.discard_files(&files),
             Operation::Hunk {
                 file,
                 side,

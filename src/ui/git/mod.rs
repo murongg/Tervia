@@ -909,6 +909,7 @@ impl Tervia {
         let confirm = matches!(
             operation,
             Operation::DeleteBranch(_)
+                | Operation::DiscardFiles(_)
                 | Operation::DeleteTag(_)
                 | Operation::RemoveRemote(_)
                 | Operation::StashDrop { .. }
@@ -916,6 +917,13 @@ impl Tervia {
                 | Operation::Commit { amend: true, .. }
         );
         let target = match &operation {
+            Operation::DiscardFiles(files) => {
+                if files.len() == 1 {
+                    files[0].path.to_string_lossy().into_owned()
+                } else {
+                    self.f("changed_files", &[("count", &files.len().to_string())])
+                }
+            }
             Operation::DeleteBranch(name)
             | Operation::DeleteTag(name)
             | Operation::RemoveRemote(name) => name.clone(),
@@ -926,11 +934,23 @@ impl Tervia {
             _ => self.state.projects[project].branch.clone(),
         };
         if confirm {
+            let hint = match &operation {
+                Operation::DiscardFiles(files) if files.iter().any(|file| file.worktree == '?') => {
+                    "git_delete_untracked_hint"
+                }
+                Operation::DiscardFiles(_) => "git_discard_hint",
+                _ => "git_confirm_hint",
+            };
+            let confirm_key = if matches!(operation, Operation::DiscardFiles(_)) {
+                key
+            } else {
+                "git_confirm"
+            };
             let receiver = window.prompt(
                 PromptLevel::Warning,
                 &format!("{}: {}", self.t(key), target),
-                Some(self.t("git_confirm_hint")),
-                &[self.t("git_cancel"), self.t("git_confirm")],
+                Some(self.t(hint)),
+                &[self.t("git_cancel"), self.t(confirm_key)],
                 cx,
             );
             let operation = operation.clone();

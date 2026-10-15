@@ -22,6 +22,127 @@ fn review_patch(path: &str) -> String {
 }
 
 #[gpui_test::test]
+fn discard_buttons_confirm_single_and_group_changes_and_refresh_the_diff(cx: &mut TestAppContext) {
+    use gpui_kit::Modifiers;
+    use tervia::git::Operation;
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+    fs::write(root.path().join("staged.txt"), "synthetic staged\n").unwrap();
+    fs::write(root.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    repo.execute(Operation::StageAll).unwrap();
+    fs::write(root.path().join("staged.txt"), "synthetic unstaged\n").unwrap();
+    fs::write(root.path().join("mock.txt"), "synthetic untracked\n").unwrap();
+    fs::write(root.path().join("ignored.txt"), "synthetic ignored\n").unwrap();
+    let mut entity = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory(repo.root.clone());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = repo.snapshot(10).unwrap();
+            let file = snapshot
+                .status
+                .files
+                .iter()
+                .find(|file| file.path == Path::new("staged.txt"))
+                .unwrap()
+                .clone();
+            let ui = &mut this.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            let generation = ui.begin_detail(Detail::File(file.clone(), Side::Worktree), cx);
+            ui.install_detail(
+                generation,
+                Ok(repo.diff(&file, Side::Worktree).unwrap()),
+                cx,
+            );
+            this
+        });
+        entity = Some(view.clone());
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    let view = entity.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let file_index = repo
+        .status()
+        .unwrap()
+        .files
+        .iter()
+        .position(|file| file.path == Path::new("staged.txt"))
+        .unwrap();
+    let selector = Box::leak(format!("git-discard-file-{}", file_index * 4 + 1).into_boxed_str());
+    let button = cx
+        .debug_bounds(selector)
+        .expect("Unstaged files have a discard action");
+    cx.simulate_click(button.center(), Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(
+        fs::read_to_string(root.path().join("staged.txt")).unwrap(),
+        "synthetic unstaged\n"
+    );
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("git_cancel"));
+    cx.run_until_parked();
+    assert_eq!(
+        fs::read_to_string(root.path().join("staged.txt")).unwrap(),
+        "synthetic unstaged\n"
+    );
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let button = cx.debug_bounds(selector).unwrap();
+    cx.simulate_click(button.center(), Modifiers::default());
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("git_discard"));
+    cx.run_until_parked();
+    assert_eq!(
+        fs::read_to_string(root.path().join("staged.txt")).unwrap(),
+        "synthetic staged\n"
+    );
+    view.update(cx, |this, _| {
+        assert!(this.git_states[0].error.is_empty());
+        assert!(!this.git_states[0].detail.contains("synthetic unstaged"));
+        assert!(!this.git_mutating);
+    });
+
+    fs::write(root.path().join("staged.txt"), "synthetic next edit\n").unwrap();
+    cx.update(|window, cx| view.update(cx, |this, cx| this.refresh_git(0, window, cx)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-discard-all-2").is_none(),
+        "Staged content has no discard action"
+    );
+    let button = cx
+        .debug_bounds("git-discard-all-1")
+        .expect("Unstaged group has discard all");
+    cx.simulate_click(button.center(), Modifiers::default());
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("git_discard_all"));
+    cx.run_until_parked();
+    assert_eq!(
+        fs::read_to_string(root.path().join("staged.txt")).unwrap(),
+        "synthetic staged\n"
+    );
+    assert!(root.path().join("mock.txt").exists());
+
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let button = cx
+        .debug_bounds("git-discard-all-3")
+        .expect("Untracked group has delete all");
+    cx.simulate_click(button.center(), Modifiers::default());
+    fs::write(root.path().join("later.txt"), "synthetic later\n").unwrap();
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("git_delete_all_untracked"));
+    cx.run_until_parked();
+    assert!(!root.path().join("mock.txt").exists());
+    assert!(root.path().join("later.txt").exists());
+    assert!(root.path().join("ignored.txt").exists());
+    let files = repo.status().unwrap().files;
+    assert!(files.iter().any(|file| file.path == Path::new("staged.txt")
+        && file.index == 'A'
+        && file.worktree == '.'));
+    view.update(cx, |this, _| assert!(this.git_states[0].error.is_empty()));
+}
+
+#[gpui_test::test]
 fn review_progress_invalidates_changed_files_and_checkpoint_compares_the_next_round(
     cx: &mut TestAppContext,
 ) {
