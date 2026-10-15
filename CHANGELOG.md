@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.6.0 (2026-10-15)
+
+### Features
+
+- **projects:** add switching, favorites, and close/reopen (30b2d53b)
+- **files:** add optional related-file nesting (1828ec03)
+
+### Fixes
+
+- **ui:** enable terminal drag scrolling and auto-hide scrollbars (cccb6a01)
+- **updates:** correct primary action button colors (e84249f5)
+
+### Documentation
+
+- **readme:** introduce the product and move detailed guides (8742faab)
+- **ui:** show transient terminal scrollbars (605324d3)
+
+### Other changes
+
+- **projects:** match shortcut initialization to app startup (0d05ace5)
+
 ## v0.5.0 (2026-10-15)
 
 ### Features
