@@ -219,6 +219,35 @@ impl Tervia {
             );
         }
         nav.child(div().flex_1())
+            .when(active != Tab::Terminal, |nav| {
+                nav.child(
+                    icon_button(
+                        "toggle-terminal-dock",
+                        IconName::SquareTerminal,
+                        format!(
+                            "{} · {}",
+                            self.t("terminal_dock"),
+                            if Platform::CURRENT == Platform::Mac {
+                                "⌘J"
+                            } else {
+                                "Ctrl+Shift+J"
+                            }
+                        ),
+                        p,
+                        cx,
+                    )
+                    .debug_selector(|| "toggle-terminal-dock".into())
+                    .accessibility_label(self.t("terminal_dock"))
+                    .bg(if self.state.project().dock.visible {
+                        p.selected
+                    } else {
+                        p.background.opacity(0.0)
+                    })
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.toggle_terminal_dock(window, cx)),
+                    ),
+                )
+            })
             .child(self.branch_switcher(super::git::SwitchAnchor::Navigation, cx))
     }
 

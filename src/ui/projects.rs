@@ -76,6 +76,29 @@ impl Tervia {
             .debug_selector(move || format!("project-root-{parent}"))
             .accessibility_label(self.f("switch_project", &[("name", &name)]))
             .tooltip(self.state.projects[parent].path.clone())
+            .relative()
+            .when(self.project_attention(parent, cx), |button| {
+                button
+                    .accessibility_label(format!(
+                        "{} · {}",
+                        self.f("switch_project", &[("name", &name)]),
+                        self.t("terminal_attention")
+                    ))
+                    .tooltip(format!(
+                        "{} · {}",
+                        self.state.projects[parent].path,
+                        self.t("terminal_attention")
+                    ))
+                    .child(
+                        div()
+                            .absolute()
+                            .top(px(3.0))
+                            .right(px(3.0))
+                            .size(px(6.0))
+                            .rounded_full()
+                            .bg(p.accent),
+                    )
+            })
             .child(if expanded {
                 div()
                     .w_full()

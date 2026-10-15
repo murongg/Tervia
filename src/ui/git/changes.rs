@@ -324,7 +324,20 @@ impl Tervia {
             .flex()
             .flex_col()
             .bg(p.background)
-            .child(self.git_panel_title("git_working_copy"))
+            .child(
+                self.git_panel_title("git_working_copy")
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .text_size(px(10.0))
+                            .font_weight(FontWeight::NORMAL)
+                            .text_color(p.muted)
+                            .child(self.f(
+                                "git_review_progress",
+                                &[("count", &ui.review.marks.keys().count().to_string())],
+                            )),
+                    ),
+            )
             .child(list)
             .child(footer)
     }
@@ -559,6 +572,10 @@ impl Tervia {
                 } else {
                     file.worktree
                 };
+                let reviewed = ui
+                    .review
+                    .marks
+                    .contains(&tervia::git::ReviewKey::new(file.path.clone(), side));
                 let color = if group == 0 || status == 'D' {
                     p.red
                 } else if status == 'A' || status == '?' {
@@ -575,6 +592,14 @@ impl Tervia {
                     .gap(px(2.0))
                     .pr(px(5.0))
                     .bg(if selected { p.selected } else { p.background })
+                    .when(reviewed, |row| {
+                        row.child(
+                            div()
+                                .text_size(px(10.0))
+                                .text_color(p.muted)
+                                .child(self.t("git_reviewed")),
+                        )
+                    })
                     .child(
                         label_button(("git-file", row_id), "", p)
                             .h_full()

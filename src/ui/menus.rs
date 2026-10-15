@@ -3,13 +3,37 @@ use tervia::locale::Language;
 use tervia::platform::Platform;
 
 use super::{
-    ClearTerminal, CloseFileTab, CopyTerminalOutput, FilesTab, GitTab, NewSession, OpenFile,
-    OpenPreferences, OpenProject, QuickOpenFile, Quit, ReopenFileTab, SaveFile, SearchProjectText,
-    SplitTerminal, TerminalTab, TogglePalette, ToggleSidebar, ToggleTheme,
+    ClearTerminal, CloseFileTab, CopyCodeContext, CopyTerminalOutput, FilesTab, GitTab, NewSession,
+    OpenFile, OpenPreferences, OpenProject, QuickOpenFile, Quit, ReopenFileTab, SaveFile,
+    SearchProjectText, SplitTerminal, TerminalTab, TogglePalette, ToggleSidebar,
+    ToggleTerminalDock, ToggleTheme,
 };
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new(
+            if Platform::CURRENT == Platform::Mac {
+                "cmd-j"
+            } else {
+                "ctrl-shift-j"
+            },
+            ToggleTerminalDock,
+            Some("Tervia && !Terminal"),
+        ),
+        KeyBinding::new(
+            if Platform::CURRENT == Platform::Mac {
+                "cmd-j"
+            } else {
+                "ctrl-shift-j"
+            },
+            ToggleTerminalDock,
+            Some("Tervia && !Terminal > Console"),
+        ),
+        KeyBinding::new(
+            "secondary-shift-c",
+            CopyCodeContext,
+            Some("Tervia && !Terminal"),
+        ),
         KeyBinding::new(
             if Platform::CURRENT == Platform::Mac {
                 "secondary-o"
@@ -43,10 +67,12 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::action(language.text("files_search_text"), SearchProjectText),
             MenuItem::separator(),
             MenuItem::action(language.text("save"), SaveFile),
+            MenuItem::action(language.text("copy_code_context"), CopyCodeContext),
             MenuItem::action(language.text("files_close"), CloseFileTab),
             MenuItem::action(language.text("files_reopen"), ReopenFileTab),
         ]),
         Menu::new(language.text("menu_view")).items([
+            MenuItem::action(language.text("terminal_dock"), ToggleTerminalDock),
             MenuItem::action(language.text("terminal"), TerminalTab),
             MenuItem::action("Git", GitTab),
             MenuItem::action(language.text("files"), FilesTab),
@@ -77,6 +103,47 @@ mod tests {
     use tervia::{locale::Language, state::Tab};
 
     use super::super::Tervia;
+
+    #[gpui_test::test]
+    fn terminal_dock_keeps_its_console_and_the_current_module(cx: &mut TestAppContext) {
+        let (view, cx) = workspace(cx, Tab::Files);
+        let original =
+            cx.update(|window, cx| view.update(cx, |this, cx| this.ensure_console(0, window, cx)));
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| this.toggle_terminal_dock(window, cx));
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("terminal-dock").is_some());
+        cx.update(|window, cx| window.dispatch_action(Box::new(super::super::NewSession), cx));
+        cx.update(|_, cx| {
+            assert_eq!(
+                view.read(cx).state.project().tab,
+                Tab::Files,
+                "New sessions in a visible dock keep the document module"
+            )
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                assert_eq!(this.state.project().tab, Tab::Files);
+                assert_eq!(this.ensure_console(0, window, cx), original);
+                this.split_terminal(window, cx);
+                assert_eq!(
+                    this.state.project().tab,
+                    Tab::Files,
+                    "Splitting the dock must keep the document module"
+                );
+                this.change_tab(Tab::Git, window, cx);
+            });
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("terminal-dock").is_some());
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| this.toggle_terminal_dock(window, cx));
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("terminal-dock").is_none());
+        cx.update(|_, cx| assert_eq!(view.read(cx).state.project().tab, Tab::Git));
+    }
 
     fn menu_action(key: &str) -> Box<dyn Action> {
         super::super::menus(Language::English)

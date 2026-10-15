@@ -1,4 +1,6 @@
 use std::sync::{Arc, Mutex};
+mod links;
+pub use links::{FileLink, file_link};
 
 use alacritty_terminal::{
     event::{Event, EventListener},
@@ -107,6 +109,96 @@ impl TerminalBuffer {
 
     pub fn events(&mut self) -> Vec<Event> {
         std::mem::take(&mut *self.events.0.lock().unwrap())
+    }
+
+    pub fn find(&self, query: &str) -> Vec<alacritty_terminal::term::search::Match> {
+        use alacritty_terminal::term::search::RegexSearch;
+        if query.is_empty() || query.len() > 4096 {
+            return Vec::new();
+        }
+        let Ok(mut regex) = RegexSearch::new(&regex::escape(query)) else {
+            return Vec::new();
+        };
+        let mut origin = Point::new(self.term.topmost_line(), Column(0));
+        let end = Point::new(self.term.bottommost_line(), self.term.last_column());
+        let mut matches = Vec::new();
+        while let Some(found) = self.term.regex_search_right(&mut regex, origin, end) {
+            let last = *found.end();
+            matches.push(found);
+            if last >= end || matches.len() == 5000 {
+                break;
+            }
+            origin = if last.column.0 + 1 == self.term.columns() {
+                Point::new(last.line + 1, Column(0))
+            } else {
+                Point::new(last.line, last.column + 1)
+            };
+        }
+        matches
+    }
+
+    pub fn reveal_match(&mut self, found: &alacritty_terminal::term::search::Match) {
+        use alacritty_terminal::grid::Scroll;
+        let target = (-found.start().line.0 + self.term.screen_lines() as i32 / 2).max(0);
+        let current = self.term.grid().display_offset() as i32;
+        self.term.scroll_display(Scroll::Delta(target - current));
+        self.select(*found.start(), *found.end());
+    }
+
+    pub fn link_at(&self, point: Point) -> Option<FileLink> {
+        use alacritty_terminal::term::cell::Flags;
+        if point.line < self.term.topmost_line() || point.line > self.term.bottommost_line() {
+            return None;
+        }
+        let grid = self.term.grid();
+        // Soft wraps belong to one reference; mouse cells must map back to UTF-8 byte offsets.
+        let mut first = point.line;
+        while first > self.term.topmost_line()
+            && grid[Point::new(first - 1, self.term.last_column())]
+                .flags
+                .contains(Flags::WRAPLINE)
+        {
+            first -= 1;
+            if point.line.0 - first.0 > 256 {
+                return None;
+            }
+        }
+        let mut line = first;
+        let mut text = String::new();
+        let mut clicked = None;
+        loop {
+            for column in 0..self.term.columns() {
+                let cell = &grid[Point::new(line, Column(column))];
+                if line == point.line && column == point.column.0 {
+                    clicked = Some(if cell.flags.contains(Flags::WIDE_CHAR_SPACER) {
+                        text.char_indices().last().map_or(0, |(ix, _)| ix)
+                    } else {
+                        text.len()
+                    });
+                }
+                if !cell
+                    .flags
+                    .intersects(Flags::WIDE_CHAR_SPACER | Flags::LEADING_WIDE_CHAR_SPACER)
+                {
+                    text.push(cell.c);
+                    if let Some(extra) = cell.zerowidth() {
+                        text.extend(extra);
+                    }
+                }
+            }
+            if line == self.term.bottommost_line()
+                || !grid[Point::new(line, self.term.last_column())]
+                    .flags
+                    .contains(Flags::WRAPLINE)
+            {
+                break;
+            }
+            line += 1;
+            if line.0 - first.0 > 256 {
+                return None;
+            }
+        }
+        file_link(&text, clicked?)
     }
 }
 

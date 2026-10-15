@@ -1,4 +1,6 @@
 use std::{fs, path::Path};
+mod context;
+pub use context::{code_context, selection_context};
 mod reads;
 pub mod search;
 mod tree;

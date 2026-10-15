@@ -12,4 +12,8 @@ The syntax patch exposes `highlighter::language_for_path` so file editors and di
 
 Run `cargo test --locked --features ui-tests --test highlight` for parsing, light/dark token styles, aliases, JSX and language injections. Run `cargo test --locked --features ui-tests --bin tervia opening_files_uses_their_grammar_and_matches_git_diff` to check editor/Diff agreement through real file opens.
 
-Remove this directory and its `[patch.crates-io]` entry when the pinned upstream component includes both the hunk-header slot and equivalent syntax support. Do not edit the shared Cargo registry source.
+The Diff selection patch adds `DiffState::selected_excerpts` and `DiffExcerpt`, exposing exact source fragments with their side, original/modified path and inclusive source line numbers. It covers gutter selections and native partial text selections, separates sparse patch context and mixed versions, and never reads working files. Source-row debug selectors support native drag-selection checks. Clipboard formatting and copy actions remain application-owned.
+
+Run `cargo test --locked --features ui-tests --bin tervia code_context` to check versions, renamed paths, sparse context, draft copying, native text selection in unified/split views, keyboard copying, and cancellation of a toolbar copy gesture.
+
+Remove this directory and its `[patch.crates-io]` entry when the pinned upstream component includes the hunk-header slot, equivalent syntax support and the source-fragment selection API. Do not edit the shared Cargo registry source.

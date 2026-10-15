@@ -14,8 +14,48 @@ use super::{
 };
 
 impl Tervia {
+    pub(super) fn open_terminal_link(
+        &mut self,
+        project: usize,
+        link: tervia::terminal::FileLink,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.active_project != project {
+            return;
+        }
+        let root = self.state.projects[project].root.clone();
+        let selection = self.file_reads.select(project);
+        let line = link.line.min(u32::MAX as usize);
+        let column = link.column.saturating_sub(1).min(u32::MAX as usize);
+        cx.spawn_in(window, async move |weak, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move { link.resolve(&root) })
+                .await;
+            let _ = weak.update_in(cx, |this, window, cx| {
+                // Later directory/module navigation wins while the filesystem resolves this link.
+                if this.state.active_project != project
+                    || !this.file_reads.selected(project, selection)
+                {
+                    return;
+                }
+                match result {
+                    Ok(path) => this.open_file_match(project, path, line, column, window, cx),
+                    Err(error) => {
+                        this.state.notice = error;
+                        cx.notify();
+                    }
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(super) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.change_tab(tervia::state::Tab::Terminal, window, cx);
+        if !self.state.project().dock.visible {
+            self.change_tab(tervia::state::Tab::Terminal, window, cx);
+        }
         if self.state.project().sessions.len() == 1 {
             self.new_session(window, cx);
         }
@@ -66,8 +106,7 @@ impl Tervia {
             let session_name = match agent {
                 Some(agent) if index == 0 => agent.name().to_owned(),
                 Some(agent) => format!("{} {}", agent.name(), index + 1),
-                None if index == 0 => "shell".to_owned(),
-                None => format!("shell {}", index + 1),
+                None => _session.name.clone(),
             };
             tabs = tabs.child(
                 div()
@@ -89,6 +128,16 @@ impl Tervia {
                             .rounded(px(5.0))
                             .icon(agent_icon(agent, selected, p, self.appearance.light_theme))
                             .label(session_name.clone())
+                            .when(
+                                self.terminals[self.state.active_project][index]
+                                    .as_ref()
+                                    .is_some_and(|console| console.read(cx).attention),
+                                |button| {
+                                    button
+                                        .child(icon(IconName::Bell, p.accent).size(px(11.0)))
+                                        .tooltip(self.t("terminal_attention"))
+                                },
+                            )
                             .text_color(if selected { p.text } else { p.secondary })
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.state.select_session(index);
@@ -132,6 +181,21 @@ impl Tervia {
             );
         }
         tabs = tabs
+            .when(project.tab != tervia::state::Tab::Terminal, |tabs| {
+                tabs.child(
+                    icon_button("close-terminal-dock", IconName::X, self.t("close"), p, cx)
+                        .accessibility_label(format!(
+                            "{} {}",
+                            self.t("close"),
+                            self.t("terminal_dock")
+                        ))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.toggle_terminal_dock(window, cx)
+                            }),
+                        ),
+                )
+            })
             .child(
                 icon_button(
                     "new-session",
@@ -156,6 +220,20 @@ impl Tervia {
                 .on_click(cx.listener(|this, _, window, cx| this.split_terminal(window, cx))),
             )
             .child(separator(p))
+            .child(
+                icon_button(
+                    "search-terminal",
+                    IconName::Search,
+                    self.t("terminal_search"),
+                    p,
+                    cx,
+                )
+                .accessibility_label(self.t("terminal_search"))
+                .on_click(cx.listener(|this, _, window, cx| {
+                    let console = this.ensure_console(this.state.command_session(), window, cx);
+                    console.update(cx, |console, cx| console.open_search(window, cx));
+                })),
+            )
             .child(
                 icon_button(
                     "clear-terminal",

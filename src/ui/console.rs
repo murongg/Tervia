@@ -8,6 +8,7 @@ use alacritty_terminal::{
     term::{TermMode, cell::Flags},
     vte::ansi::{ClearMode, Color, CursorShape, Handler, NamedColor, Rgb},
 };
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use portable_pty::PtySize;
 use tervia::{
@@ -16,12 +17,26 @@ use tervia::{
     platform::Platform,
     preferences::Preferences,
     pty::{PtyEvent, PtySession, shell_command},
-    terminal::{TerminalBuffer, key_bytes, mouse_bytes, paste_bytes},
+    terminal::{FileLink, TerminalBuffer, key_bytes, mouse_bytes, paste_bytes},
 };
 
 use super::theme::Palette;
+mod search;
 
-gpui_kit::actions!(console, [CopySelection, Paste, Escape, SelectAll, Clear]);
+gpui_kit::actions!(
+    console,
+    [
+        CopySelection,
+        Paste,
+        Escape,
+        SelectAll,
+        Clear,
+        Find,
+        CloseSearch,
+        NextMatch,
+        PreviousMatch
+    ]
+);
 
 #[derive(Clone, Debug, Default, PartialEq, Action)]
 #[action(namespace = console, no_json)]
@@ -36,9 +51,24 @@ pub struct Focused;
 impl EventEmitter<Focused> for Console {}
 pub struct IdentityChanged;
 impl EventEmitter<IdentityChanged> for Console {}
+impl EventEmitter<FileLink> for Console {}
+pub struct AttentionChanged;
+impl EventEmitter<AttentionChanged> for Console {}
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new(
+            if Platform::CURRENT == Platform::Mac {
+                "cmd-f"
+            } else {
+                "ctrl-shift-f"
+            },
+            Find,
+            Some("Console"),
+        ),
+        KeyBinding::new("escape", CloseSearch, Some("ConsoleSearch > Input")),
+        KeyBinding::new("enter", NextMatch, Some("ConsoleSearch > Input")),
+        KeyBinding::new("shift-enter", PreviousMatch, Some("ConsoleSearch > Input")),
         KeyBinding::new(Platform::CURRENT.copy_key(), CopySelection, Some("Console")),
         KeyBinding::new(Platform::CURRENT.paste_key(), Paste, Some("Console")),
         KeyBinding::new("escape", Escape, Some("Console")),
@@ -126,6 +156,8 @@ pub struct Console {
     pub focus: FocusHandle,
     pub cwd: PathBuf,
     pub agent: Option<Agent>,
+    pub(super) attention: bool,
+    search: Option<search::Search>,
     buffer: TerminalBuffer,
     session: Option<PtySession>,
     appearance: Preferences,
@@ -133,6 +165,8 @@ pub struct Console {
     cell_width: Pixels,
     cell_height: Pixels,
     selecting: bool,
+    link_hover: bool,
+    link_pressed: bool,
     composition: String,
     status: Option<Status>,
     cursor_on: bool,
@@ -187,6 +221,8 @@ impl Console {
             focus: cx.focus_handle(),
             cwd: cwd.clone(),
             agent: None,
+            attention: false,
+            search: None,
             buffer: TerminalBuffer::new(80, 24),
             session: None,
             appearance,
@@ -194,6 +230,8 @@ impl Console {
             cell_width: px(8.0),
             cell_height: px(23.0),
             selecting: false,
+            link_hover: false,
+            link_pressed: false,
             composition: String::new(),
             status: None,
             cursor_on: true,
@@ -294,6 +332,7 @@ impl Console {
                                             }
                                         }
                                     }
+                                    this.refresh_search(cx);
                                     cx.notify();
                                 })
                                 .is_err()
@@ -321,6 +360,10 @@ impl Console {
     fn focus_changed(&mut self, focused: bool, cx: &mut Context<Self>) {
         self.buffer.term.is_focused = focused;
         if focused {
+            if self.attention {
+                self.attention = false;
+                cx.emit(AttentionChanged);
+            }
             cx.emit(Focused);
         }
         if self.buffer.term.mode().contains(TermMode::FOCUS_IN_OUT)
@@ -375,6 +418,11 @@ impl Console {
                 }
                 // OSC 52 queries must not disclose the host clipboard to an arbitrary shell program.
                 Event::ClipboardLoad(_, _) => {}
+                Event::Bell if !self.buffer.term.is_focused && !self.attention => {
+                    self.attention = true;
+                    cx.emit(AttentionChanged);
+                    cx.notify();
+                }
                 Event::ColorRequest(index, formatter) => {
                     let color = self.index_color(index);
                     if let Some(session) = &self.session {
@@ -419,7 +467,11 @@ impl Console {
         self.send(b"\x1b", cx);
     }
 
-    fn send_key(&mut self, key: &SendKey, _: &mut Window, cx: &mut Context<Self>) {
+    fn send_key(&mut self, key: &SendKey, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            cx.propagate();
+            return;
+        }
         if !self.composition.is_empty() {
             cx.propagate();
             return;
@@ -455,7 +507,10 @@ impl Console {
         cx.notify();
     }
 
-    fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.focus.is_focused(window) {
+            return;
+        }
         let key = &event.keystroke;
         if key.modifiers.platform || !self.composition.is_empty() {
             return;
@@ -504,7 +559,25 @@ impl Console {
     }
 
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.link_pressed = false;
         self.focus.focus(window, cx);
+        let open_link = if Platform::CURRENT == Platform::Mac {
+            event.modifiers.platform
+        } else {
+            event.modifiers.control
+        };
+        // Modifier-click opens source without consuming ordinary selection or a TUI's mouse reports.
+        if open_link
+            && !event.modifiers.shift
+            && let Some(link) = self.buffer.link_at(self.grid_point(event.position))
+        {
+            self.selecting = false;
+            self.link_hover = false;
+            self.link_pressed = true;
+            cx.emit(link);
+            cx.stop_propagation();
+            return;
+        }
         if self.buffer.term.mode().intersects(TermMode::MOUSE_MODE) && !event.modifiers.shift {
             let (column, row) = self.viewport_point(event.position);
             self.send(
@@ -528,6 +601,25 @@ impl Console {
     }
 
     fn mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
+        if self.link_pressed {
+            return;
+        }
+        let modifier = if Platform::CURRENT == Platform::Mac {
+            event.modifiers.platform
+        } else {
+            event.modifiers.control
+        };
+        let hover = modifier
+            && !event.modifiers.shift
+            && !self.selecting
+            && self
+                .buffer
+                .link_at(self.grid_point(event.position))
+                .is_some();
+        if self.link_hover != hover {
+            self.link_hover = hover;
+            cx.notify();
+        }
         if self.selecting {
             let point = self.grid_point(event.position);
             if let Some(selection) = self.buffer.term.selection.as_mut() {
@@ -550,6 +642,10 @@ impl Console {
     }
 
     fn mouse_up(&mut self, event: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+        // A link consumed the press, so its release must not reach the terminal program either.
+        if std::mem::take(&mut self.link_pressed) {
+            return;
+        }
         if !self.selecting
             && self.buffer.term.mode().intersects(TermMode::MOUSE_MODE)
             && !event.modifiers.shift
@@ -665,11 +761,203 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
 
+    #[gpui_test::test]
+    fn terminal_search_input_handles_enter_and_escape_without_sending_keys_to_the_shell(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+        });
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(mock_console);
+            entity.update(cx, |this, cx| {
+                this.buffer.feed(b"synthetic one\r\nsynthetic two");
+                this.open_search(window, cx);
+            });
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| this.open_search(window, cx));
+            window.draw(cx).clear(cx);
+        });
+        assert!(cx.debug_bounds("terminal-search").is_some());
+        cx.simulate_input("synthetic");
+        cx.update(|_, cx| assert_eq!(console.read(cx).buffer.selected_text(), "synthetic"));
+        cx.simulate_keystrokes("enter");
+        cx.simulate_keystrokes("escape");
+        cx.update(|window, cx| {
+            let this = console.read(cx);
+            assert!(!this.search.as_ref().unwrap().open);
+            assert!(this.transmitted.is_empty());
+            assert!(this.focus.is_focused(window));
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_attention_uses_explicit_bells_and_focus_acknowledges_them(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            let console = cx.new(mock_console);
+            console.update(cx, |this, cx| {
+                this.buffer.term.is_focused = false;
+                this.buffer.feed(b"\x07\x07");
+                this.handle_events(cx);
+                assert!(this.attention);
+                this.focus_changed(true, cx);
+                assert!(!this.attention);
+                this.buffer.feed(b"\x07");
+                this.handle_events(cx);
+                assert!(!this.attention);
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_link_click_preserves_tui_mouse_protocol(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut console = mock_console(cx);
+                console.buffer.feed(b"src/mock.rs:4\x1b[?1002h\x1b[?1006h");
+                console
+            });
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        let position = cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let console = console.read(cx);
+            console.bounds.origin + point(console.cell_width * 3.5, console.cell_height * 0.5)
+        });
+        let modifiers = Modifiers {
+            platform: Platform::CURRENT == Platform::Mac,
+            control: Platform::CURRENT != Platform::Mac,
+            ..Modifiers::default()
+        };
+        cx.simulate_mouse_down(position, MouseButton::Left, modifiers);
+        cx.simulate_mouse_move(
+            position + point(px(1.0), px(0.0)),
+            Some(MouseButton::Left),
+            modifiers,
+        );
+        cx.simulate_mouse_up(position, MouseButton::Left, modifiers);
+        cx.update(|_, cx| assert!(console.read(cx).transmitted.is_empty()));
+        cx.simulate_click(position, Modifiers::default());
+        cx.update(|_, cx| {
+            assert_eq!(
+                console.read(cx).transmitted,
+                [b"\x1b[<0;4;1M".to_vec(), b"\x1b[<0;4;1m".to_vec()]
+            )
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_file_links_open_source_lines_without_overwriting_drafts(cx: &mut TestAppContext) {
+        use super::super::Tervia;
+        use std::fs;
+        use tervia::state::Tab;
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("mock.rs"), "first\nsecond\nthird\n").unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut this = Tervia::new(window, cx);
+                let project = this.state.open_directory(root.path().into());
+                this.state.projects[project]
+                    .files
+                    .push(tervia::state::File {
+                        path: "mock.rs".into(),
+                        disk_path: "mock.rs".into(),
+                        language: "rust".into(),
+                        saved: "first\nsecond\nthird\n".into(),
+                        draft: "draft first\ndraft second\ndraft third\n".into(),
+                    });
+                this.init_project(project, window, cx);
+                this.state.set_tab(Tab::Terminal);
+                this.ensure_console(0, window, cx).update(cx, |console, _| {
+                    console
+                        .buffer
+                        .feed(b"see mock.rs:2:3\x1b[?1000h\x1b[?1006h")
+                });
+                this
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        let position = cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            let console = view.read(cx).terminals[0][0].as_ref().unwrap().read(cx);
+            console.bounds.origin + point(console.cell_width * 6.5, console.cell_height * 0.5)
+        });
+        let modifiers = Modifiers {
+            platform: Platform::CURRENT == Platform::Mac,
+            control: Platform::CURRENT != Platform::Mac,
+            ..Modifiers::default()
+        };
+        cx.simulate_click(position, modifiers);
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            let this = view.read(cx);
+            assert_eq!(this.state.project().tab, Tab::Files);
+            assert_eq!(this.state.project().current_file().unwrap().path, "mock.rs");
+            assert_eq!(
+                this.editors[0][0].read(cx).cursor_position(),
+                gpui_kit::component::input::Position::new(1, 2)
+            );
+            assert_eq!(
+                this.state.project().current_file().unwrap().draft,
+                "draft first\ndraft second\ndraft third\n"
+            );
+            assert!(
+                this.terminals[0][0]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .transmitted
+                    .is_empty(),
+                "Link clicks must not send unmatched mouse releases to a TUI"
+            );
+        });
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.open_terminal_link(
+                    0,
+                    FileLink {
+                        path: "mock.rs".into(),
+                        line: 3,
+                        column: 1,
+                    },
+                    window,
+                    cx,
+                );
+                this.change_tab(Tab::Git, window, cx);
+            });
+        });
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            assert_eq!(
+                view.read(cx).state.project().tab,
+                Tab::Git,
+                "Later navigation wins over pending link resolution"
+            )
+        });
+    }
+
     fn mock_console(cx: &mut Context<Console>) -> Console {
         Console {
             focus: cx.focus_handle(),
             cwd: "/mock-home".into(),
             agent: None,
+            attention: false,
+            search: None,
             buffer: TerminalBuffer::new(80, 24),
             session: None,
             appearance: Preferences {
@@ -680,6 +968,8 @@ mod tests {
             cell_width: px(8.0),
             cell_height: px(23.0),
             selecting: false,
+            link_hover: false,
+            link_pressed: false,
             composition: String::new(),
             status: None,
             cursor_on: true,
@@ -881,6 +1171,7 @@ impl Render for Console {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
         let p = Palette::new(self.appearance.light_theme);
+        let search_bar = self.search_bar(cx);
         div()
             .id("native-console")
             .relative()
@@ -888,9 +1179,12 @@ impl Render for Console {
             .min_w_0()
             .min_h_0()
             .overflow_hidden()
+            .flex()
+            .flex_col()
             .key_context("Console")
             .track_focus(&self.focus)
             .cursor_text()
+            .when(self.link_hover, |surface| surface.cursor_pointer())
             .role(gpui_kit::accesskit::Role::TextInput)
             .aria_label(self.appearance.language.text("native_terminal"))
             .aria_value(self.buffer.visible_text())
@@ -900,11 +1194,13 @@ impl Render for Console {
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::clear_action))
+            .on_action(cx.listener(|this, _: &Find, window, cx| this.open_search(window, cx)))
             .on_action(cx.listener(Self::send_key))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
             .on_mouse_move(cx.listener(Self::mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_scroll_wheel(cx.listener(Self::scroll))
+            .children(search_bar)
             .child(
                 canvas(
                     {
@@ -937,7 +1233,9 @@ impl Render for Console {
                         }
                     },
                 )
-                .size_full(),
+                .flex_1()
+                .w_full()
+                .min_h_0(),
             )
             .children(self.status.as_ref().map(|status| {
                 div()

@@ -8,6 +8,7 @@ use std::{
 use serde_json::{Value, json};
 
 use crate::state::Workspace;
+mod recovery;
 
 /// App-owned project history, stored separately from the user-editable configuration.
 pub struct Store {
@@ -15,6 +16,7 @@ pub struct Store {
     source: Option<String>,
     saved: Option<Value>,
     fallbacks: BTreeMap<PathBuf, PathBuf>,
+    orphans: Vec<Value>,
 }
 
 impl Store {
@@ -24,6 +26,7 @@ impl Store {
             source: None,
             saved: None,
             fallbacks: BTreeMap::new(),
+            orphans: Vec::new(),
         }
     }
 
@@ -31,16 +34,27 @@ impl Store {
         self.saved = None;
         self.source = None;
         self.fallbacks.clear();
+        self.orphans.clear();
+        if fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() > 256 * 1024 * 1024) {
+            return Err(self.error("Recovery file exceeds 256 MiB"));
+        }
         let source = match fs::read_to_string(&self.path) {
             Ok(source) => Some(source),
             Err(error) if error.kind() == io::ErrorKind::NotFound => None,
             Err(error) => return Err(self.error(error)),
         };
-        let (workspace, fallbacks) = match &source {
+        let (mut workspace, fallbacks) = match &source {
             Some(source) => restore(source).map_err(|error| self.error(error))?,
             None => (Workspace::empty(), BTreeMap::new()),
         };
-        self.saved = Some(snapshot(&workspace, &fallbacks).map_err(|error| self.error(error))?);
+        if let Some(source) = &source {
+            let value = serde_json::from_str(source).map_err(|error| self.error(error))?;
+            self.orphans =
+                recovery::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
+        }
+        self.saved = Some(
+            snapshot(&workspace, &fallbacks, &self.orphans).map_err(|error| self.error(error))?,
+        );
         self.fallbacks = fallbacks;
         self.source = source;
         Ok(workspace)
@@ -50,7 +64,8 @@ impl Store {
         if self.saved.is_none() {
             return Err(self.error("Workspace was not loaded; fix the file and restart Tervia"));
         }
-        let snapshot = snapshot(workspace, &self.fallbacks).map_err(|error| self.error(error))?;
+        let snapshot = snapshot(workspace, &self.fallbacks, &self.orphans)
+            .map_err(|error| self.error(error))?;
         // UI notifications also cover terminal output and Git polling; unchanged history needs no IO.
         if self.saved.as_ref() == Some(&snapshot) {
             return Ok(());
@@ -83,6 +98,9 @@ impl Store {
                 .map_err(|error| self.error(error))?;
         }
         let updated = serde_json::to_string_pretty(&snapshot).map_err(|error| self.error(error))?;
+        if updated.len() > 256 * 1024 * 1024 {
+            return Err(self.error("Recovery state exceeds 256 MiB"));
+        }
         temporary
             .write_all(updated.as_bytes())
             .map_err(|error| self.error(error))?;
@@ -126,6 +144,7 @@ impl Store {
 fn snapshot(
     workspace: &Workspace,
     fallbacks: &BTreeMap<PathBuf, PathBuf>,
+    orphans: &[Value],
 ) -> Result<Value, serde_json::Error> {
     let projects = workspace
         .project_rows()
@@ -163,17 +182,18 @@ fn snapshot(
         .get(workspace.active_project)
         .map(|project| &project.root);
     Ok(json!({
-        "version": 1,
+        "version": 2,
         "projects": projects,
         "active": serde_json::to_value(active)?,
         "sidebar_expanded": workspace.sidebar_expanded,
+        "contexts": recovery::snapshot(workspace, orphans)?,
     }))
 }
 
 fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), String> {
     let saved: Value =
         serde_json::from_str(source).map_err(|error| format!("Invalid workspace JSON: {error}"))?;
-    if saved.get("version").and_then(Value::as_u64) != Some(1) {
+    if !matches!(saved.get("version").and_then(Value::as_u64), Some(1 | 2)) {
         return Err("Unsupported workspace version".into());
     }
     let projects = saved

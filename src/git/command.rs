@@ -32,15 +32,24 @@ pub(super) fn run_input(
     execute(configured(root, args), root, args, input, timeout(args))
 }
 
+pub(super) fn run_index(root: &Path, index: &Path, args: &[OsString]) -> Result<Vec<u8>, Error> {
+    let mut command = configured(root, args);
+    // Only checkpoint capture may substitute an application-owned temporary index.
+    command.env("GIT_INDEX_FILE", index);
+    execute(command, root, args, None, timeout(args))
+}
+
 fn configured(root: &Path, args: &[OsString]) -> Command {
     let mut command = Command::new("git");
     command.arg("--no-pager");
     // Stash internally uses magic pathspecs to remove saved untracked files.
     // Scope literal paths to our file commands, never Git's compound operations.
-    if args
-        .first()
-        .is_some_and(|arg| matches!(arg.to_str(), Some("add" | "restore" | "rm" | "diff")))
-    {
+    if args.first().is_some_and(|arg| {
+        matches!(
+            arg.to_str(),
+            Some("add" | "restore" | "rm" | "diff" | "ls-files")
+        )
+    }) {
         command.arg("--literal-pathspecs");
     }
     command

@@ -11,7 +11,9 @@ mod selection;
 mod state;
 
 pub use conflict::{DiffConflict, DiffConflictResolution};
-pub use document::{DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide};
+pub use document::{
+    DiffExcerpt, DiffFile, DiffFileStatus, DiffLinePosition, DiffLineRange, DiffSide,
+};
 pub use parser::DiffParseError;
 pub use presentation::DiffInlineUnit;
 pub use state::{DiffEvent, DiffState};
@@ -1643,7 +1645,9 @@ fn code_line(
         source_line.chunk_ranges().collect()
     };
     // A block container gives wrapped text a definite width to break at.
+    let source_line_number = source_line.line_number();
     let text = div()
+        .debug_selector(move || format!("diff-source-{file}-{text_side:?}-{source_line_number}"))
         .map(|this| {
             if code.soft_wrap {
                 this.w_full()
