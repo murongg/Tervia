@@ -241,6 +241,9 @@ impl Tervia {
             window,
             |this, preferences, _window, cx| {
                 this.appearance = preferences.read(cx).clone();
+                for explorer in &mut this.explorers {
+                    explorer.tree.set_nesting(this.appearance.file_nesting);
+                }
                 preferences::apply(&this.appearance, cx);
                 if let Some(config) = &mut this.config {
                     let error = config.save(&this.appearance).err();
@@ -364,7 +367,8 @@ impl Tervia {
             editors.push(editor);
         }
         self.editors.push(editors);
-        let explorer = explorer::Explorer::new(window, cx);
+        let mut explorer = explorer::Explorer::new(window, cx);
+        explorer.tree.set_nesting(self.appearance.file_nesting);
         self.subscriptions.push(cx.subscribe_in(
             &explorer.finder.input,
             window,

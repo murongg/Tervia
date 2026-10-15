@@ -19,6 +19,10 @@ code_size = 14
 # Interface font size: 11–16
 ui_size = 13
 
+# Group related files beneath their companion in the same directory. Groups start collapsed.
+[files]
+nesting = false
+
 # Check GitHub Releases at startup and periodically. Downloading/installing still requires confirmation.
 [updates]
 auto_check = true

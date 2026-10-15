@@ -215,6 +215,101 @@ impl Render for FilesSurface {
     }
 }
 
+#[gpui_test::test]
+fn file_nesting_applies_live_and_disclosure_keeps_file_opening_separate(cx: &mut TestAppContext) {
+    use tervia::{
+        config::Config,
+        files::{Entry, EntryKind, Row},
+    };
+    cx.update(gpui_kit::init);
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("config.toml");
+    fs::write(
+        &path,
+        "[updates]\nauto_check = false\n[files]\nnesting = true\n",
+    )
+    .unwrap();
+    let root = temporary.path().join("mock-nesting");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join(".env"), "SYNTHETIC=true\n").unwrap();
+    fs::write(root.join(".env.example"), "SYNTHETIC=false\n").unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::configured(Ok(Config::new(path.clone())), window, cx);
+            let project = this.state.open_directory(root.clone());
+            this.init_project(project, window, cx);
+            this.state.set_tab(Tab::Files);
+            let tree = &mut this.explorers[project].tree;
+            let token = tree.begin(PathBuf::new(), true).unwrap();
+            tree.finish(
+                "".as_ref(),
+                token,
+                Ok([".env", ".env.example"]
+                    .map(|name| Entry {
+                        path: name.into(),
+                        kind: EntryKind::File,
+                    })
+                    .to_vec()),
+            );
+            this
+        });
+        view = Some(entity.clone());
+        let surface = cx.new(|_| FilesSurface(entity));
+        gpui_kit::base::Root::new(surface, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|_, cx| assert_eq!(view.read(cx).explorers[0].tree.rows().len(), 1));
+    let arrow = cx
+        .debug_bounds("explorer-nesting-.env")
+        .expect("Grouped files have a disclosure button");
+    cx.simulate_click(arrow.center(), Modifiers::default());
+    cx.update(|window, cx| {
+        let this = view.read(cx);
+        assert!(this.state.project().files.is_empty(), "Disclosure must not open the parent file");
+        assert!(matches!(&this.explorers[0].tree.rows()[1], Row::Entry { entry, depth: 1 } if entry.path == std::path::Path::new(".env.example")));
+        window.draw(cx).clear(cx);
+    });
+    let file = cx.debug_bounds("explorer-file-.env").unwrap();
+    cx.simulate_click(file.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert_eq!(
+            view.read(cx)
+                .state
+                .project()
+                .current_file()
+                .unwrap()
+                .disk_path,
+            PathBuf::from(".env")
+        )
+    });
+    let arrow = cx.debug_bounds("explorer-nesting-.env").unwrap();
+    cx.simulate_click(arrow.center(), Modifiers::default());
+    cx.update(|_, cx| assert_eq!(view.read(cx).explorers[0].tree.rows().len(), 1));
+    for enabled in [false, true] {
+        cx.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                this.preferences.update(cx, |prefs, cx| {
+                    prefs.file_nesting = enabled;
+                    cx.notify();
+                })
+            })
+        });
+        cx.update(|_, cx| {
+            assert_eq!(
+                view.read(cx).explorers[0].tree.rows().len(),
+                if enabled { 1 } else { 2 }
+            )
+        });
+        assert_eq!(
+            Config::new(path.clone()).load().unwrap().file_nesting,
+            enabled
+        );
+    }
+}
+
 fn divider_surface(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTestContext) {
     cx.update(gpui_kit::init);
     let mut view = None;
