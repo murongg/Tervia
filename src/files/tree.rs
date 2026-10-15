@@ -5,6 +5,8 @@ use std::{
     sync::Arc,
 };
 
+use super::nesting::Nesting;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryKind {
     Directory,
@@ -102,6 +104,7 @@ pub enum Row {
 #[derive(Default)]
 struct Directory {
     entries: Option<Vec<Entry>>,
+    nesting: Nesting,
     pending: Option<u64>,
     error: Option<String>,
     stale: bool,
@@ -111,6 +114,8 @@ struct Directory {
 pub struct Tree {
     directories: BTreeMap<PathBuf, Directory>,
     expanded: BTreeSet<PathBuf>,
+    expanded_files: BTreeSet<PathBuf>,
+    nesting: bool,
     generation: u64,
     rows: Arc<Vec<Row>>,
 }
@@ -120,6 +125,8 @@ impl Default for Tree {
         let mut tree = Self {
             directories: BTreeMap::from([(PathBuf::new(), Directory::default())]),
             expanded: BTreeSet::from([PathBuf::new()]),
+            expanded_files: BTreeSet::new(),
+            nesting: false,
             generation: 0,
             rows: Arc::default(),
         };
@@ -141,7 +148,7 @@ impl Tree {
         self.directories.keys().cloned().collect()
     }
     pub fn is_expanded(&self, path: &Path) -> bool {
-        self.expanded.contains(path)
+        self.expanded.contains(path) || (self.nesting && self.expanded_files.contains(path))
     }
     pub fn expanded(&self) -> Vec<PathBuf> {
         self.expanded.iter().cloned().collect()
@@ -149,6 +156,33 @@ impl Tree {
 
     pub fn entries(&self, path: &Path) -> Option<&[Entry]> {
         self.directories.get(path)?.entries.as_deref()
+    }
+
+    pub fn set_nesting(&mut self, enabled: bool) {
+        if self.nesting != enabled {
+            self.nesting = enabled;
+            self.rebuild();
+        }
+    }
+
+    pub fn has_nested(&self, path: &Path) -> bool {
+        self.nesting
+            && path
+                .parent()
+                .and_then(|parent| self.directories.get(parent))
+                .is_some_and(|directory| directory.nesting.children.contains_key(path))
+    }
+
+    pub fn toggle_nested(&mut self, path: &Path) -> bool {
+        if !self.has_nested(path) {
+            return false;
+        }
+        // File expansion is separate from directories, which own disk reads and watchers.
+        if !self.expanded_files.remove(path) {
+            self.expanded_files.insert(path.into());
+        }
+        self.rebuild();
+        self.is_expanded(path)
     }
 
     pub fn toggle(&mut self, path: &Path) -> bool {
@@ -231,6 +265,10 @@ impl Tree {
                     })
                     .map(|entry| entry.path.clone())
                     .collect();
+                directory.nesting = Nesting::new(&entries);
+                self.expanded_files.retain(|key| {
+                    key.parent() != Some(path) || directory.nesting.children.contains_key(key)
+                });
                 directory.entries = Some(entries);
                 directory.error = None;
                 directory.stale = false;
@@ -238,6 +276,7 @@ impl Tree {
                 for removed in removed {
                     self.directories.retain(|key, _| !key.starts_with(&removed));
                     self.expanded.retain(|key| !key.starts_with(&removed));
+                    self.expanded_files.retain(|key| !key.starts_with(&removed));
                 }
             }
             Err(error) => {
@@ -256,11 +295,19 @@ impl Tree {
             self.push_directory(Path::new(""), 0, &mut stack);
         }
         while let Some(row) = stack.pop() {
-            if let Row::Entry { entry, depth } = &row
-                && entry.kind == EntryKind::Directory
-                && self.is_expanded(&entry.path)
-            {
-                self.push_directory(&entry.path, depth + 1, &mut stack);
+            if let Row::Entry { entry, depth } = &row {
+                if entry.kind == EntryKind::Directory && self.is_expanded(&entry.path) {
+                    self.push_directory(&entry.path, depth + 1, &mut stack);
+                } else if self.has_nested(&entry.path) && self.is_expanded(&entry.path) {
+                    let directory = &self.directories[entry.path.parent().unwrap()];
+                    let entries = directory.entries.as_ref().unwrap();
+                    stack.extend(directory.nesting.children[&entry.path].iter().rev().map(
+                        |&index| Row::Entry {
+                            entry: entries[index].clone(),
+                            depth: depth + 1,
+                        },
+                    ));
+                }
             }
             rows.push(row);
         }
@@ -291,13 +338,22 @@ impl Tree {
             });
         }
         if let Some(entries) = directory.and_then(|directory| directory.entries.as_ref()) {
-            stack.extend(
-                entries
-                    .iter()
-                    .rev()
-                    .cloned()
-                    .map(|entry| Row::Entry { entry, depth }),
-            );
+            if self.nesting {
+                stack.extend(directory.unwrap().nesting.roots.iter().rev().map(|&index| {
+                    Row::Entry {
+                        entry: entries[index].clone(),
+                        depth,
+                    }
+                }));
+            } else {
+                stack.extend(
+                    entries
+                        .iter()
+                        .rev()
+                        .cloned()
+                        .map(|entry| Row::Entry { entry, depth }),
+                );
+            }
         }
     }
 }

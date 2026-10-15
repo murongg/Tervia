@@ -5,6 +5,7 @@ pub struct Preferences {
     pub ui_size: u8,
     pub light_theme: bool,
     pub language: Language,
+    pub file_nesting: bool,
     pub updates: crate::updates::Settings,
 }
 
@@ -16,6 +17,7 @@ impl Default for Preferences {
             ui_size: 13,
             light_theme: false,
             language: Language::System,
+            file_nesting: false,
             updates: crate::updates::Settings::default(),
         }
     }

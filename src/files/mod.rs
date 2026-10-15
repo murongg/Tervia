@@ -1,5 +1,6 @@
 use std::{fs, path::Path};
 mod context;
+mod nesting;
 pub use context::{code_context, selection_context};
 mod reads;
 pub mod search;
