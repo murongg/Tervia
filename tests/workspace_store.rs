@@ -2,6 +2,34 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn window_maximization_survives_workspace_saves_and_restarts() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    for maximized in [true, false] {
+        fs::write(
+            &path,
+            serde_json::json!({
+                "version": 1,
+                "projects": [],
+                "active": null,
+                "window_maximized": maximized,
+            })
+            .to_string(),
+        )
+        .unwrap();
+        for _ in 0..2 {
+            let mut store = Store::new(path.clone());
+            let mut state = store.load().unwrap();
+            state.sidebar_expanded = !state.sidebar_expanded;
+            store.save(&state).unwrap();
+            let saved: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(saved["window_maximized"], maximized);
+        }
+    }
+}
+
+#[test]
 fn catalog_round_trip_retains_favorites_order_recent_directories_and_closed_drafts() {
     use tervia::state::{File, Tab};
     let temporary = tempfile::tempdir().unwrap();
@@ -516,6 +544,7 @@ fn invalid_state_is_reported_and_never_overwritten() {
         r#"{"version": 99, "projects": []}"#,
         r#"{"version": 1, "projects": [{"root": "relative", "directory": "relative"}]}"#,
         r#"{"version": 1, "projects": "invalid"}"#,
+        r#"{"version": 1, "projects": [], "window_maximized": "invalid"}"#,
     ] {
         fs::write(&path, source).unwrap();
         let mut store = Store::new(path.clone());

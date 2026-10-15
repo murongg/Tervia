@@ -268,6 +268,7 @@ pub struct Workspace {
     folders: std::collections::BTreeMap<usize, FolderGroup>,
     pub active_project: usize,
     pub sidebar_expanded: bool,
+    pub window_maximized: bool,
     pub notice: String,
     pub palette_open: bool,
 }
@@ -288,6 +289,7 @@ impl Workspace {
             folders: Default::default(),
             active_project: 0,
             sidebar_expanded: false,
+            window_maximized: false,
             notice: String::new(),
             palette_open: false,
         }
