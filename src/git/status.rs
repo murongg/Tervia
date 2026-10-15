@@ -1,5 +1,34 @@
 use super::Error;
-use std::path::PathBuf;
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
+
+pub(crate) fn ignored(directory: &Path, paths: &[PathBuf]) -> Result<BTreeSet<PathBuf>, Error> {
+    if paths.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+    let mut input = Vec::new();
+    for path in paths {
+        input.extend_from_slice(path.as_os_str().as_encoded_bytes());
+        input.push(0);
+    }
+    // Keep the real index so tracked files matching an ignore pattern stay ordinary entries.
+    let output = match super::command::run_input(
+        directory,
+        &super::arguments(&["check-ignore", "--stdin", "-z"]),
+        Some(input),
+    ) {
+        Ok(output) => output,
+        Err(error) if error.exit_code() == Some(1) => return Ok(BTreeSet::new()),
+        Err(error) => return Err(error),
+    };
+    output
+        .split(|byte| *byte == 0)
+        .filter(|part| !part.is_empty())
+        .map(path)
+        .collect()
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileStatus {

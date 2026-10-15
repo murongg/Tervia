@@ -65,6 +65,7 @@ A native, flat desktop workspace with a compact project rail, stable module navi
 - Workspace recovery records module/dock, shell tabs, opened files and source reading positions. Clean sources reload asynchronously without changing selection; recovered draft/base pairs remain protected by normal disk conflict checks. Changes coalesce over 300 ms; project navigation and quitting flush immediately.
 
 ## File browsing
+- Git-ignored filenames, file/folder icons and directory disclosures use subdued neutral ink in both themes. Selected filenames keep the normal readable foreground while icons remain subdued. Selection backgrounds, hover, draft indicators and file-opening actions retain their existing behavior.
 - Single-click opens one italic preview tab per directory. Another clean preview replaces it in place; double-click or editing pins it. Existing pinned tabs and dirty drafts remain open.
 - Optional related-file nesting starts companion groups collapsed beneath existing parents in the same directory. The disclosure arrow expands or collapses the group; filenames retain single-click preview and double-click pinning. Nested rows keep the existing native 30-point layout and theme.
 - Quick Find File (Cmd+P, Ctrl+P on the Files page) and project text search (Cmd/Ctrl+Shift+F) share the native explorer sidebar. Results are virtualized, keyboard-selectable, and retain project ownership. Enter opens the selected file; text matches open pinned source at their line and column. Escape returns to the tree.

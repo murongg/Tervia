@@ -78,7 +78,16 @@ fn timeout(args: &[OsString]) -> Duration {
     if args.first().is_some_and(|arg| {
         matches!(
             arg.to_str(),
-            Some("status" | "diff" | "log" | "show" | "rev-parse" | "for-each-ref" | "config")
+            Some(
+                "status"
+                    | "diff"
+                    | "log"
+                    | "show"
+                    | "rev-parse"
+                    | "for-each-ref"
+                    | "config"
+                    | "check-ignore"
+            )
         )
     }) {
         Duration::from_secs(90)

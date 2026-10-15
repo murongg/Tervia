@@ -15,6 +15,7 @@ pub use review::{ReviewKey, Reviews};
 mod worktree;
 pub use worktree::{Worktree, WorktreeCheckout, WorktreeOperation};
 
+pub(crate) use status::ignored;
 pub use status::{FileStatus, Status};
 use std::{
     ffi::OsString,
