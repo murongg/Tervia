@@ -59,6 +59,7 @@ fn project_files_render_before_any_document_is_open_and_only_build_visible_rows(
                     .map(|i| tervia::files::Entry {
                         path: format!("synthetic-{i}.rs").into(),
                         kind: tervia::files::EntryKind::File,
+                        ignored: false,
                     })
                     .collect()),
             );

@@ -27,11 +27,133 @@ fn entry(path: &str, kind: EntryKind) -> Entry {
     Entry {
         path: path.into(),
         kind,
+        ignored: false,
     }
 }
 fn install(tree: &mut Tree, path: &str, entries: Vec<Entry>) {
     let token = tree.begin(path.into(), false).unwrap();
     assert!(tree.finish(std::path::Path::new(path), token, Ok(entries)));
+}
+
+fn git(root: &std::path::Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn repository(root: &std::path::Path) {
+    git(root, &["init", "--template=", "-b", "main"]);
+    let excludes = root.join(".git/info/synthetic-excludes");
+    fs::create_dir_all(excludes.parent().unwrap()).unwrap();
+    fs::write(&excludes, "").unwrap();
+    git(
+        root,
+        &["config", "core.excludesFile", excludes.to_str().unwrap()],
+    );
+}
+
+fn ignored(root: &std::path::Path, directory: &str, name: &str) -> bool {
+    list(root, directory.as_ref())
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.path == std::path::Path::new(directory).join(name))
+        .unwrap()
+        .ignored
+}
+
+#[test]
+fn ignored_entries_stay_visible_and_tracked_files_and_exceptions_stay_normal() {
+    let fixture = Fixture::new();
+    repository(&fixture.0);
+    fs::create_dir(fixture.0.join("node_modules")).unwrap();
+    fs::write(
+        fixture.0.join("node_modules/mock.js"),
+        "synthetic dependency",
+    )
+    .unwrap();
+    fs::write(
+        fixture.0.join(".gitignore"),
+        "node_modules/\n*.log\n!keep.log\n",
+    )
+    .unwrap();
+    for name in ["mock.log", "keep.log", "tracked.log", "normal.rs"] {
+        fs::write(fixture.0.join(name), "synthetic source").unwrap();
+    }
+    git(&fixture.0, &["add", "-f", "tracked.log"]);
+    assert!(ignored(&fixture.0, "", "node_modules"));
+    assert!(ignored(&fixture.0, "node_modules", "mock.js"));
+    assert!(ignored(&fixture.0, "", "mock.log"));
+    for name in ["keep.log", "tracked.log", "normal.rs", ".gitignore"] {
+        assert!(!ignored(&fixture.0, "", name), "{name}");
+    }
+    assert_eq!(
+        tervia::files::read(&fixture.0, "node_modules/mock.js".as_ref()).unwrap(),
+        b"synthetic dependency"
+    );
+}
+
+#[test]
+fn ignored_entries_follow_nested_rules_and_cannot_reinclude_an_ignored_parent() {
+    let fixture = Fixture::new();
+    repository(&fixture.0);
+    fs::create_dir(fixture.0.join("src")).unwrap();
+    fs::create_dir(fixture.0.join("cache")).unwrap();
+    fs::write(fixture.0.join(".gitignore"), "*.tmp\ncache/\n").unwrap();
+    fs::write(fixture.0.join("src/.gitignore"), "!keep.tmp\n*.local\n").unwrap();
+    fs::write(fixture.0.join("cache/.gitignore"), "!keep.tmp\n").unwrap();
+    for name in [
+        "src/mock.tmp",
+        "src/keep.tmp",
+        "src/mock.local",
+        "cache/keep.tmp",
+    ] {
+        fs::write(fixture.0.join(name), "synthetic source").unwrap();
+    }
+    assert!(ignored(&fixture.0, "src", "mock.tmp"));
+    assert!(ignored(&fixture.0, "src", "mock.local"));
+    assert!(!ignored(&fixture.0, "src", "keep.tmp"));
+    assert!(ignored(&fixture.0, "cache", "keep.tmp"));
+    assert!(ignored(&fixture.0.join("src"), "", "mock.tmp"));
+    assert!(!ignored(&fixture.0.join("src"), "", "keep.tmp"));
+}
+
+#[test]
+fn ignored_entries_use_the_nearest_nested_repository() {
+    let fixture = Fixture::new();
+    repository(&fixture.0);
+    fs::write(fixture.0.join(".gitignore"), "*.log\n").unwrap();
+    fs::create_dir_all(fixture.0.join("nested/src")).unwrap();
+    repository(&fixture.0.join("nested"));
+    fs::write(fixture.0.join("nested/.gitignore"), "*.tmp\n").unwrap();
+    fs::write(fixture.0.join("nested/src/mock.log"), "synthetic source").unwrap();
+    fs::write(fixture.0.join("nested/src/mock.tmp"), "synthetic source").unwrap();
+    assert!(!ignored(&fixture.0, "nested/src", "mock.log"));
+    assert!(ignored(&fixture.0, "nested/src", "mock.tmp"));
+}
+
+#[test]
+fn ignored_entries_update_when_ignore_rules_change_and_support_unusual_names() {
+    let fixture = Fixture::new();
+    repository(&fixture.0);
+    fs::write(fixture.0.join("mock output.log"), "synthetic source").unwrap();
+    assert!(!ignored(&fixture.0, "", "mock output.log"));
+    fs::write(fixture.0.join(".gitignore"), "*.log\n").unwrap();
+    assert!(ignored(&fixture.0, "", "mock output.log"));
+    fs::write(fixture.0.join(".gitignore"), "*.log\n!mock output.log\n").unwrap();
+    assert!(!ignored(&fixture.0, "", "mock output.log"));
+    #[cfg(unix)]
+    {
+        fs::write(fixture.0.join("mock\noutput.log"), "synthetic source").unwrap();
+        assert!(ignored(&fixture.0, "", "mock\noutput.log"));
+    }
 }
 
 #[test]

@@ -18,6 +18,7 @@ pub enum EntryKind {
 pub struct Entry {
     pub path: PathBuf,
     pub kind: EntryKind,
+    pub ignored: bool,
 }
 
 /// Resolve a directory within the opened root, including after filesystem changes.
@@ -47,7 +48,7 @@ pub fn directory(root: &Path, path: &Path) -> Result<PathBuf, String> {
 pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
     let absolute = directory(root, path)?;
     let mut entries = Vec::new();
-    for child in fs::read_dir(absolute).map_err(|error| error.to_string())? {
+    for child in fs::read_dir(&absolute).map_err(|error| error.to_string())? {
         let child = child.map_err(|error| error.to_string())?;
         if child.file_name() == ".git" {
             continue;
@@ -55,6 +56,7 @@ pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
         let kind = child.file_type().map_err(|error| error.to_string())?;
         entries.push(Entry {
             path: path.join(child.file_name()),
+            ignored: false,
             // Never expand directory symlinks: this avoids cycles and escaping the root.
             kind: if kind.is_symlink() {
                 EntryKind::Symlink
@@ -64,6 +66,16 @@ pub fn list(root: &Path, path: &Path) -> Result<Vec<Entry>, String> {
                 EntryKind::File
             },
         });
+    }
+    let names: Vec<PathBuf> = entries
+        .iter()
+        .map(|entry| entry.path.file_name().unwrap_or_default().into())
+        .collect();
+    // Decorations are optional: absent Git or a non-repository folder must still be browsable.
+    if let Ok(ignored) = crate::git::ignored(&absolute, &names) {
+        for (entry, name) in entries.iter_mut().zip(names) {
+            entry.ignored = ignored.contains(&name);
+        }
     }
     entries.sort_by_cached_key(|entry| {
         (

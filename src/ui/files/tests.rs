@@ -249,6 +249,7 @@ fn file_nesting_applies_live_and_disclosure_keeps_file_opening_separate(cx: &mut
                     .map(|name| Entry {
                         path: name.into(),
                         kind: EntryKind::File,
+                        ignored: false,
                     })
                     .to_vec()),
             );

@@ -86,6 +86,7 @@ fn a_first_directory_subscription_reconciles_its_gap_and_rejects_an_old_activati
                 Ok(vec![Entry {
                     path: "src".into(),
                     kind: EntryKind::Directory,
+                    ignored: false,
                 }]),
             );
             tree.toggle("src".as_ref());
@@ -107,6 +108,7 @@ fn a_first_directory_subscription_reconciles_its_gap_and_rejects_an_old_activati
                 Ok(vec![Entry {
                     path: "src/added-during-registration.rs".into(),
                     kind: EntryKind::File,
+                    ignored: false,
                 }]),
             );
             assert_eq!(this.explorers[project].tree.rows().len(), 2);

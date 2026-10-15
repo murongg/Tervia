@@ -35,6 +35,63 @@ impl Explorer {
     }
 }
 
+fn entry_colors(ignored: bool, selected: bool, p: Palette) -> (Hsla, Hsla) {
+    if ignored {
+        // Selected filenames keep the normal readable foreground; their icons remain subdued.
+        (if selected { p.text } else { p.ignored }, p.ignored)
+    } else if selected {
+        (p.text, p.accent)
+    } else {
+        (p.secondary, p.secondary)
+    }
+}
+
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn ignored_explorer_icons_stay_gray_when_selected_in_both_themes() {
+        for light in [false, true] {
+            let p = Palette::workbench(light);
+            let normal = entry_colors(false, false, p);
+            let ignored = entry_colors(true, false, p);
+            assert_ne!(ignored.0, normal.0);
+            assert_eq!(ignored.0, ignored.1);
+            assert_eq!(entry_colors(true, true, p), (p.text, ignored.1));
+            assert_eq!(entry_colors(false, true, p), (p.text, p.accent));
+        }
+    }
+
+    #[test]
+    fn ignored_explorer_labels_keep_readable_contrast_in_both_themes() {
+        fn luminance(color: Hsla) -> f32 {
+            let color = Rgba::from(color);
+            let channels = [color.r, color.g, color.b].map(|value| {
+                if value <= 0.04045 {
+                    value / 12.92
+                } else {
+                    ((value + 0.055) / 1.055).powf(2.4)
+                }
+            });
+            channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        }
+        // Synthetic native-preview backgrounds include the gradient and selected row overlay.
+        for (light, backgrounds) in [(false, [0x4a4e5a, 0x545d6c]), (true, [0xced8e7, 0xd9dfeb])] {
+            for (selected, background) in [false, true].into_iter().zip(backgrounds) {
+                let ink = luminance(entry_colors(true, selected, Palette::workbench(light)).0);
+                let background = luminance(rgb(background).into());
+                let contrast = (ink.max(background) + 0.05) / (ink.min(background) + 0.05);
+                assert!(
+                    contrast >= 4.5,
+                    "light={light}, selected={selected}: {contrast}"
+                );
+            }
+        }
+    }
+}
+
 impl Tervia {
     pub(super) fn file_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let project = self.state.active_project;
@@ -155,6 +212,7 @@ impl Tervia {
                 let selected = file.is_some_and(|index| {
                     owner.active_file == index && owner.open_files.contains(&index)
                 });
+                let (text_color, icon_color) = entry_colors(entry.ignored, selected, p);
                 let dirty = file.is_some_and(|index| owner.files[index].dirty());
                 let display = path
                     .file_name()
@@ -219,7 +277,7 @@ impl Tervia {
                             } else {
                                 IconName::ChevronRight
                             },
-                            p.secondary,
+                            icon_color,
                         ))
                         .on_mouse_down(
                             MouseButton::Left,
@@ -248,14 +306,14 @@ impl Tervia {
                         } else {
                             IconName::FileCode
                         },
-                        if selected { p.accent } else { p.secondary },
+                        icon_color,
                     ))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .text_ellipsis()
-                            .text_color(if selected { p.text } else { p.secondary })
+                            .text_color(text_color)
                             .child(display),
                     );
                 if dirty {
