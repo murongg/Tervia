@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.8.0 (2026-10-16)
+
+### Features
+
+- **files:** add Material Icon Theme file icons (8d6483f4)
+- **files:** dim Git-ignored explorer entries (93388f85)
+
 ## v0.7.0 (2026-10-15)
 
 ### Features
