@@ -1719,6 +1719,586 @@ fn untracked_changes_have_their_own_group() {
 }
 
 #[gpui_test::test]
+fn sections_commit_separator_is_painted_once_in_both_themes(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory("/synthetic/section-borders".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot::default();
+            this.git_states[project].reconcile_snapshot(&snapshot, cx);
+            this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot));
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    for light in [false, true] {
+        for collapsed in [vec![3, 2], vec![1, 3, 2], vec![]] {
+            view.update(cx, |this, cx| {
+                this.appearance.light_theme = light;
+                super::super::theme::apply_palette(light, cx);
+                let ui = &mut this.git_states[0];
+                ui.collapsed_changes = collapsed.iter().copied().collect();
+                ui.change_rows =
+                    super::changes::change_rows(&[], &ui.collapsed_changes, &ui.collapsed_folders)
+                        .into();
+            });
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                window.draw(cx).clear(cx);
+            });
+            let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+            assert_git_seam(
+                cx,
+                footer,
+                &format!("commit: light={light}, collapsed={collapsed:?}"),
+            );
+        }
+    }
+}
+
+fn assert_git_seam(
+    cx: &mut gpui_test::VisualTestContext,
+    seam: gpui_kit::Bounds<gpui_kit::Pixels>,
+    message: &str,
+) {
+    use gpui_kit::{ScaledPixels, px};
+    cx.update(|window, _| {
+        let scale = window.scale_factor();
+        let seam = seam.scale(scale);
+        let thickness: f32 = window
+            .painted_quads()
+            .iter()
+            .filter(|quad| {
+                (quad.bounds.size.width - seam.size.width).as_f32().abs() <= scale
+                    && quad.content_mask.bounds.left() <= seam.center().x
+                    && quad.content_mask.bounds.right() > seam.center().x
+            })
+            .flat_map(|quad| {
+                // Native handles paint backgrounds; headers paint borders. Both can be split into masked quads.
+                let clipped = |y: ScaledPixels, width: ScaledPixels| {
+                    (
+                        y.as_f32().max(quad.content_mask.bounds.top().as_f32()),
+                        (y + width)
+                            .as_f32()
+                            .min(quad.content_mask.bounds.bottom().as_f32()),
+                    )
+                };
+                let border = !quad.border_color.is_transparent();
+                let background = !quad.background.is_transparent()
+                    && quad.bounds.size.height <= px(1.0).scale(scale);
+                [
+                    clipped(
+                        quad.bounds.top(),
+                        if border {
+                            quad.border_widths.top
+                        } else {
+                            px(0.0).scale(scale)
+                        },
+                    ),
+                    clipped(
+                        quad.bounds.bottom() - quad.border_widths.bottom,
+                        if border {
+                            quad.border_widths.bottom
+                        } else {
+                            px(0.0).scale(scale)
+                        },
+                    ),
+                    clipped(
+                        quad.bounds.top(),
+                        if background {
+                            quad.bounds.size.height
+                        } else {
+                            px(0.0).scale(scale)
+                        },
+                    ),
+                ]
+            })
+            .filter(|(start, end)| {
+                end > start && (*start - seam.top().as_f32()).abs() <= 3.0 * scale
+            })
+            .map(|(start, end)| end - start)
+            .sum();
+        assert_eq!(
+            thickness,
+            px(1.0).scale(scale).as_f32(),
+            "Each seam paints one hairline: {message}"
+        );
+    });
+}
+
+#[gpui_test::test]
+fn sections_headers_and_drag_handles_share_one_hairline(cx: &mut TestAppContext) {
+    use gpui_kit::{px, size};
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory("/synthetic/section-seams".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot {
+                branches: [false, true]
+                    .into_iter()
+                    .map(|remote| tervia::git::Branch {
+                        name: if remote {
+                            "mock-remote/main"
+                        } else {
+                            "mock-main"
+                        }
+                        .into(),
+                        current: false,
+                        remote,
+                        upstream: String::new(),
+                    })
+                    .collect(),
+                tags: vec!["mock-tag".into()],
+                ..Default::default()
+            };
+            this.git_states[project].reconcile_snapshot(&snapshot, cx);
+            this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot));
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    for (light, scale, width, height) in [
+        (false, 1.0, 880.0, 560.0),
+        (true, 1.0, 1220.0, 790.0),
+        (false, 2.0, 1220.0, 790.0),
+        (true, 2.0, 880.0, 560.0),
+    ] {
+        cx.simulate_scale_factor_change(scale);
+        cx.simulate_resize(size(px(width), px(height)));
+        for sidebar in [false, true] {
+            let (keys, headers): (&[usize], &[&str]) = if sidebar {
+                (
+                    &[0, 1, 2, 3],
+                    &[
+                        "git-sidebar-section-git_worktrees",
+                        "git-sidebar-section-git_local_branches",
+                        "git-sidebar-section-git_remote_branches",
+                        "git-sidebar-section-git_tags",
+                    ],
+                )
+            } else {
+                (
+                    &[1, 3, 2],
+                    &[
+                        "git-change-section-1",
+                        "git-change-section-3",
+                        "git-change-section-2",
+                    ],
+                )
+            };
+            for mask in 0..(1 << keys.len()) {
+                let collapsed: Vec<_> = keys
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| mask & (1 << index) != 0)
+                    .map(|(_, key)| *key)
+                    .collect();
+                view.update(cx, |this, cx| {
+                    this.appearance.light_theme = light;
+                    super::super::theme::apply_palette(light, cx);
+                    let ui = &mut this.git_states[0];
+                    if sidebar {
+                        ui.collapsed_sections = collapsed
+                            .iter()
+                            .map(|index| super::sidebar::SECTIONS[*index])
+                            .collect();
+                    } else {
+                        ui.collapsed_changes = collapsed.iter().map(|index| *index as u8).collect();
+                        ui.change_rows = super::changes::change_rows(
+                            &[],
+                            &ui.collapsed_changes,
+                            &ui.collapsed_folders,
+                        )
+                        .into();
+                    }
+                });
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.draw(cx).clear(cx);
+                });
+                for header in headers.iter().skip(1) {
+                    let seam = cx.debug_bounds(header).unwrap();
+                    assert_git_seam(
+                        cx,
+                        seam,
+                        &format!(
+                            "{header}: light={light}, scale={scale}, size={width}x{height}, collapsed={collapsed:?}"
+                        ),
+                    );
+                }
+                if !sidebar {
+                    let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+                    assert_git_seam(
+                        cx,
+                        footer,
+                        &format!("commit: light={light}, scale={scale}, collapsed={collapsed:?}"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[gpui_test::test]
+fn sections_and_commit_remain_visible_at_minimum_window_height(cx: &mut TestAppContext) {
+    use gpui_kit::{Bounds, ScrollDelta, ScrollWheelEvent, point, px, size};
+    cx.update(gpui_kit::init);
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory("/synthetic/compact-sections".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot::default();
+            this.git_states[project].reconcile_snapshot(&snapshot, cx);
+            this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot));
+            this.git_states[project].review.commit_expanded = true;
+            this
+        });
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.simulate_resize(size(px(880.0), px(560.0)));
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        window.draw(cx).clear(cx);
+    });
+    let staged = cx.debug_bounds("git-change-section-2").unwrap();
+    let commit = cx.debug_bounds("git-toggle-commit").unwrap();
+    assert!(
+        staged.bottom() <= commit.top(),
+        "The expanded commit form must not cover the staged header: {staged:?}, commit={commit:?}"
+    );
+    assert_git_seam(cx, staged, "compact window with expanded commit form");
+    assert_git_seam(cx, commit, "compact commit separator");
+    let pane = cx.debug_bounds("git-changes-pane").unwrap();
+    let viewport = Bounds::new(
+        point(commit.left(), commit.bottom()),
+        size(commit.size.width, pane.bottom() - commit.bottom()),
+    );
+    let form = cx.debug_bounds("git-commit-form").unwrap();
+    assert!(
+        viewport.size.height > px(80.0),
+        "The compact form has a usable viewport: {viewport:?}, form={form:?}"
+    );
+    assert!(
+        form.bottom() > viewport.bottom(),
+        "The compact form scrolls: form={form:?}, viewport={viewport:?}, staged={staged:?}, commit={commit:?}"
+    );
+    cx.simulate_event(ScrollWheelEvent {
+        position: viewport.center(),
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-300.0))),
+        ..Default::default()
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let scrolled = cx.debug_bounds("git-commit-form").unwrap();
+    assert!(
+        scrolled.bottom() <= viewport.bottom() + px(1.0),
+        "Scrolling reaches the commit actions: before={form:?}, after={scrolled:?}, viewport={viewport:?}"
+    );
+    assert_eq!(cx.debug_bounds("git-toggle-commit").unwrap(), commit);
+    assert_eq!(cx.debug_bounds("git-change-section-2").unwrap(), staged);
+}
+
+#[gpui_test::test]
+fn sections_keep_change_order_and_reveal_files_after_folding(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, point, px, size};
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory("/synthetic/sections".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let mut snapshot = Snapshot::default();
+            snapshot.status.files = (0..200)
+                .map(|index| FileStatus {
+                    path: format!("mock-{index}.txt").into(),
+                    original: None,
+                    index: '.',
+                    worktree: 'M',
+                    conflicted: false,
+                })
+                .collect();
+            snapshot.status.files.push(FileStatus {
+                path: "new.txt".into(),
+                original: None,
+                index: '.',
+                worktree: '?',
+                conflicted: false,
+            });
+            let ui = &mut this.git_states[project];
+            ui.collapsed_changes.extend([1, 2]);
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let unstaged = cx.debug_bounds("git-change-section-1").unwrap();
+    let untracked = cx.debug_bounds("git-change-section-3").unwrap();
+    let staged = cx.debug_bounds("git-change-section-2").unwrap();
+    let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+    assert_eq!(
+        unstaged.bottom(),
+        untracked.top(),
+        "Folding preserves section order"
+    );
+    assert_eq!(staged.bottom(), footer.top());
+
+    // Click the disclosure, away from the destructive group action.
+    cx.simulate_click(
+        point(untracked.left() + px(20.0), untracked.center().y),
+        Modifiers::default(),
+    );
+    cx.run_until_parked();
+    for height in [600.0, 900.0] {
+        cx.simulate_resize(size(px(1200.0), px(height)));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+        let unstaged = cx.debug_bounds("git-change-section-1").unwrap();
+        let untracked = cx.debug_bounds("git-change-section-3").unwrap();
+        let staged = cx.debug_bounds("git-change-section-2").unwrap();
+        assert_eq!(unstaged.bottom(), untracked.top());
+        assert_eq!(untracked.bottom(), staged.top());
+        assert!(
+            staged.bottom() < footer.top() - px(100.0),
+            "Fully collapsed sections stay at the top in their original order"
+        );
+    }
+    view.update(cx, |this, _| {
+        let ui = &mut this.git_states[0];
+        assert!(ui.collapsed_changes.contains(&3));
+        let file = ui.snapshot.as_ref().unwrap().status.files[199].clone();
+        ui.reveal_change(&Detail::File(file, Side::Worktree));
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-discard-file-797").is_some(),
+        "File navigation scrolls within the destination section"
+    );
+    let untracked = cx.debug_bounds("git-change-section-3").unwrap();
+    let staged = cx.debug_bounds("git-change-section-2").unwrap();
+    let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+    assert_eq!(untracked.bottom(), staged.top());
+    assert_eq!(staged.bottom(), footer.top());
+}
+
+#[gpui_test::test]
+fn sections_keep_sidebar_headers_visible_with_long_branch_lists(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, ScrollDelta, ScrollWheelEvent, point, px};
+    cx.update(gpui_kit::init);
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this
+                .state
+                .open_directory("/synthetic/sidebar-sections".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot {
+                branches: (0..500)
+                    .map(|index| tervia::git::Branch {
+                        name: format!("mock-{index}"),
+                        current: false,
+                        remote: false,
+                        upstream: String::new(),
+                    })
+                    .collect(),
+                ..Default::default()
+            };
+            let ui = &mut this.git_states[project];
+            ui.collapsed_sections.extend(["git_worktrees", "git_tags"]);
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(std::sync::Arc::new(snapshot));
+            this
+        });
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let tags = cx
+        .debug_bounds("git-sidebar-section-git_tags")
+        .expect("Collapsed tags remain reachable below a long branch list");
+    let branches = cx
+        .debug_bounds("git-sidebar-section-git_local_branches")
+        .unwrap();
+    let footer = cx.debug_bounds("git-toggle-commit").unwrap();
+    assert_eq!(tags.bottom(), footer.bottom());
+    assert!(tags.top() > branches.bottom() + px(100.0));
+    let first = cx.debug_bounds("git-sidebar-branch-0").unwrap();
+    cx.simulate_event(ScrollWheelEvent {
+        position: first.center(),
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-320.0))),
+        ..Default::default()
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("git-sidebar-section-git_local_branches")
+            .unwrap(),
+        branches
+    );
+    assert_eq!(
+        cx.debug_bounds("git-sidebar-section-git_tags").unwrap(),
+        tags
+    );
+    assert!(cx.debug_bounds("git-sidebar-branch-0").is_none());
+
+    cx.simulate_click(
+        point(branches.left() + px(20.0), branches.center().y),
+        Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let worktrees = cx
+        .debug_bounds("git-sidebar-section-git_worktrees")
+        .unwrap();
+    let branches = cx
+        .debug_bounds("git-sidebar-section-git_local_branches")
+        .unwrap();
+    let tags = cx.debug_bounds("git-sidebar-section-git_tags").unwrap();
+    assert_eq!(worktrees.bottom(), branches.top());
+    assert_eq!(branches.bottom(), tags.top());
+    assert!(tags.bottom() < footer.bottom() - px(100.0));
+}
+
+#[gpui_test::test]
+fn sections_drag_restore_and_isolate_heights_in_both_columns(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, MouseButton, point, px};
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let snapshot = Snapshot {
+                branches: (0..200)
+                    .map(|index| tervia::git::Branch {
+                        name: format!("mock-{index}"),
+                        current: false,
+                        remote: false,
+                        upstream: String::new(),
+                    })
+                    .collect(),
+                tags: (0..200).map(|index| format!("mock-tag-{index}")).collect(),
+                status: tervia::git::Status {
+                    files: (0..200)
+                        .map(|index| FileStatus {
+                            path: format!("mock-{index}.txt").into(),
+                            original: None,
+                            index: 'M',
+                            worktree: 'M',
+                            conflicted: false,
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            for root in ["/synthetic/sections-one", "/synthetic/sections-two"] {
+                let project = this.state.open_directory(root.into());
+                this.init_project(project, window, cx);
+                this.state.set_tab(tervia::state::Tab::Git);
+                this.git_states[project].reconcile_snapshot(&snapshot, cx);
+                this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot.clone()));
+            }
+            this.state.active_project = 0;
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.run_until_parked();
+    for (upper, lower, third) in [
+        (
+            "git-change-section-1",
+            "git-change-section-3",
+            "git-change-section-2",
+        ),
+        (
+            "git-sidebar-section-git_worktrees",
+            "git-sidebar-section-git_local_branches",
+            "git-sidebar-section-git_tags",
+        ),
+    ] {
+        let upper_before = cx.debug_bounds(upper).unwrap();
+        let lower_before = cx.debug_bounds(lower).unwrap();
+        let third_before = cx.debug_bounds(third).unwrap();
+        let start = point(lower_before.center().x, lower_before.top());
+        let destination = start + point(px(0.0), px(40.0));
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(destination, Some(MouseButton::Left), Modifiers::default());
+        cx.simulate_mouse_move(destination, Some(MouseButton::Left), Modifiers::default());
+        cx.update(|_, cx| {
+            assert!(
+                cx.has_active_drag(),
+                "The native section handle captures the drag"
+            )
+        });
+        cx.simulate_mouse_up(destination, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let resized = cx.debug_bounds(lower).unwrap();
+        assert!(
+            (resized.top() - lower_before.top() - px(40.0)).abs() <= px(1.0),
+            "The divider follows the pointer in {upper}: before {lower_before:?}, after {resized:?}"
+        );
+        assert_eq!(cx.debug_bounds(upper).unwrap().top(), upper_before.top());
+        assert!((cx.debug_bounds(third).unwrap().top() - third_before.top()).abs() <= px(1.0));
+        let toggle = point(upper_before.left() + px(20.0), upper_before.center().y);
+        cx.simulate_click(toggle, Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            cx.debug_bounds(upper).unwrap().bottom(),
+            cx.debug_bounds(lower).unwrap().top()
+        );
+        cx.simulate_click(toggle, Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            (cx.debug_bounds(lower).unwrap().top() - resized.top()).abs() <= px(1.0),
+            "Reopening restores the dragged height in {upper}"
+        );
+
+        view.update(cx, |this, cx| {
+            this.state.active_project = 1;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+        assert!(
+            (cx.debug_bounds(lower).unwrap().top() - lower_before.top()).abs() <= px(1.0),
+            "Other projects keep their own section sizes"
+        );
+        view.update(cx, |this, cx| {
+            this.state.active_project = 0;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!((cx.debug_bounds(lower).unwrap().top() - resized.top()).abs() <= px(1.0));
+    }
+}
+
+#[gpui_test::test]
 fn large_workbench_lists_only_build_visible_rows(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut workspace = None;

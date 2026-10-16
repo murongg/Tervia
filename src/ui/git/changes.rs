@@ -3,6 +3,7 @@ use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::scroll::ScrollableElement as _;
 use std::{
     collections::{BTreeMap, BTreeSet},
     ffi::OsString,
@@ -155,8 +156,13 @@ impl GitUi {
             }
             _ => false,
         }) {
-            self.changes_scroll
-                .scroll_to_item(row, ScrollStrategy::Center);
+            // Each group scrolls its body; headers and preceding groups are outside that list.
+            let header = self.change_rows[..row]
+                .iter()
+                .rposition(|row| matches!(row, ChangeRow::Group { .. }))
+                .expect("Files belong to a change group");
+            self.changes_scroll[group as usize]
+                .scroll_to_item(row - header - 1, ScrollStrategy::Center);
         }
     }
 
@@ -177,20 +183,64 @@ impl Tervia {
         let project = self.state.active_project;
         let ui = &self.git_states[project];
         let p = self.git_p();
-        let captured = snapshot.clone();
         let rows = ui.change_rows.clone();
-        let list = uniform_list(
-            ("git-change-rows", project),
-            rows.len(),
-            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                range
-                    .map(|index| this.git_change_row(project, &captured, &rows[index], cx))
-                    .collect()
-            }),
-        )
-        .flex_1()
-        .min_h_0()
-        .scrollbar(&ui.changes_scroll);
+        let mut groups = rows
+            .iter()
+            .enumerate()
+            .filter_map(|(index, row)| match row {
+                ChangeRow::Group { group, .. } => Some((index, *group)),
+                _ => None,
+            })
+            .peekable();
+        let mut panels = Vec::new();
+        while let Some((header, group)) = groups.next() {
+            let start = header + 1;
+            let end = groups.peek().map_or(rows.len(), |(index, _)| *index);
+            let folded = ui.collapsed_changes.contains(&group);
+            let body = if folded {
+                None
+            } else {
+                let captured = snapshot.clone();
+                let rows = rows.clone();
+                Some(
+                    uniform_list(
+                        format!("git-change-rows-{project}-{group}"),
+                        end - start,
+                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                            range
+                                .map(|index| {
+                                    this.git_change_row(
+                                        project,
+                                        &captured,
+                                        &rows[start + index],
+                                        cx,
+                                    )
+                                })
+                                .collect()
+                        }),
+                    )
+                    .flex_1()
+                    .min_h_0()
+                    .scrollbar(&ui.changes_scroll[group as usize]),
+                )
+            };
+            panels.push((
+                group as usize,
+                folded,
+                sections::panel(
+                    self.git_change_row(project, snapshot, &rows[header], cx),
+                    body,
+                ),
+            ));
+        }
+        let list = sections::stack(
+            format!("git-changes-sections-{project}"),
+            &ui.changes_layout,
+            34.0,
+            sections::HeaderBorder::Bottom(p.border),
+            panels,
+        );
+        let footer_shares_border = ui.changes_layout.ends_with_header();
         let message = ui.message.read(cx).value().to_string();
         let has_message = !message.trim().is_empty();
         let staged = snapshot
@@ -284,8 +334,12 @@ impl Tervia {
                 .disabled(!can_commit),
             );
         let footer = div()
-            .flex_shrink_0()
-            .border_t_1()
+            .flex_shrink_1()
+            .min_h(px(36.0))
+            .flex()
+            .flex_col()
+            // A folded or fully compressed last header already owns the touching seam.
+            .when(!footer_shares_border, |footer| footer.border_t_1())
             .border_color(p.border)
             .child(
                 label_button("git-toggle-commit", self.t("git_commit_toggle"), p)
@@ -299,6 +353,7 @@ impl Tervia {
                         p.secondary,
                     ))
                     .h(px(36.0))
+                    .flex_shrink_0()
                     .w_full()
                     .rounded(px(0.0))
                     .child(div().flex_1())
@@ -317,8 +372,22 @@ impl Tervia {
                         cx.notify();
                     })),
             )
-            .when(ui.review.commit_expanded, |footer| footer.child(form));
+            .when(ui.review.commit_expanded, |footer| {
+                footer.child(
+                    div()
+                        .id("git-commit-scroll")
+                        .debug_selector(|| "git-commit-scroll".into())
+                        .relative()
+                        .min_h_0()
+                        .flex_shrink_1()
+                        .overflow_y_scroll()
+                        .track_scroll(&ui.review.commit_scroll)
+                        .vertical_scrollbar(&ui.review.commit_scroll)
+                        .child(form),
+                )
+            });
         div()
+            .debug_selector(|| "git-changes-pane".into())
             .size_full()
             .min_h_0()
             .min_w_0()
@@ -365,8 +434,10 @@ impl Tervia {
                 let folded = ui.collapsed_changes.contains(&group);
                 div()
                     .id(("git-change-section", group as usize))
+                    .debug_selector(move || format!("git-change-section-{group}"))
                     .w_full()
                     .h(px(34.0))
+                    .flex_shrink_0()
                     .hover(|style| style.bg(p.raised))
                     .flex()
                     .items_center()

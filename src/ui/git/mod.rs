@@ -10,6 +10,7 @@ mod review;
 mod rounds;
 mod scans;
 pub(super) use scans::Scans;
+mod sections;
 mod sidebar;
 mod stash;
 mod switcher;
@@ -72,12 +73,14 @@ enum Detail {
 pub(super) struct GitUi {
     pub snapshot: Option<Arc<Snapshot>>,
     workspace: Option<Arc<tervia::git::Discovery>>,
-    changes_scroll: UniformListScrollHandle,
+    changes_scroll: [UniformListScrollHandle; 4],
+    changes_layout: sections::State,
     history_scroll: UniformListScrollHandle,
     history: history::History,
     reference_form: branches::ReferenceForm,
     switcher: switcher::Switcher,
-    sidebar_scroll: UniformListScrollHandle,
+    sidebar_scroll: [UniformListScrollHandle; sidebar::SECTIONS.len()],
+    sidebar_layout: sections::State,
     raw_scroll: UniformListScrollHandle,
     metadata_scroll: UniformListScrollHandle,
     commit_files_scroll: UniformListScrollHandle,
@@ -316,12 +319,14 @@ impl GitUi {
         let mut ui = Self {
             snapshot: None,
             workspace: None,
-            changes_scroll: UniformListScrollHandle::new(),
+            changes_scroll: std::array::from_fn(|_| UniformListScrollHandle::new()),
+            changes_layout: sections::State::default(),
             history_scroll: UniformListScrollHandle::new(),
             history: history::History::default(),
             reference_form: branches::ReferenceForm::new(window, cx),
             switcher: switcher::Switcher::new(window, cx),
-            sidebar_scroll: UniformListScrollHandle::new(),
+            sidebar_scroll: std::array::from_fn(|_| UniformListScrollHandle::new()),
+            sidebar_layout: sections::State::default(),
             raw_scroll: UniformListScrollHandle::new(),
             metadata_scroll: UniformListScrollHandle::new(),
             commit_files_scroll: UniformListScrollHandle::new(),
