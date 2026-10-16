@@ -40,6 +40,13 @@ pub fn resize_handle_appearance() -> ResizeHandleRenderer {
     Rc::new(|handle, window, cx| Some(render_resize_handle(handle, window, cx)))
 }
 
+/// Keep the native engagement indicator when a pane header already paints the hairline.
+pub fn resize_handle_appearance_without_line() -> ResizeHandleRenderer {
+    Rc::new(|handle, window, cx| {
+        Some(render_resize_handle_with_line(handle, window, cx, false))
+    })
+}
+
 /// How long the indicator is at each level of engagement, and how solid.
 ///
 /// Idle draws nothing. The hairline is the resting appearance of a divider, and
@@ -59,6 +66,15 @@ pub(crate) fn render_resize_handle(
     handle: &ResizeHandleContext,
     window: &mut Window,
     cx: &mut App,
+) -> AnyElement {
+    render_resize_handle_with_line(handle, window, cx, true)
+}
+
+fn render_resize_handle_with_line(
+    handle: &ResizeHandleContext,
+    window: &mut Window,
+    cx: &mut App,
+    paint_line: bool,
 ) -> AnyElement {
     let axis = handle.axis();
     let (target_length, target_opacity) = indicator(handle.state());
@@ -90,7 +106,7 @@ pub(crate) fn render_resize_handle(
         // nothing to give: shrinking it collapses the divider.
         .flex_none()
         .flex()
-        .bg(cx.theme().border)
+        .when(paint_line, |line| line.bg(cx.theme().border))
         // Along the hairline the pill is far shorter than the line, so centring
         // it there is safe. Across the hairline it is thicker than the line and
         // has to overhang, and neither flex alignment can be trusted to centre

@@ -6,6 +6,13 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
 
+pub(super) const SECTIONS: [&str; 4] = [
+    "git_worktrees",
+    "git_local_branches",
+    "git_remote_branches",
+    "git_tags",
+];
+
 #[derive(Clone)]
 enum SidebarRow {
     Navigation(usize, Mode, &'static str, IconName, usize),
@@ -21,8 +28,7 @@ impl Tervia {
         let project = self.state.active_project;
         let ui = &self.git_states[project];
         let p = self.git_p();
-        let mut rows = Vec::new();
-        rows.extend([
+        let navigation = [
             SidebarRow::Navigation(
                 0,
                 Mode::Changes,
@@ -51,43 +57,62 @@ impl Tervia {
                 IconName::Globe,
                 snapshot.remotes.len(),
             ),
-        ]);
-        rows.push(SidebarRow::Section(
-            "git_worktrees",
-            snapshot.worktrees.len(),
-        ));
-        if !ui.collapsed_sections.contains("git_worktrees") {
-            rows.extend((0..snapshot.worktrees.len()).map(SidebarRow::Worktree));
-        }
-        for (section, remote) in [("git_local_branches", false), ("git_remote_branches", true)] {
-            let count = snapshot
-                .branches
-                .iter()
-                .filter(|branch| branch.remote == remote)
-                .count();
-            if remote && count == 0 {
+        ];
+        let mut panels = Vec::new();
+        for (index, key) in SECTIONS.into_iter().enumerate() {
+            let mut rows: Vec<_> = match key {
+                "git_worktrees" => (0..snapshot.worktrees.len())
+                    .map(SidebarRow::Worktree)
+                    .collect(),
+                "git_tags" => (0..snapshot.tags.len()).map(SidebarRow::Tag).collect(),
+                _ => snapshot
+                    .branches
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, branch)| branch.remote == (key == "git_remote_branches"))
+                    .map(|(index, _)| SidebarRow::Branch(index))
+                    .collect(),
+            };
+            let count = rows.len();
+            if key == "git_remote_branches" && count == 0 {
                 continue;
             }
-            rows.push(SidebarRow::Section(section, count));
-            if !ui.collapsed_sections.contains(section) {
-                rows.extend(
-                    snapshot
-                        .branches
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, branch)| branch.remote == remote)
-                        .map(|(index, _)| SidebarRow::Branch(index)),
-                );
-            }
-        }
-        rows.push(SidebarRow::Section("git_tags", snapshot.tags.len()));
-        if !ui.collapsed_sections.contains("git_tags") {
-            rows.extend((0..snapshot.tags.len()).map(SidebarRow::Tag));
-            if snapshot.tags.is_empty() {
+            if key == "git_tags" && count == 0 {
                 rows.push(SidebarRow::Hint("git_no_tags"));
             }
+            let folded = ui.collapsed_sections.contains(key);
+            let body = if folded {
+                None
+            } else if rows.is_empty() {
+                Some(div().flex_1().min_h_0())
+            } else {
+                let snapshot = snapshot.clone();
+                Some(
+                    uniform_list(
+                        format!("git-sidebar-rows-{project}-{index}"),
+                        rows.len(),
+                        cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                            range
+                                .map(|index| {
+                                    this.git_sidebar_row(project, &snapshot, &rows[index], cx)
+                                })
+                                .collect()
+                        }),
+                    )
+                    .flex_1()
+                    .min_h_0()
+                    .scrollbar(&ui.sidebar_scroll[index]),
+                )
+            };
+            panels.push((
+                index,
+                folded,
+                sections::panel(
+                    self.git_sidebar_row(project, snapshot, &SidebarRow::Section(key, count), cx),
+                    body,
+                ),
+            ));
         }
-        let snapshot = snapshot.clone();
         div()
             .w(px(174.0))
             .flex_shrink_0()
@@ -98,18 +123,19 @@ impl Tervia {
             .border_r_1()
             .border_color(p.border)
             .child(
-                uniform_list(
-                    ("git-sidebar-rows", project),
-                    rows.len(),
-                    cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
-                        range
-                            .map(|index| this.git_sidebar_row(project, &snapshot, &rows[index], cx))
-                            .collect()
-                    }),
-                )
-                .size_full()
-                .scrollbar(&ui.sidebar_scroll),
+                div().flex_shrink_0().flex().flex_col().children(
+                    navigation
+                        .iter()
+                        .map(|row| self.git_sidebar_row(project, snapshot, row, cx)),
+                ),
             )
+            .child(sections::stack(
+                format!("git-sidebar-sections-{project}"),
+                &ui.sidebar_layout,
+                32.0,
+                sections::HeaderBorder::Top,
+                panels,
+            ))
     }
 
     fn git_sidebar_row(
@@ -160,8 +186,10 @@ impl Tervia {
                 let folded = ui.collapsed_sections.contains(key);
                 div()
                     .id(format!("git-sidebar-section-{key}"))
+                    .debug_selector(move || format!("git-sidebar-section-{key}"))
                     .w_full()
                     .h(px(32.0))
+                    .flex_shrink_0()
                     .hover(|style| style.bg(p.raised))
                     .flex()
                     .items_center()

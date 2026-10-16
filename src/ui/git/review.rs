@@ -26,6 +26,7 @@ pub(super) struct Review {
     pub checkpoint: Option<String>,
     pub busy: bool,
     pub commit_expanded: bool,
+    pub commit_scroll: ScrollHandle,
     pub focused: bool,
     cache: VecDeque<CachedDiff>,
     pub restore: Option<CachedDiff>,
