@@ -13,6 +13,7 @@ use tervia::state::{File, Tab};
 use super::{
     Tervia,
     controls::{icon, icon_button, label_button},
+    icons::file_icon,
 };
 mod preview;
 pub(in crate::ui) mod search;
@@ -259,7 +260,11 @@ impl Tervia {
             .when(file.language == "markdown", |bar| {
                 bar.child(self.source_toggle(owner, active, cx))
             })
-            .child(icon(IconName::FileCode, p.muted))
+            .child(file_icon(
+                &file.disk_path,
+                self.appearance.light_theme,
+                None,
+            ))
             .child(
                 div().flex_1().min_w_0().text_ellipsis().child(
                     file.disk_path

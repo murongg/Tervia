@@ -1,7 +1,112 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_test::TestAppContext;
-use std::fs;
+use std::{fs, sync::Arc};
+
+struct IconSurface {
+    view: Entity<Tervia>,
+    tabs: bool,
+}
+
+impl Render for IconSurface {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.view.update(cx, |view, cx| {
+            if view.state.projects.is_empty() {
+                div()
+            } else if self.tabs {
+                view.file_tabs(cx)
+            } else {
+                view.file_sidebar(cx)
+            }
+        })
+    }
+}
+
+#[gpui_test::test]
+fn file_types_share_icons_in_tree_tabs_and_both_search_modes(cx: &mut TestAppContext) {
+    use search::{Mode, Row};
+    use tervia::files::{Entry, EntryKind, search::Hit};
+
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let mut surface = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let model = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(model.clone());
+        let content = cx.new(|_| IconSurface {
+            view: model,
+            tabs: false,
+        });
+        surface = Some(content.clone());
+        gpui_kit::base::Root::new(content, window, cx)
+    });
+    let view = view.unwrap();
+    let surface = surface.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let owner = this
+                .state
+                .open_directory("/synthetic/material-icons".into());
+            this.init_project(owner, window, cx);
+            this.state.set_tab(Tab::Files);
+            this.state.projects[owner].files.push(File {
+                path: "mock.tsx".into(),
+                disk_path: "mock.tsx".into(),
+                language: "tsx".into(),
+                saved: "synthetic".into(),
+                draft: "synthetic".into(),
+            });
+            this.state.projects[owner].open_file(0);
+            let tree = &mut this.explorers[owner].tree;
+            let token = tree.begin(PathBuf::new(), false).unwrap();
+            tree.finish(
+                "".as_ref(),
+                token,
+                Ok(vec![Entry {
+                    path: "mock.tsx".into(),
+                    kind: EntryKind::File,
+                    ignored: false,
+                }]),
+            );
+        })
+    });
+    for light in [false, true] {
+        for (tabs, mode) in [
+            (false, Mode::Browse),
+            (true, Mode::Browse),
+            (false, Mode::Files),
+            (false, Mode::Text),
+        ] {
+            cx.update(|window, cx| {
+                view.update(cx, |this, _| {
+                    this.appearance.light_theme = light;
+                    let finder = &mut this.explorers[0].finder;
+                    finder.mode = mode;
+                    finder.rows = Arc::new(vec![if mode == Mode::Text {
+                        Row::Text(Hit {
+                            path: "mock.tsx".into(),
+                            line: 1,
+                            column: 1,
+                            text: "synthetic match".into(),
+                        })
+                    } else {
+                        Row::File("mock.tsx".into())
+                    }]);
+                });
+                surface.update(cx, |surface, cx| {
+                    surface.tabs = tabs;
+                    cx.notify();
+                });
+                window.draw(cx).clear(cx);
+            });
+            assert!(
+                cx.debug_bounds("file-icon-react_ts").is_some(),
+                "light={light}, tabs={tabs}, text={}",
+                mode == Mode::Text
+            );
+        }
+    }
+}
 
 #[gpui_test::test]
 fn configured_recovery_loads_clean_files_from_disk_and_preserves_unsaved_drafts(

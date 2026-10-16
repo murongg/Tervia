@@ -5,6 +5,7 @@ mod dock;
 mod explorer;
 mod files;
 mod git;
+mod icons;
 mod menus;
 mod monitor;
 mod preferences;
