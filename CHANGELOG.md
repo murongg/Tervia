@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.9.0 (2026-10-16)
+
+### Features
+
+- **git:** add resizable collapsible sections (4e01d26a)
+
+### Fixes
+
+- **git:** restore branch switcher popup rendering (de3d810b)
+
+### Other changes
+
+- **git:** check compact sections across window heights (d30f4194)
+
 ## v0.8.0 (2026-10-16)
 
 ### Features
