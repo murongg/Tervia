@@ -49,6 +49,7 @@ class PackageTests(unittest.TestCase):
         (self.root / "assets").mkdir()
         for name in ("lobe-license.txt", "hermes-license.txt"):
             (self.root / "assets" / name).write_text("synthetic license\n")
+        (self.root / "assets/material-license.txt").write_text("synthetic material license\n")
         self.tools = self.root / "tools"
         self.tools.mkdir()
         for name in ("cargo", "swift", "sips", "iconutil", "codesign"):
@@ -73,6 +74,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         binary = self.root / "build/Tervia.app/Contents/MacOS/Tervia"
         self.assertEqual(binary.read_bytes(), b"synthetic release executable")
+        notices = self.root / "build/Tervia.app/Contents/Resources/ThirdPartyNotices.txt"
+        self.assertIn("synthetic material license", notices.read_text())
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertIn(["cargo", "build", "--release", "--features", "native"], calls)
         with (self.root / "build/Tervia.app/Contents/Info.plist").open("rb") as file:

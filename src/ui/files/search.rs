@@ -294,6 +294,10 @@ impl Tervia {
                         range
                             .map(|index| {
                                 let row = rows[index].clone();
+                                let file_path = match &row {
+                                    Row::File(path) => path,
+                                    Row::Text(hit) => &hit.path,
+                                };
                                 let (path, text) = match &row {
                                     Row::File(path) => (
                                         path.file_name()
@@ -327,11 +331,31 @@ impl Tervia {
                                             .flex_col()
                                             .items_start()
                                             .text_size(px(12.0))
-                                            .child(div().w_full().text_ellipsis().child(path))
+                                            .child(
+                                                div()
+                                                    .w_full()
+                                                    .min_w_0()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(6.0))
+                                                    .child(file_icon(
+                                                        file_path,
+                                                        this.appearance.light_theme,
+                                                        None,
+                                                    ))
+                                                    .child(
+                                                        div()
+                                                            .flex_1()
+                                                            .min_w_0()
+                                                            .text_ellipsis()
+                                                            .child(path),
+                                                    ),
+                                            )
                                             .when_some(text, |item, text| {
                                                 item.child(
                                                     div()
                                                         .w_full()
+                                                        .pl(px(22.0))
                                                         .text_ellipsis()
                                                         .text_size(px(11.0))
                                                         .text_color(p.muted)

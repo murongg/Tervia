@@ -1,6 +1,7 @@
 use super::{
     Tervia,
-    controls::{icon, icon_button, label_button},
+    controls::{icon_button, label_button},
+    icons::file_icon,
     theme::Palette,
 };
 use gpui_kit::{
@@ -23,6 +24,7 @@ struct FileDrag {
     project: usize,
     index: usize,
     name: String,
+    path: std::path::PathBuf,
     light: bool,
 }
 impl Render for FileDrag {
@@ -37,7 +39,7 @@ impl Render for FileDrag {
             .rounded(px(5.0))
             .bg(p.raised)
             .text_color(p.text)
-            .child(icon(IconName::FileCode, p.accent))
+            .child(file_icon(&self.path, self.light, None))
             .child(self.name.clone())
     }
 }
@@ -72,6 +74,7 @@ impl Tervia {
                 project,
                 index,
                 name: name.clone(),
+                path: file.disk_path.clone(),
                 light: self.appearance.light_theme,
             };
             let weak = cx.entity().downgrade();
@@ -123,15 +126,10 @@ impl Tervia {
                                     .min_w_0()
                                     .gap(px(6.0))
                                     .px(px(2.0))
-                                    .child(icon(
-                                        if file.is_image() {
-                                            IconName::Image
-                                        } else if file.language == "markdown" {
-                                            IconName::FileText
-                                        } else {
-                                            IconName::FileCode
-                                        },
-                                        if selected { p.accent } else { p.secondary },
+                                    .child(file_icon(
+                                        &file.disk_path,
+                                        self.appearance.light_theme,
+                                        None,
                                     ))
                                     .child(
                                         div()

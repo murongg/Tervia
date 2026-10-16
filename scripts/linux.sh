@@ -11,7 +11,7 @@ TERVIA_PACKAGE="$TERVIA_ROOT/build/linux/Tervia"
 mkdir -p "$TERVIA_PACKAGE"
 cp target/release/tervia "$TERVIA_PACKAGE/tervia"
 cp assets/tervia.svg "$TERVIA_PACKAGE/tervia.svg"
-cat assets/lobe-license.txt assets/hermes-license.txt > "$TERVIA_PACKAGE/ThirdPartyNotices.txt"
+cat assets/lobe-license.txt assets/hermes-license.txt assets/material-license.txt > "$TERVIA_PACKAGE/ThirdPartyNotices.txt"
 cat > "$TERVIA_PACKAGE/tervia.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application

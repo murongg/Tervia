@@ -8,6 +8,7 @@ use tervia::files::{EntryKind, Row, Tree};
 use super::{
     Tervia,
     controls::{icon, icon_button, label_button},
+    icons::file_icon,
     theme::Palette,
 };
 
@@ -290,24 +291,26 @@ impl Tervia {
                     div().w(px(20.0)).into_any_element()
                 };
                 content = content
-                    .child(icon(
-                        if folder {
+                    .child(if folder {
+                        icon(
                             if expanded {
                                 IconName::FolderOpen
                             } else {
                                 IconName::Folder
-                            }
-                        } else if entry.kind == EntryKind::Symlink {
-                            IconName::Link
-                        } else if tervia::files::image_mime(&path).is_some() {
-                            IconName::Image
-                        } else if path.extension().is_some_and(|ext| ext == "md") {
-                            IconName::FileText
-                        } else {
-                            IconName::FileCode
-                        },
-                        icon_color,
-                    ))
+                            },
+                            icon_color,
+                        )
+                        .into_any_element()
+                    } else if entry.kind == EntryKind::Symlink {
+                        icon(IconName::Link, icon_color).into_any_element()
+                    } else {
+                        file_icon(
+                            &path,
+                            self.appearance.light_theme,
+                            entry.ignored.then_some(icon_color),
+                        )
+                        .into_any_element()
+                    })
                     .child(
                         div()
                             .flex_1()

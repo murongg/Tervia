@@ -22,3 +22,13 @@ Claude, Codex (the OpenAI mark), Gemini, Grok, OpenCode and OpenClaw glyphs are 
 `hermes.svg` is the Hermes Agent master icon from https://github.com/NousResearch/hermes-agent/blob/main/assets/icon-master.svg with its outer background rectangle removed for use as a small glyph. Its source MIT notice is preserved in `hermes-license.txt`.
 
 Both source MIT notices are copied into the app bundle. SVG bytes are embedded in the native executable; they require no network request or WebView at runtime.
+
+## File icons
+
+`material/` contains 55 unmodified SVGs from [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme), pinned to commit `13025adc5ad10a5cc649528a2c1edec93069f1b9`. Original files are under [`icons/` at that revision](https://github.com/material-extensions/vscode-material-icon-theme/tree/13025adc5ad10a5cc649528a2c1edec93069f1b9/icons).
+
+The curated set covers common programming languages, web files, configuration and project files, documents, images and archives. The upstream `toml_light.svg` and `pnpm_light.svg` variants provide contrast in the light theme. Unknown files use the generic document icon. Folder and symlink icons retain the existing native style; ignored file icons use the theme's subdued neutral ink.
+
+File associations and native rendering are shared by the explorer, file tabs (including their drag preview), editor header and filename/text search results in `src/ui/icons.rs`. SVG bytes are embedded, with encoded and decoded images cached for repeated rows. At load time, a 16-by-16 intrinsic viewport bounds raster memory without changing the upstream viewBox or paths. No icon download or extension runtime is needed.
+
+The upstream MIT notice is preserved in `material-license.txt` and included in the macOS, Linux and Windows packages' third-party notices.
