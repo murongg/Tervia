@@ -2013,6 +2013,19 @@ fn sections_and_commit_remain_visible_at_minimum_window_height(cx: &mut TestAppC
     );
     assert_eq!(cx.debug_bounds("git-toggle-commit").unwrap(), commit);
     assert_eq!(cx.debug_bounds("git-change-section-2").unwrap(), staged);
+    for height in 600..=650 {
+        cx.simulate_resize(size(px(880.0), px(height as f32)));
+        for _ in 0..4 {
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let settled = cx.debug_bounds("git-change-section-2").unwrap();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            cx.debug_bounds("git-change-section-2").unwrap(),
+            settled,
+            "The commit separator must not change layout on the next frame at height {height}"
+        );
+    }
 }
 
 #[gpui_test::test]
