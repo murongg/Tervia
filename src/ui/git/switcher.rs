@@ -4,7 +4,6 @@ use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::popover::{Popover, PopoverState};
-use gpui_kit::component::scroll::ScrollableElement as _;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum SwitchAnchor {
@@ -302,7 +301,10 @@ impl Tervia {
             .w(px(360.0))
             .max_h(px(430.0))
             .min_h_0()
-            .overflow_y_scrollbar()
+            // Full-height scroll wrappers collapse during the popover's content measurement.
+            .overflow_y_scroll()
+            // The search focus ring extends outside its border into this clipped scroll area.
+            .px(px(4.0))
             .flex()
             .flex_col()
             .gap(px(8.0))
@@ -416,6 +418,7 @@ impl Tervia {
                                     "",
                                     p,
                                 )
+                                .debug_selector(move || format!("git-quick-branch-row-{row}"))
                                 .h(px(36.0))
                                 .w_full()
                                 .justify_start()

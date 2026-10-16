@@ -387,6 +387,108 @@ fn double_clicking_a_branch_switches_after_a_single_click_only_browses(cx: &mut 
 }
 
 #[gpui_test::test]
+fn branch_switcher_navigation_displays_its_contents(cx: &mut TestAppContext) {
+    assert_branch_switcher_contents_visible(cx, "git-branch-switcher-navigation");
+}
+
+#[gpui_test::test]
+fn branch_switcher_toolbar_displays_its_contents(cx: &mut TestAppContext) {
+    assert_branch_switcher_contents_visible(cx, "git-branch-switcher-toolbar");
+}
+
+fn assert_branch_switcher_contents_visible(cx: &mut TestAppContext, trigger: &'static str) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let repo = repository(root.path());
+    let mut entity = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|cx| {
+            let mut view = Tervia::new(window, cx);
+            let project = view.state.open_directory(repo.root.clone());
+            view.init_project(project, window, cx);
+            view.state.set_tab(Tab::Git);
+            let snapshot = repo.snapshot(100).unwrap();
+            let ui = &mut view.git_states[project];
+            ui.repository = Some(repo.clone());
+            ui.reconcile_snapshot(&snapshot, cx);
+            ui.snapshot = Some(Arc::new(snapshot));
+            view
+        });
+        entity = Some(view.clone());
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    let view = entity.unwrap();
+    cx.simulate_resize(size(px(1200.0), px(800.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let trigger = cx.debug_bounds(trigger).unwrap();
+    cx.simulate_click(trigger.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let picker = cx.debug_bounds("git-branch-picker").unwrap();
+    assert!(
+        picker.size.height >= px(140.0),
+        "The search field and branch choices must have visible height: {picker:?}"
+    );
+    let branch = cx.debug_bounds("git-quick-branch-row-1").unwrap();
+    cx.update(|window, _| {
+        let branch = branch.scale(window.scale_factor());
+        assert!(
+            window.painted_quads().iter().any(|quad| {
+                quad.bounds == branch && quad.content_mask.bounds.intersect(&branch) == branch
+            }),
+            "The selected branch must be painted inside the popover's visible region: {branch:?}"
+        );
+    });
+    for light in [false, true] {
+        view.update(cx, |view, cx| {
+            view.appearance.light_theme = light;
+            crate::ui::theme::apply_palette(light, cx);
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, _| {
+            let scale = window.scale_factor();
+            let quads = window.painted_quads();
+            let rings: Vec<_> = quads
+                .iter()
+                .filter(|quad| {
+                    quad.border_widths.left == px(3.0).scale(scale)
+                        && quad.border_widths.right == px(3.0).scale(scale)
+                })
+                .collect();
+            let ring = rings.first().expect("The focused search must paint its ring").bounds;
+            let inset = px(1.5).scale(scale);
+            for edge in [
+                point(ring.left() + inset, ring.center().y),
+                point(ring.right() - inset, ring.center().y),
+                point(ring.center().x, ring.top() + inset),
+                point(ring.center().x, ring.bottom() - inset),
+            ] {
+                assert!(
+                    rings.iter().any(|quad| quad.content_mask.bounds.contains(&edge)),
+                    "The search focus ring must remain visible on every edge (light={light}, edge={edge:?})"
+                );
+            }
+        });
+    }
+    cx.simulate_input("feature/mock-history");
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    view.update(cx, |view, cx| {
+        let rows = view.branch_picker_rows(0, cx);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "feature/mock-history");
+    });
+    let branch = cx.debug_bounds("git-quick-branch-row-0").unwrap();
+    cx.simulate_click(branch.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("git-branch-picker").is_none());
+    assert_eq!(
+        git(root.path(), &["branch", "--show-current"]),
+        "feature/mock-history"
+    );
+}
+
+#[gpui_test::test]
 fn branch_switcher_shortcut_search_and_escape_preserve_the_active_module(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
