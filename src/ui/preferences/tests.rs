@@ -254,6 +254,9 @@ fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
     let settings = settings.unwrap();
     cx.simulate_resize(size(px(700.0), px(580.0)));
     cx.update(|window, cx| window.draw(cx).clear(cx));
+    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    cx.simulate_click(workspace.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
     let bar = cx
         .debug_bounds("scrollbar-overlay")
         .expect("The settings form needs a scrollbar");
@@ -269,6 +272,132 @@ fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
     cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
     cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
     cx.update(|_, cx| assert!(settings.read(cx).scroll.offset().y < px(0.0)));
+}
+
+#[gpui_test::test]
+fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let initial = Preferences {
+        language: Language::German,
+        light_theme: true,
+        ui_size: 15,
+        font_family: "Synthetic Mono".into(),
+        code_size: 19,
+        file_nesting: true,
+        command_suggestions: false,
+        updates: tervia::updates::Settings {
+            auto_check: false,
+            interval_minutes: 37,
+        },
+    };
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        super::apply(&initial, cx);
+        let preferences = cx.new(|_| initial.clone());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx.new(|cx| {
+            let mut settings =
+                super::PreferencesWindow::new(preferences, None, error, updater, window, cx);
+            settings.startup_action = std::sync::Arc::new(|_| Ok(false));
+            settings
+        });
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let workspace = cx
+        .debug_bounds("settings-workspace-nav")
+        .expect("Workspace settings have their own category");
+    for selector in [
+        "theme-control",
+        "language-control",
+        "ui-size-control",
+        "autostart-switch",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "General contains {selector}"
+        );
+    }
+    for selector in [
+        "font-control",
+        "code-size-control",
+        "file-nesting-switch",
+        "command-suggestions-switch",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_none(),
+            "General excludes {selector}"
+        );
+    }
+    cx.simulate_click(workspace.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    for selector in [
+        "font-control",
+        "code-size-control",
+        "file-nesting-switch",
+        "command-suggestions-switch",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "Workspace contains {selector}"
+        );
+    }
+    for selector in [
+        "theme-control",
+        "language-control",
+        "ui-size-control",
+        "autostart-switch",
+    ] {
+        assert!(
+            cx.debug_bounds(selector).is_none(),
+            "Workspace excludes {selector}"
+        );
+    }
+    let reset = cx.debug_bounds("settings-reset-defaults").unwrap();
+    cx.simulate_click(reset.center(), Modifiers::default());
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).preferences.read(cx),
+            &Preferences {
+                font_family: Preferences::default().font_family,
+                code_size: Preferences::default().code_size,
+                file_nesting: false,
+                ..initial.clone()
+            }
+        );
+        let preferences = settings.read(cx).preferences.clone();
+        preferences.update(cx, |preferences, cx| {
+            preferences.font_family = initial.font_family.clone();
+            preferences.code_size = initial.code_size;
+            preferences.file_nesting = initial.file_nesting;
+            cx.notify();
+        });
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let general = cx.debug_bounds("settings-general-nav").unwrap();
+    cx.simulate_click(general.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let reset = cx.debug_bounds("settings-reset-defaults").unwrap();
+    cx.simulate_click(reset.center(), Modifiers::default());
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).preferences.read(cx),
+            &Preferences {
+                font_family: initial.font_family.clone(),
+                code_size: initial.code_size,
+                file_nesting: initial.file_nesting,
+                command_suggestions: false,
+                updates: initial.updates,
+                ..Preferences::default()
+            }
+        );
+        assert_eq!(settings.read(cx).startup_enabled, Some(false));
+    });
 }
 
 #[gpui_test::test]
@@ -288,8 +417,11 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
     cx.simulate_resize(size(px(700.0), px(580.0)));
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
+    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    cx.simulate_click(workspace.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
     let footer = cx.debug_bounds("settings-footer").unwrap();
-    // Platform font metrics can put this row below the fixed footer after Startup is added.
+    // Large font metrics can put this row below the fixed footer in the workspace form.
     cx.simulate_event(ScrollWheelEvent {
         position: point(footer.center().x, footer.top() - px(24.0)),
         delta: ScrollDelta::Pixels(point(px(0.0), px(-1000.0))),
@@ -299,7 +431,7 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         let control = cx
             .debug_bounds("file-nesting-switch")
-            .expect("File nesting is discoverable in Interface settings");
+            .expect("File nesting is discoverable in Workspace settings");
         let footer = cx.debug_bounds("settings-footer").unwrap();
         assert!(
             control.bottom() <= footer.top(),
@@ -382,6 +514,9 @@ fn terminal_suggestions_can_be_disabled_in_settings(cx: &mut TestAppContext) {
     });
     let settings = settings.unwrap();
     cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    cx.simulate_click(workspace.center(), Modifiers::default());
     cx.update(|_, cx| {
         settings.update(cx, |this, cx| {
             this.scroll.set_offset(point(px(0.0), px(-2000.0)));
@@ -458,6 +593,10 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
     let language = cx
         .debug_bounds("language-control")
         .expect("Language control bounds");
+    let language_label = cx.debug_bounds("language").unwrap();
+    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    cx.simulate_click(workspace.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
     let font = cx
         .debug_bounds("font-control")
         .expect("Font control bounds");
@@ -467,8 +606,8 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
     assert_eq!(navigation.size.width, px(176.0));
     assert_eq!(language.left(), font.left());
     assert_eq!(language.right(), font.right());
-    for (label, control) in [("language", language), ("code_font", font)] {
-        let label = cx.debug_bounds(label).unwrap();
+    let font_label = cx.debug_bounds("code_font").unwrap();
+    for (label, control) in [(language_label, language), (font_label, font)] {
         assert!(label.left() >= navigation.right() + px(24.0));
         assert!(label.right() + px(16.0) <= control.left());
         assert!(control.right() <= px(676.0));
@@ -487,7 +626,7 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
     });
     cx.update(|window, cx| window.draw(cx).clear(cx));
     assert!(cx.update(|_, cx| settings.read(cx).scroll.offset().y) < px(0.0));
-    let category = cx.debug_bounds("settings-interface-nav").unwrap();
+    let category = cx.debug_bounds("settings-workspace-nav").unwrap();
     cx.simulate_click(category.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     assert_eq!(

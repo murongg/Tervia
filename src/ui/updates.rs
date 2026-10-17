@@ -367,12 +367,6 @@ impl Render for Updater {
             .gap(px(24.0))
             .child(
                 div()
-                    .text_size(px(20.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(language.text("updates")),
-            )
-            .child(
-                div()
                     .flex()
                     .items_center()
                     .gap(px(16.0))
