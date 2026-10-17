@@ -117,11 +117,14 @@ impl Tervia {
             ));
         }
         div()
+            .debug_selector(|| "git-sidebar-pane".into())
             .size_full()
             .min_h_0()
             .flex()
             .flex_col()
             .bg(p.sidebar)
+            .border_r_1()
+            .border_color(p.border)
             .child(
                 div().flex_shrink_0().flex().flex_col().children(
                     navigation

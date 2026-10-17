@@ -77,20 +77,21 @@ fn executable(root: &Path, source: &Path) -> io::Result<PathBuf> {
     Ok(destination)
 }
 
-#[cfg(any(target_os = "linux", all(test, unix)))]
-fn retry_busy<T>(mut operation: impl FnMut() -> io::Result<T>) -> io::Result<T> {
-    let mut remaining = 10;
+#[cfg(any(test, not(target_os = "macos")))]
+fn retry_executable<T>(mut spawn: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    // Concurrent fork/exec can briefly inherit a writable image handle despite CLOEXEC.
+    // ETXTBSY means no child started, so retry it within a bound without masking other failures.
+    let deadline = Instant::now() + Duration::from_secs(1);
     loop {
-        let result = operation();
-        remaining -= 1;
-        if remaining == 0
-            || !matches!(&result, Err(error) if error.raw_os_error() == Some(libc::ETXTBSY))
-        {
-            return result;
+        match spawn() {
+            Err(error)
+                if error.kind() == io::ErrorKind::ExecutableFileBusy
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => return result,
         }
-        // A concurrent fork may retain a copied image's writer until exec closes CLOEXEC descriptors.
-        // ETXTBSY means exec never started the host; retry it briefly without masking other launch errors.
-        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -131,10 +132,7 @@ pub(super) fn spawn(
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x00000008 | 0x00000200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP.
         }
-        #[cfg(target_os = "linux")]
-        let mut child = retry_busy(|| command.spawn())?;
-        #[cfg(not(target_os = "linux"))]
-        let mut child = command.spawn()?;
+        let mut child = retry_executable(|| command.spawn())?;
         std::thread::spawn(move || {
             let _ = child.wait();
         });
@@ -142,7 +140,7 @@ pub(super) fn spawn(
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -208,69 +206,77 @@ mod tests {
     }
 
     #[test]
-    fn busy_launch_retries_until_the_executable_is_available() {
+    fn an_executable_that_is_temporarily_busy_is_retried() {
         let mut attempts = 0;
-        let value = retry_busy(|| {
+        let result = retry_executable(|| {
             attempts += 1;
             if attempts < 3 {
-                Err(io::Error::from_raw_os_error(libc::ETXTBSY))
+                Err(io::Error::new(
+                    io::ErrorKind::ExecutableFileBusy,
+                    "synthetic busy executable",
+                ))
             } else {
-                Ok("mock-started")
+                Ok("synthetic ready executable")
             }
-        })
-        .unwrap();
-        assert_eq!(value, "mock-started");
+        });
+        assert_eq!(result.unwrap(), "synthetic ready executable");
         assert_eq!(attempts, 3);
     }
 
     #[test]
-    fn other_launch_failures_are_returned_without_retrying() {
-        let mut attempts = 0;
-        let error = retry_busy::<()>(|| {
-            attempts += 1;
-            Err(io::Error::from_raw_os_error(libc::EACCES))
-        })
-        .unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(libc::EACCES));
-        assert_eq!(attempts, 1);
+    fn other_executable_errors_are_returned_without_retrying() {
+        for kind in [
+            io::ErrorKind::NotFound,
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::Other,
+        ] {
+            let mut attempts = 0;
+            let error = retry_executable::<()>(|| {
+                attempts += 1;
+                Err(io::Error::new(kind, "synthetic launch failure"))
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), kind);
+            assert_eq!(attempts, 1);
+        }
     }
 
     #[test]
-    fn a_persistent_write_lease_exhausts_the_launch_budget() {
+    fn an_executable_that_stays_busy_returns_the_last_error() {
         let mut attempts = 0;
-        let error = retry_busy::<()>(|| {
+        let error = retry_executable::<()>(|| {
             attempts += 1;
-            Err(io::Error::from_raw_os_error(libc::ETXTBSY))
+            Err(io::Error::new(
+                io::ErrorKind::ExecutableFileBusy,
+                "synthetic persistent writer",
+            ))
         })
         .unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(libc::ETXTBSY));
-        assert_eq!(attempts, 10);
+        assert_eq!(error.kind(), io::ErrorKind::ExecutableFileBusy);
+        assert_eq!(error.to_string(), "synthetic persistent writer");
+        assert!(attempts > 1);
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn a_busy_cached_host_starts_after_its_writer_closes() {
-        use std::os::unix::fs::PermissionsExt;
+    fn spawning_waits_for_an_executable_writer_to_close() {
+        use std::os::unix::fs::PermissionsExt as _;
+
         let root = tempfile::tempdir().unwrap();
         let source = root.path().join("mock-host");
-        fs::write(&source, b"#!/bin/sh\nprintf mock-started >> \"$2\"\n").unwrap();
+        fs::write(&source, "#!/bin/sh\nexit 0\n").unwrap();
         fs::set_permissions(&source, fs::Permissions::from_mode(0o700)).unwrap();
         let image = executable(root.path(), &source).unwrap();
         let writer = fs::OpenOptions::new().write(true).open(image).unwrap();
-        let closing = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(250));
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
             drop(writer);
         });
-        let marker = root.path().join("mock-launch");
-        let result = spawn(root.path(), &source, &marker, &[]);
-        closing.join().unwrap();
-        result.unwrap();
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while fs::read_to_string(&marker).ok().as_deref() != Some("mock-started")
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(fs::read_to_string(marker).unwrap(), "mock-started");
+        let result = spawn(root.path(), &source, root.path(), &[]);
+        release.join().unwrap();
+        assert!(
+            result.is_ok(),
+            "A transient executable writer must not prevent terminal startup: {result:?}"
+        );
     }
 }

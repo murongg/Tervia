@@ -170,16 +170,11 @@ fn sidebar_width_drags_with_limits_and_survives_navigation(cx: &mut TestAppConte
     cx.run_until_parked();
 
     fn width(cx: &mut VisualTestContext) -> Pixels {
-        cx.debug_bounds("git-sidebar-section-git_worktrees")
-            .unwrap()
-            .size
-            .width
+        cx.debug_bounds("git-sidebar-pane").unwrap().size.width
     }
 
     fn drag(cx: &mut VisualTestContext, desired: f32) {
-        let sidebar = cx
-            .debug_bounds("git-sidebar-section-git_worktrees")
-            .unwrap();
+        let sidebar = cx.debug_bounds("git-sidebar-pane").unwrap();
         let start = point(sidebar.right(), sidebar.center().y);
         let end = point(sidebar.left() + px(desired), start.y);
         cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
@@ -252,9 +247,7 @@ fn sidebar_width_drags_with_limits_and_survives_navigation(cx: &mut TestAppConte
     cx.simulate_resize(size(px(880.0), px(560.0)));
     cx.update(|window, cx| window.draw(cx).clear(cx));
     cx.run_until_parked();
-    let sidebar = cx
-        .debug_bounds("git-sidebar-section-git_worktrees")
-        .unwrap();
+    let sidebar = cx.debug_bounds("git-sidebar-pane").unwrap();
     let changes = cx.debug_bounds("git-changes-pane").unwrap();
     let viewer = cx.debug_bounds("git-diff-viewer").unwrap();
     assert!((px(174.0)..=px(400.0)).contains(&sidebar.size.width));
@@ -262,6 +255,64 @@ fn sidebar_width_drags_with_limits_and_survives_navigation(cx: &mut TestAppConte
     assert!(changes.size.width >= px(200.0));
     assert!(viewer.size.width >= px(220.0));
     assert!(viewer.right() <= px(880.0));
+}
+
+#[gpui_test::test]
+fn sidebar_divider_uses_one_workbench_hairline_in_both_themes(cx: &mut TestAppContext) {
+    let (_root, repo) = fixture();
+    let (view, cx) = mount(cx, &repo);
+    for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
+        view.update(cx, |this, cx| {
+            this.appearance.light_theme = light;
+            super::super::super::theme::apply_palette(light, cx);
+            cx.notify();
+        });
+        cx.simulate_scale_factor_change(scale);
+        cx.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.draw(cx).clear(cx);
+        });
+        let section = cx
+            .debug_bounds("git-sidebar-section-git_worktrees")
+            .unwrap();
+        cx.update(|window, _| {
+            let section = section.scale(scale);
+            let pixel = px(1.0).scale(scale);
+            let zero = px(0.0).scale(scale);
+            let quads = window.painted_quads();
+            let seams: Vec<_> = quads
+                .iter()
+                .filter(|quad| {
+                    // Border quads may be split into masked fragments; count only visible paint.
+                    let x = if quad.border_widths.right > zero && !quad.border_color.is_transparent() {
+                        quad.bounds.right() - quad.border_widths.right * 0.5
+                    } else {
+                        quad.bounds.center().x
+                    };
+                    quad.content_mask.bounds.contains(&point(x, section.center().y))
+                        && quad.bounds.top() < section.center().y
+                        && quad.bounds.bottom() > section.center().y
+                        && ((quad.bounds.size.width == pixel
+                            && !quad.background.is_transparent()
+                            && (quad.bounds.left() - section.right()).as_f32().abs() <= pixel.as_f32())
+                            || (quad.border_widths.right > zero
+                                && !quad.border_color.is_transparent()
+                                && (quad.bounds.right() - quad.border_widths.right - section.right())
+                                    .as_f32().abs()
+                                    <= pixel.as_f32()))
+                })
+                .collect();
+            assert_eq!(seams.len(), 1, "Only one sidebar hairline: light={light}, scale={scale}");
+            let expected = super::super::super::theme::Palette::workbench(light).border;
+            let seam = seams[0];
+            if seam.border_widths.right > zero && !seam.border_color.is_transparent() {
+                assert_eq!(seam.border_widths.right, pixel);
+                assert_eq!(seam.border_color, expected);
+            } else {
+                assert_eq!(seam.background, expected.into(), "The sidebar divider must match adjacent workbench borders: light={light}, scale={scale}");
+            }
+        });
+    }
 }
 
 #[gpui_test::test]
