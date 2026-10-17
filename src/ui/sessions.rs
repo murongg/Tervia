@@ -54,7 +54,8 @@ impl Tervia {
             }
         };
         let preferences = self.preferences.clone();
-        let console = cx.new(|cx| console::Console::new(cwd, preferences, window, cx));
+        let history = self.command_history.clone();
+        let console = cx.new(|cx| console::Console::new(cwd, preferences, history, window, cx));
         self.subscriptions.push(
             cx.subscribe(&console, |_, _, _: &console::AttentionChanged, cx| {
                 cx.notify()

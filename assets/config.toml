@@ -23,6 +23,11 @@ ui_size = 13
 [files]
 nesting = false
 
+# Complete typed prefixes using local shell history and common commands. No model or network requests.
+# Disabling this also stops recording new commands. Existing history is retained.
+[terminal]
+suggestions = true
+
 # Check GitHub Releases at startup and periodically. Downloading/installing still requires confirmation.
 [updates]
 auto_check = true

@@ -393,7 +393,14 @@
     "local_terminal_empty": "终端会话已关闭",
     "local_terminal_files_hint": "打开项目后可在文件页查看终端链接。",
     "startup_project_unavailable": "上次的项目目录暂时不可用。你可以重新选择项目，或直接使用终端。",
-    "terminal_limit": "每个工作区最多保留 64 个终端标签。"
+    "terminal_limit": "每个工作区最多保留 64 个终端标签。",
+    "command_suggestions": "本地命令建议",
+    "command_suggestions_hint": "输入时从现有 Shell 历史、当前目录记录和常用命令中补全。仅在本机读取，不保存输出；关闭后停止读取和记录。",
+    "suggestion_correction": "建议纠正",
+    "suggestion_history": "根据历史",
+    "suggestion_insert": "填入命令",
+    "suggestion_history_error": "命令历史不可用",
+    "suggestion_common": "常用命令"
   },
   "en": {
     "menu_file": "File",
@@ -789,7 +796,14 @@
     "local_terminal_empty": "Terminal session closed",
     "local_terminal_files_hint": "Open a project to view terminal links in Files.",
     "startup_project_unavailable": "The previous project directory is unavailable. Open another project or use a terminal.",
-    "terminal_limit": "Each workspace supports up to 64 terminal tabs."
+    "terminal_limit": "Each workspace supports up to 64 terminal tabs.",
+    "command_suggestions": "Local command suggestions",
+    "command_suggestions_hint": "Complete from existing shell history, current-directory records, and common commands. History is read locally; output is never saved. Turning this off stops reading and recording.",
+    "suggestion_correction": "Correction",
+    "suggestion_history": "From history",
+    "suggestion_insert": "Insert command",
+    "suggestion_history_error": "Command history unavailable",
+    "suggestion_common": "Common command"
   },
   "ja": {
     "menu_file": "ファイル",
@@ -1185,7 +1199,14 @@
     "local_terminal_empty": "ターミナルセッションを閉じました",
     "local_terminal_files_hint": "プロジェクトを開くと、ファイル画面でターミナルのリンクを確認できます。",
     "startup_project_unavailable": "前回のプロジェクトフォルダーを利用できません。別のプロジェクトを開くか、ターミナルを使用してください。",
-    "terminal_limit": "各ワークスペースのターミナルは最大64タブです。"
+    "terminal_limit": "各ワークスペースのターミナルは最大64タブです。",
+    "command_suggestions": "ローカルコマンド候補",
+    "command_suggestions_hint": "既存のShell履歴、現在のディレクトリの記録、一般的なコマンドから補完します。履歴は端末内で読み込み、出力は保存しません。無効にすると読み込みと記録を停止します。",
+    "suggestion_correction": "修正候補",
+    "suggestion_history": "履歴から",
+    "suggestion_insert": "コマンドを挿入",
+    "suggestion_history_error": "コマンド履歴を利用できません",
+    "suggestion_common": "よく使うコマンド"
   },
   "ko": {
     "menu_file": "파일",
@@ -1581,7 +1602,14 @@
     "local_terminal_empty": "터미널 세션이 닫혔습니다",
     "local_terminal_files_hint": "프로젝트를 열면 파일 화면에서 터미널 링크를 볼 수 있습니다.",
     "startup_project_unavailable": "이전 프로젝트 폴더를 사용할 수 없습니다. 다른 프로젝트를 열거나 터미널을 사용하세요.",
-    "terminal_limit": "작업 공간마다 터미널 탭을 최대 64개까지 열 수 있습니다."
+    "terminal_limit": "작업 공간마다 터미널 탭을 최대 64개까지 열 수 있습니다.",
+    "command_suggestions": "로컬 명령 제안",
+    "command_suggestions_hint": "기존 Shell 기록, 현재 디렉터리 기록과 일반 명령으로 자동 완성합니다. 기록은 기기에서만 읽으며 출력은 저장하지 않습니다. 끄면 읽기와 기록을 중지합니다.",
+    "suggestion_correction": "수정 제안",
+    "suggestion_history": "기록 기반",
+    "suggestion_insert": "명령 삽입",
+    "suggestion_history_error": "명령 기록을 사용할 수 없음",
+    "suggestion_common": "자주 쓰는 명령"
   },
   "fr": {
     "menu_file": "Fichier",
@@ -1977,7 +2005,14 @@
     "local_terminal_empty": "Session de terminal fermée",
     "local_terminal_files_hint": "Ouvrez un projet pour consulter les liens du terminal dans Fichiers.",
     "startup_project_unavailable": "Le dossier du dernier projet est indisponible. Ouvrez un autre projet ou utilisez le terminal.",
-    "terminal_limit": "Chaque espace de travail accepte jusqu’à 64 onglets de terminal."
+    "terminal_limit": "Chaque espace de travail accepte jusqu’à 64 onglets de terminal.",
+    "command_suggestions": "Suggestions locales",
+    "command_suggestions_hint": "Compléter avec l’historique Shell existant, les commandes du dossier et les commandes courantes. Lecture locale, sans enregistrer les sorties. Désactiver arrête la lecture et la collecte.",
+    "suggestion_correction": "Correction",
+    "suggestion_history": "Depuis l’historique",
+    "suggestion_insert": "Insérer la commande",
+    "suggestion_history_error": "Historique indisponible",
+    "suggestion_common": "Commande courante"
   },
   "de": {
     "menu_file": "Datei",
@@ -2373,7 +2408,14 @@
     "local_terminal_empty": "Terminalsitzung geschlossen",
     "local_terminal_files_hint": "Öffnen Sie ein Projekt, um Terminal-Links unter Dateien anzuzeigen.",
     "startup_project_unavailable": "Der letzte Projektordner ist nicht verfügbar. Öffnen Sie ein anderes Projekt oder verwenden Sie das Terminal.",
-    "terminal_limit": "Jeder Arbeitsbereich unterstützt bis zu 64 Terminal-Tabs."
+    "terminal_limit": "Jeder Arbeitsbereich unterstützt bis zu 64 Terminal-Tabs.",
+    "command_suggestions": "Lokale Befehlsvorschläge",
+    "command_suggestions_hint": "Aus vorhandenem Shell-Verlauf, Verzeichnisverlauf und häufigen Befehlen ergänzen. Verlauf wird lokal gelesen; Ausgaben werden nicht gespeichert. Ausschalten beendet Lesen und Aufzeichnen.",
+    "suggestion_correction": "Korrektur",
+    "suggestion_history": "Aus dem Verlauf",
+    "suggestion_insert": "Befehl einfügen",
+    "suggestion_history_error": "Befehlsverlauf nicht verfügbar",
+    "suggestion_common": "Häufiger Befehl"
   },
   "es": {
     "menu_file": "Archivo",
@@ -2769,7 +2811,14 @@
     "local_terminal_empty": "Sesión de terminal cerrada",
     "local_terminal_files_hint": "Abre un proyecto para ver los enlaces de la terminal en Archivos.",
     "startup_project_unavailable": "La carpeta del proyecto anterior no está disponible. Abre otro proyecto o usa la terminal.",
-    "terminal_limit": "Cada espacio de trabajo admite hasta 64 pestañas de terminal."
+    "terminal_limit": "Cada espacio de trabajo admite hasta 64 pestañas de terminal.",
+    "command_suggestions": "Sugerencias locales",
+    "command_suggestions_hint": "Completa con el historial Shell existente, los registros del directorio y comandos habituales. Solo lectura local; no se guardan las salidas. Desactivar detiene la lectura y el registro.",
+    "suggestion_correction": "Corrección",
+    "suggestion_history": "Del historial",
+    "suggestion_insert": "Insertar comando",
+    "suggestion_history_error": "Historial no disponible",
+    "suggestion_common": "Comando habitual"
   },
   "pt": {
     "menu_file": "Arquivo",
@@ -3165,7 +3214,14 @@
     "local_terminal_empty": "Sessão de terminal encerrada",
     "local_terminal_files_hint": "Abra um projeto para ver os links do terminal em Arquivos.",
     "startup_project_unavailable": "A pasta do último projeto está indisponível. Abra outro projeto ou use o terminal.",
-    "terminal_limit": "Cada espaço de trabalho aceita até 64 abas de terminal."
+    "terminal_limit": "Cada espaço de trabalho aceita até 64 abas de terminal.",
+    "command_suggestions": "Sugestões locais",
+    "command_suggestions_hint": "Completa com o histórico Shell existente, registros da pasta e comandos comuns. Leitura local; saídas não são salvas. Desativar interrompe a leitura e o registro.",
+    "suggestion_correction": "Correção",
+    "suggestion_history": "Do histórico",
+    "suggestion_insert": "Inserir comando",
+    "suggestion_history_error": "Histórico indisponível",
+    "suggestion_common": "Comando comum"
   },
   "ru": {
     "menu_file": "Файл",
@@ -3561,7 +3617,14 @@
     "local_terminal_empty": "Сеанс терминала закрыт",
     "local_terminal_files_hint": "Откройте проект, чтобы просматривать ссылки терминала в разделе «Файлы».",
     "startup_project_unavailable": "Папка предыдущего проекта недоступна. Откройте другой проект или используйте терминал.",
-    "terminal_limit": "В каждом рабочем пространстве доступно до 64 вкладок терминала."
+    "terminal_limit": "В каждом рабочем пространстве доступно до 64 вкладок терминала.",
+    "command_suggestions": "Локальные подсказки команд",
+    "command_suggestions_hint": "Дополнение из истории Shell, записей текущего каталога и частых команд. История читается локально, вывод не сохраняется. Отключение останавливает чтение и запись.",
+    "suggestion_correction": "Исправление",
+    "suggestion_history": "Из истории",
+    "suggestion_insert": "Вставить команду",
+    "suggestion_history_error": "История команд недоступна",
+    "suggestion_common": "Частая команда"
   },
   "zh-TW": {
     "menu_file": "檔案",
@@ -3957,6 +4020,13 @@
     "local_terminal_empty": "終端機工作階段已關閉",
     "local_terminal_files_hint": "開啟專案後可在檔案頁檢視終端機連結。",
     "startup_project_unavailable": "上次的專案目錄暫時無法使用。請重新選擇專案，或直接使用終端機。",
-    "terminal_limit": "每個工作區最多保留 64 個終端機分頁。"
+    "terminal_limit": "每個工作區最多保留 64 個終端機分頁。",
+    "command_suggestions": "本機命令建議",
+    "command_suggestions_hint": "輸入時從現有 Shell 歷史、目前目錄記錄和常用命令中補全。僅在本機讀取，不儲存輸出；關閉後停止讀取和記錄。",
+    "suggestion_correction": "建議修正",
+    "suggestion_history": "根據歷史",
+    "suggestion_insert": "填入命令",
+    "suggestion_history_error": "命令歷史無法使用",
+    "suggestion_common": "常用命令"
   }
 }

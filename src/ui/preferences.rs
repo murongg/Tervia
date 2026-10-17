@@ -456,6 +456,42 @@ impl PreferencesWindow {
             cx.notify();
         });
     }
+
+    fn terminal_settings(&self, cx: &mut Context<Self>) -> Div {
+        let p = Palette::new(self.current.light_theme);
+        div()
+            .flex()
+            .flex_col()
+            .child(self.heading("terminal"))
+            .child(
+                self.row(
+                    "command_suggestions",
+                    "command-suggestions-control",
+                    div()
+                        .debug_selector(|| "command-suggestions-switch".into())
+                        .flex()
+                        .items_center()
+                        .h_full()
+                        .child(
+                            Switch::new("command-suggestions")
+                                .checked(self.current.command_suggestions)
+                                .accessibility_label(self.t("command_suggestions"))
+                                .on_change(cx.listener(|this, enabled, _, cx| {
+                                    this.preferences.update(cx, |prefs, cx| {
+                                        prefs.command_suggestions = *enabled;
+                                        cx.notify();
+                                    });
+                                })),
+                        ),
+                ),
+            )
+            .child(
+                div()
+                    .text_size(px(11.0))
+                    .text_color(p.secondary)
+                    .child(self.t("command_suggestions_hint")),
+            )
+    }
 }
 
 impl Render for PreferencesWindow {
@@ -594,7 +630,9 @@ impl Render for PreferencesWindow {
                                         .text_color(p.secondary)
                                         .child(self.t("file_nesting_hint")),
                                 ),
-                        ),
+                        )
+                        .child(div().h(px(1.0)).bg(p.border))
+                        .child(self.terminal_settings(cx)),
                 )
             });
         let footer = div()

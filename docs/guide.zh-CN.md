@@ -85,6 +85,10 @@ macOS 使用用户 LaunchAgent，Windows 使用当前用户的 Run 启动项，L
 - ⌘点击终端中的文件路径（Windows / Linux 为 Ctrl 点击），可打开文件并跳转到对应行列，支持 `src/main.rs:42:7`、引号内含空格的路径和当前项目内的绝对路径。相对路径以所选项目目录为基准；普通拖选和 TUI 鼠标操作仍可使用。
 - 终端搜索支持 ⌘F（Windows / Linux 为 Ctrl+Shift+F）或工具栏搜索图标，搜索输出与滚动历史中的文字。小写查询忽略大小写，含大写的查询区分大小写；Enter / Shift+Enter 前后定位匹配，Esc 返回 Shell，最多显示 5,000 个匹配。后台终端发出铃声时，会话和所属项目显示请求关注标记；聚焦窗格后清除。
 - 终端提示符与输入由 Shell 自己绘制，兼容已有提示符主题的基础协议；没有独立输入框。
+- **本地命令建议**：在 Shell 输入至少两个字符后，光标旁显示最多 6 条前缀匹配的候选。例如输入 `git` 会显示 `git status`、`git stash`、`git commit`；继续输入 `git sta` 会筛选为匹配项。相同目录和 Shell 中成功执行过的历史命令优先，按频率、最近使用时间排序并去重，再补充常用 Git、Cargo、npm、pnpm 等命令。↑ / ↓ 选择，Tab、Enter 或点击只补上剩余字符，再按 Enter 执行；Esc 收起列表后，方向键和 Tab 交给 Shell。空输入和命令结束后不弹出建议。列表优先出现在输入行下方，空间不足时向上展开或减少可见行数，不改变终端行列数。搜索、输入法组合、查看滚动历史和全屏程序期间隐藏。Shell 历史导航、Tab 补全或光标移动后，暂停前缀补全到下一次空提示符，避免使用不准确的输入内容。
+- **复用现有 Shell 历史**：Shell 启动配置加载后自动报告实际路径，支持 Zsh 的普通 / 扩展历史、Bash 的普通 / 时间戳历史、Fish 的历史文件和 PowerShell 的 PSReadLine 历史，包括自定义 `HISTFILE`、`fish_history` / `XDG_DATA_HOME` 和 `HistorySavePath`。从文件末尾最多读取 1 MiB，取最近最多 2,000 条可补全的单行记录；跳过空白开头、可识别的多行、未写完和无效编码的记录；Bash 无时间戳历史无法完全还原多行命令边界。候选顺序为当前目录的成功记录 → Shell 历史 → 常用命令，每组按频率和最近使用时间排序、跨组去重。原 Shell 历史只读且不复制进 `command-history.json`，不会伪造其目录或退出码；文件变化后下一次补全会重新读取。其他终端尚未落盘的历史需等待 Shell 自身保存。未配置历史文件、禁用历史或 Fish 私密模式时不导入。
+- 在设置 → 界面 → 终端关闭“本地命令建议”，或设置 `[terminal] suggestions = false`。关闭后停止记录新命令。命令及目录、Shell、退出码等元数据仅保存在 `config.toml` 同目录的 `command-history.json`，不保存终端输出、不请求模型或网络服务；最多保留 2,000 条记录。空白开头或包含换行的命令不参与历史学习。关闭应用后可删除该文件清空历史；历史文件损坏时会保留原文件并显示错误。
+- 命令边界通过临时 Shell 启动脚本采集，不修改用户的启动文件。Zsh、Bash 已通过真实 PTY 验证；Fish 使用原生事件，PowerShell 使用 PSReadLine。Bash 保留登录 Shell，通过首次提示符加载集成；启动配置完全替换 `PROMPT_COMMAND`，或单独占用 DEBUG trap 时会停用建议。其他 Shell 及未集成的 SSH / 嵌套 Shell 中保持常规终端行为。
 - 真实 Git 管理：变更 / 历史 / 分支 / 远程 / Stash，原生行内 / 并排 Diff 和区块暂存。
 - 文件页显示所选项目的目录树：按需读取、虚拟化长列表、展开 / 折叠，状态按项目保留。原生文件监控在后台暂停，回到前台立即刷新并继续自动同步目录和未修改的编辑内容；磁盘变化时保留未保存草稿。可从文件树、Git 或系统文件选择器打开文件；支持多个标签、语法高亮、查找、保存和右上角刷新。
 - 文件编辑器与 Git Diff 共用语言识别，支持 Rust、JavaScript / JSX、TypeScript / TSX、Python、Go、C / C++、C#、Java、Kotlin、Swift、HTML / CSS、JSON / YAML / TOML、Shell、SQL、Markdown、Vue、Dart、PowerShell、Fish、Dockerfile / Containerfile、INI、XML、JSON5、SCSS / Less、HCL / Terraform、Nix 等内置语法。可识别 Makefile、CMakeLists.txt、Cargo.lock、.env 系列、.editorconfig、.npmrc 等常见文件名；Markdown 代码块及网页、模板中的内嵌代码使用各自的语法高亮。
@@ -205,6 +209,10 @@ TOML 语法、配置值或读取出错时，使用默认设置启动并显示配
 | ⌘⇧C | Ctrl+Shift+C | 在文件源码 / Git Diff 中复制带路径和行号的选区上下文 |
 | ⌘K | Ctrl+Shift+K | 清空获得焦点的终端屏幕与滚动历史，并请求程序重绘 |
 | Ctrl+K | Ctrl+K | 发送给 Shell / TUI，保留程序原有快捷键 |
+| ⌘⌫ | Ctrl+U（Bash/Zsh）或 Ctrl+Home（PowerShell） | 调用 Shell 的删行操作；光标在行尾时清空当前命令 |
+| ⌘← / ⌘→ | Home / End | 通过 Shell 的编辑键移动到行首 / 行尾 |
+| ⌥⌫ | Ctrl+Backspace | 删除光标前的一个词，具体边界由 Shell 决定 |
+| — | Ctrl+← / Ctrl+→ / Ctrl+Delete | 发送带 Control 修饰的方向键 / Delete，交给 Shell 或 TUI 处理 |
 | ⇧PageUp / ⇧PageDown | Shift+PageUp / Shift+PageDown | 终端历史翻页 |
 | Esc | Esc | 终端焦点下发送给程序；其他区域优先关闭弹层，再关闭窗口 |
 

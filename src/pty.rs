@@ -9,6 +9,8 @@ use std::{
 use crate::agent::Agent;
 use async_channel::Receiver;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+mod integration;
+pub use integration::ShellIntegration;
 
 pub enum PtyEvent {
     Data(Vec<u8>),
@@ -23,6 +25,7 @@ pub struct PtySession {
     child: OwnedChild,
     writer: Option<mpsc::Sender<Vec<u8>>>,
     identity: Arc<Mutex<Option<Agent>>>,
+    _integration: Option<ShellIntegration>,
 }
 
 pub fn initial_directory(project: &Path, home: &Path) -> std::path::PathBuf {
@@ -61,6 +64,29 @@ fn configure_terminal_environment(command: &mut CommandBuilder) {
 }
 
 impl PtySession {
+    pub fn spawn_shell(
+        cwd: &Path,
+        size: PtySize,
+    ) -> Result<
+        (
+            Self,
+            Receiver<PtyEvent>,
+            Option<crate::terminal::shell::Tracker>,
+        ),
+        String,
+    > {
+        let mut command = shell_command(cwd);
+        let integration = ShellIntegration::configure(&mut command)?;
+        let tracker = integration.as_ref().map(|integration| {
+            crate::terminal::shell::Tracker::new(
+                integration.token().into(),
+                &default_shell().to_string_lossy(),
+            )
+        });
+        let (mut session, receiver) = Self::spawn(command, size)?;
+        session._integration = integration;
+        Ok((session, receiver, tracker))
+    }
     pub fn foreground_agent(&self) -> Option<Agent> {
         *self.identity.lock().unwrap()
     }
@@ -200,6 +226,7 @@ impl PtySession {
                 child,
                 writer: Some(writer_sender),
                 identity,
+                _integration: None,
             },
             receiver,
         ))
