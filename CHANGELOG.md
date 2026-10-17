@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.10.0 (2026-10-17)
+
+### Features
+
+- **terminal:** add local terminal and startup restoration (67cd6134)
+- **git:** enrich worktree context menus (06e1cbc6)
+- **git:** add worktree removal menu and main badge (45eaba29)
+- **autostart:** add launch at login setting (8d0c185b)
+
+### Other changes
+
+- **settings:** reveal file nesting toggle before clicking (f442c738)
+
 ## v0.9.0 (2026-10-16)
 
 ### Features
