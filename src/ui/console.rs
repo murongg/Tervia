@@ -16,13 +16,14 @@ use tervia::{
     locale::Language,
     platform::Platform,
     preferences::Preferences,
-    pty::{PtyEvent, PtySession, shell_command},
+    pty::{PtyEvent, PtySession},
     terminal::{FileLink, TerminalBuffer, key_bytes, mouse_bytes, paste_bytes},
 };
 
 use super::theme::Palette;
 mod scroll;
 mod search;
+mod suggestions;
 
 gpui_kit::actions!(
     console,
@@ -151,6 +152,30 @@ pub fn init(cx: &mut App) {
         }
     }
     cx.bind_keys(bindings);
+    if Platform::CURRENT == Platform::Mac {
+        // Translate macOS editing chords into shell-owned control keys. Clearing
+        // input must not use the separate action that erases terminal scrollback.
+        cx.bind_keys(
+            [
+                ("cmd-backspace", "u"),
+                ("cmd-left", "a"),
+                ("cmd-right", "e"),
+            ]
+            .into_iter()
+            .map(|(chord, key)| {
+                KeyBinding::new(
+                    chord,
+                    SendKey {
+                        key,
+                        control: true,
+                        alt: false,
+                        shift: false,
+                    },
+                    Some("Console"),
+                )
+            }),
+        );
+    }
 }
 
 pub struct Console {
@@ -159,6 +184,7 @@ pub struct Console {
     pub agent: Option<Agent>,
     pub(super) attention: bool,
     search: Option<search::Search>,
+    suggestions: suggestions::State,
     buffer: TerminalBuffer,
     session: Option<PtySession>,
     appearance: Preferences,
@@ -217,6 +243,7 @@ impl Console {
     pub fn new(
         cwd: PathBuf,
         preferences: Entity<Preferences>,
+        history: tervia::suggestions::Worker,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -227,6 +254,7 @@ impl Console {
             agent: None,
             attention: false,
             search: None,
+            suggestions: suggestions::State::new(history),
             buffer: TerminalBuffer::new(80, 24),
             session: None,
             appearance,
@@ -251,7 +279,12 @@ impl Console {
         console
             ._subscriptions
             .push(cx.observe(&preferences, |this, preferences, cx| {
-                this.appearance = preferences.read(cx).clone();
+                let appearance = preferences.read(cx).clone();
+                if this.appearance.command_suggestions != appearance.command_suggestions {
+                    this.invalidate_suggestion();
+                    this.suggestions.new_session();
+                }
+                this.appearance = appearance;
                 cx.notify();
             }));
         console
@@ -302,8 +335,8 @@ impl Console {
         // Native UI tests use an in-memory terminal: OS reader threads cannot wake
         // GPUI’s deterministic test scheduler. Real PTY transport has integration coverage.
         if !cfg!(test) {
-            match PtySession::spawn(
-                shell_command(&cwd),
+            match PtySession::spawn_shell(
+                &cwd,
                 PtySize {
                     rows: 24,
                     cols: 80,
@@ -311,8 +344,9 @@ impl Console {
                     pixel_height: 0,
                 },
             ) {
-                Ok((session, receiver)) => {
+                Ok((session, receiver, tracker)) => {
                     console.session = Some(session);
+                    console.suggestions.tracker = tracker;
                     console._reader = Some(cx.spawn(async move |weak, cx| {
                         while let Ok(event) = receiver.recv().await {
                             let mut batch = vec![event];
@@ -327,15 +361,16 @@ impl Console {
                                     for event in batch {
                                         match event {
                                             PtyEvent::Data(bytes) => {
-                                                this.buffer.feed(&bytes);
-                                                this.handle_events(cx);
+                                                this.receive_output(&bytes, cx);
                                             }
                                             PtyEvent::Exited(status) => {
                                                 this.status = Some(Status::Exited(status));
                                                 this.session.take();
+                                                this.invalidate_suggestion();
                                             }
                                             PtyEvent::Error(error) => {
                                                 this.status = Some(Status::Connection(error));
+                                                this.invalidate_suggestion();
                                             }
                                         }
                                     }
@@ -360,6 +395,7 @@ impl Console {
     }
 
     pub fn shutdown(&mut self) {
+        self.invalidate_suggestion();
         self.stop_selecting();
         self.session.take();
         self._reader.take();
@@ -405,6 +441,8 @@ impl Console {
     }
 
     fn send(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        self.suggestions.input.send(bytes);
+        self.invalidate_suggestion();
         #[cfg(test)]
         self.transmitted.push(bytes.to_vec());
         self.cursor_on = true;
@@ -416,6 +454,7 @@ impl Console {
             self.buffer.term.selection = None;
             cx.notify();
         }
+        self.refresh_suggestions(cx);
     }
 
     fn handle_events(&mut self, cx: &mut Context<Self>) {
@@ -477,6 +516,11 @@ impl Console {
     }
 
     fn escape(&mut self, _: &Escape, _: &mut Window, cx: &mut Context<Self>) {
+        if self.suggestion_visible() {
+            self.invalidate_suggestion();
+            cx.notify();
+            return;
+        }
         self.send(b"\x1b", cx);
     }
 
@@ -487,6 +531,9 @@ impl Console {
         }
         if !self.composition.is_empty() {
             cx.propagate();
+            return;
+        }
+        if !key.alt && !key.control && !key.shift && self.suggestion_key(key.key, window, cx) {
             return;
         }
         if key.shift && matches!(key.key, "pageup" | "pagedown") {
@@ -526,6 +573,14 @@ impl Console {
         }
         let key = &event.keystroke;
         if key.modifiers.platform || !self.composition.is_empty() {
+            return;
+        }
+        if !key.modifiers.control
+            && !key.modifiers.alt
+            && !key.modifiers.shift
+            && self.suggestion_key(&key.key, window, cx)
+        {
+            cx.stop_propagation();
             return;
         }
         if key.modifiers.shift && key.key == "pageup" {
@@ -788,10 +843,13 @@ mod tests {
 
     impl Render for ScrollFixture {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div()
-                .size_full()
-                .p(px(40.0))
-                .child(div().w(px(420.0)).h(px(240.0)).child(self.0.clone()))
+            div().size_full().p(px(40.0)).child(
+                div()
+                    .w_full()
+                    .max_w(px(420.0))
+                    .h(px(240.0))
+                    .child(self.0.clone()),
+            )
         }
     }
 
@@ -1167,6 +1225,512 @@ mod tests {
         });
     }
 
+    #[gpui_test::test]
+    fn mac_command_editing_shortcuts_reach_the_shell_and_dismiss_completion(
+        cx: &mut TestAppContext,
+    ) {
+        if Platform::CURRENT != Platform::Mac {
+            return;
+        }
+        let (console, cx) = scroll_fixture(cx);
+        let output = cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+                assert!(this.suggestion_visible());
+                this.output()
+            })
+        });
+        cx.simulate_keystrokes("cmd-backspace");
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.transmitted.concat(), b"git\x15");
+            assert!(!this.suggestion_visible());
+            assert_eq!(
+                this.output(),
+                output,
+                "Deleting input must not clear terminal output or scrollback"
+            );
+        });
+        cx.simulate_input("git");
+        cx.update(|_, cx| {
+            assert!(
+                console.read(cx).suggestion_visible(),
+                "Completion should work again after clearing a known input line"
+            )
+        });
+        cx.simulate_keystrokes("cmd-left cmd-right alt-backspace ctrl-u ctrl-w");
+        cx.update(|_, cx| {
+            assert_eq!(
+                console.read(cx).transmitted.concat(),
+                b"git\x15git\x01\x05\x1b\x7f\x15\x17"
+            );
+        });
+    }
+
+    #[gpui_test::test]
+    fn terminal_editing_shortcuts_leave_search_and_ime_input_to_their_editors(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| this.open_search(window, cx));
+        });
+        cx.simulate_input("syntheticquery");
+        cx.simulate_keystrokes(if Platform::CURRENT == Platform::Mac {
+            "cmd-backspace"
+        } else {
+            "ctrl-backspace"
+        });
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert!(
+                this.search
+                    .as_ref()
+                    .unwrap()
+                    .input
+                    .read(cx)
+                    .value()
+                    .is_empty()
+            );
+            assert!(this.transmitted.is_empty());
+        });
+        cx.simulate_keystrokes("escape");
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.composition = "合成".into();
+            })
+        });
+        cx.simulate_keystrokes(if Platform::CURRENT == Platform::Mac {
+            "cmd-backspace"
+        } else {
+            "ctrl-backspace"
+        });
+        cx.update(|_, cx| {
+            assert!(
+                console.read(cx).transmitted.is_empty(),
+                "IME editing must not send control bytes to the shell"
+            )
+        });
+    }
+
+    #[gpui_test::test]
+    fn typing_a_prefix_opens_a_keyboard_selectable_list_and_enter_only_fills(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.buffer.feed(b"\x1b[2J\x1b[3J\x1b[Hmock> ");
+                this.suggestions.input.prompt();
+                assert!(!this.suggestion_visible());
+                this.send(b"git", cx);
+                this.buffer.feed(b"git");
+                assert_eq!(this.suggestions.candidates.len(), 6);
+                assert_eq!(this.suggestions.candidates[0].command, "git status");
+            });
+        });
+        cx.update(|window, cx| {
+            for _ in 0..2 {
+                window.draw(cx).clear(cx);
+            }
+        });
+        assert!(cx.debug_bounds("terminal-suggestion-row-0").is_some());
+        assert!(cx.debug_bounds("terminal-suggestion-row-2").is_some());
+        cx.simulate_keystrokes("down down up down enter");
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.transmitted, [b"git".to_vec(), b" commit".to_vec()]);
+            assert!(!this.suggestion_visible());
+        });
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted.last().unwrap(), b"\r"));
+    }
+
+    #[gpui_test::test]
+    fn prefix_changes_filter_the_list_and_reject_late_history_results(cx: &mut TestAppContext) {
+        use tervia::suggestions::{Source, Suggestion};
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+                let previous = this.suggestions.generation;
+                this.send(b" sta", cx);
+                assert_eq!(
+                    this.suggestions
+                        .candidates
+                        .iter()
+                        .map(|s| s.command.as_str())
+                        .collect::<Vec<_>>(),
+                    ["git status", "git stash"]
+                );
+                this.apply_suggestions(
+                    previous,
+                    vec![Suggestion {
+                        command: "git mock-stale".into(),
+                        source: Source::History,
+                    }],
+                    None,
+                    cx,
+                );
+                assert_eq!(this.suggestions.candidates.len(), 2);
+                this.send(b"t", cx);
+                assert_eq!(this.suggestions.candidates[0].command, "git status");
+                assert_eq!(this.suggestions.candidates.len(), 1);
+                this.send(b"\x7f", cx);
+                assert_eq!(this.suggestions.candidates.len(), 2);
+                this.send(b"\r", cx);
+                this.suggestions.input.prompt();
+                assert!(
+                    !this.suggestion_visible(),
+                    "Nothing appears after Enter on an empty prompt"
+                );
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn changing_shell_history_source_invalidates_results_from_the_previous_file(
+        cx: &mut TestAppContext,
+    ) {
+        use tervia::{
+            suggestions::{Source, Suggestion},
+            terminal::shell::Tracker,
+        };
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.suggestions.tracker = Some(Tracker::new("mock-token".into(), "zsh"));
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+                let old = this.suggestions.generation;
+                let path = if cfg!(windows) {
+                    r"C:\synthetic\custom-history"
+                } else {
+                    "/synthetic/custom-history"
+                };
+                let encoded = path
+                    .as_bytes()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>();
+                this.receive_output(
+                    format!("\x1b]777;tervia;mock-token;H;{encoded}\x07").as_bytes(),
+                    cx,
+                );
+                assert!(
+                    this.suggestions.generation > old,
+                    "Changing the source must cancel its outstanding prefix query"
+                );
+                this.apply_suggestions(
+                    old,
+                    vec![Suggestion {
+                        command: "git obsolete-source".into(),
+                        source: Source::History,
+                    }],
+                    None,
+                    cx,
+                );
+                assert!(
+                    !this
+                        .suggestions
+                        .candidates
+                        .iter()
+                        .any(|s| s.command == "git obsolete-source")
+                );
+            })
+        });
+    }
+
+    #[gpui_test::test]
+    fn escape_releases_arrows_and_tab_to_the_shell(cx: &mut TestAppContext) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+            });
+        });
+        cx.simulate_keystrokes("escape up tab");
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(
+                this.transmitted,
+                [b"git".to_vec(), b"\x1b[A".to_vec(), b"\t".to_vec()]
+            );
+            assert!(!this.suggestion_visible());
+        });
+    }
+
+    #[gpui_test::test]
+    fn late_history_results_keep_the_chosen_command_and_tab_fills_it(cx: &mut TestAppContext) {
+        use tervia::suggestions::{Source, Suggestion};
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+                this.suggestion_key("down", window, cx);
+                this.apply_suggestions(
+                    this.suggestions.generation,
+                    (0..6)
+                        .map(|index| Suggestion {
+                            command: format!("git mock-history-{index}"),
+                            source: Source::History,
+                        })
+                        .collect(),
+                    None,
+                    cx,
+                );
+            });
+        });
+        cx.simulate_keystrokes("tab");
+        cx.update(|_, cx| {
+            assert_eq!(
+                console.read(cx).transmitted,
+                [b"git".to_vec(), b" stash".to_vec()]
+            )
+        });
+    }
+
+    #[gpui_test::test]
+    fn late_history_reordering_cannot_change_a_pressed_completion(cx: &mut TestAppContext) {
+        use tervia::suggestions::{Source, Suggestion};
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer.feed(b"\x1b[2J\x1b[3J\x1b[Hmock> git");
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+            })
+        });
+        cx.update(|window, cx| {
+            for _ in 0..2 {
+                window.draw(cx).clear(cx);
+            }
+        });
+        let pressed = cx
+            .debug_bounds("terminal-suggestion-row-1")
+            .unwrap()
+            .center();
+        cx.simulate_mouse_down(pressed, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.apply_suggestions(
+                    this.suggestions.generation,
+                    vec![
+                        Suggestion {
+                            command: "git mock-history".into(),
+                            source: Source::History,
+                        },
+                        Suggestion {
+                            command: "git status".into(),
+                            source: Source::Common,
+                        },
+                        Suggestion {
+                            command: "git stash".into(),
+                            source: Source::Common,
+                        },
+                    ],
+                    None,
+                    cx,
+                );
+            })
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_up(pressed, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| {
+            assert_eq!(
+                console.read(cx).transmitted,
+                [b"git".to_vec()],
+                "A press on stash must never fill the status row that replaced it"
+            )
+        });
+    }
+
+    #[gpui_test::test]
+    fn clicking_a_completion_inserts_only_its_suffix_without_selecting_output(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer
+                    .feed(b"\x1b[2J\x1b[3J\x1b[Hmock> git\x1b[?1000h");
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+            });
+        });
+        cx.update(|window, cx| {
+            for _ in 0..2 {
+                window.draw(cx).clear(cx);
+            }
+        });
+        let button = cx
+            .debug_bounds("terminal-suggestion-row-1")
+            .expect("Stash candidate");
+        cx.simulate_click(button.center(), Modifiers::default());
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.transmitted, [b"git".to_vec(), b" stash".to_vec()]);
+            assert!(this.buffer.term.selection.is_none());
+        });
+    }
+
+    #[gpui_test::test]
+    fn completion_list_follows_input_and_fits_small_panes_without_resizing_the_pty(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        let before = cx.update(|_, cx| console.read(cx).buffer.size());
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer.feed(b"\x1b[2J\x1b[3J\x1b[Hmock> git");
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+            })
+        });
+        cx.update(|window, cx| {
+            for _ in 0..3 {
+                window.draw(cx).clear(cx);
+            }
+        });
+        let popup = cx
+            .debug_bounds("terminal-suggestion")
+            .expect("List below input");
+        let footer = cx.debug_bounds("terminal-suggestion-footer").unwrap();
+        assert!(
+            footer.bottom() <= popup.bottom() - px(4.0),
+            "The keyboard hints must fit inside the list border"
+        );
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.buffer.size(), before);
+            let prompt_bottom = this.bounds.top() + this.cell_height;
+            assert!(popup.top() >= prompt_bottom && popup.top() <= prompt_bottom + px(8.0));
+            assert!(popup.left() >= this.bounds.left() && popup.right() <= this.bounds.right());
+            assert!(popup.bottom() <= this.bounds.bottom());
+        });
+        cx.simulate_resize(size(px(320.0), px(280.0)));
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.appearance.code_size = 24;
+                this.buffer.feed(b"\x1b[999;999H");
+                cx.notify();
+            })
+        });
+        cx.update(|window, cx| {
+            for _ in 0..3 {
+                window.draw(cx).clear(cx);
+            }
+        });
+        let popup = cx
+            .debug_bounds("terminal-suggestion")
+            .expect("List above bottom input");
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            let prompt_top = this.bounds.top()
+                + this.cell_height * this.buffer.term.grid().cursor.point.line.0 as f32;
+            assert!(popup.bottom() <= prompt_top);
+            assert!(popup.top() >= this.bounds.top());
+            assert!(popup.left() >= this.bounds.left() && popup.right() <= this.bounds.right());
+        });
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.suggestion_key("up", window, cx);
+            })
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(
+            cx.debug_bounds("terminal-suggestion-row-5").is_some(),
+            "Arrow navigation reveals the last row in a short pane"
+        );
+    }
+
+    #[gpui_test::test]
+    fn completion_does_not_capture_keys_during_search_composition_scrollback_or_fullscreen(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.suggestions.input.prompt();
+                this.send(b"git", cx);
+                this.buffer.feed(b"\x1b[?1049h");
+                this.accept_suggestion(window, cx);
+                assert_eq!(this.transmitted, [b"git".to_vec()]);
+                this.buffer.feed(b"\x1b[?1049l");
+                this.open_search(window, cx);
+                assert!(!this.suggestion_visible());
+                this.search.as_mut().unwrap().open = false;
+                this.composition = "mock".into();
+                assert!(!this.suggestion_visible());
+                this.composition.clear();
+                this.buffer.term.scroll_display(Scroll::Top);
+                assert!(!this.suggestion_visible());
+                this.buffer.term.scroll_display(Scroll::Bottom);
+                this.appearance.command_suggestions = false;
+                this.accept_suggestion(window, cx);
+                assert_eq!(this.transmitted, [b"git".to_vec()]);
+            })
+        });
+    }
+
+    #[gpui_test::test]
+    fn typed_ahead_input_blocks_completion_until_a_fresh_shell_prompt(cx: &mut TestAppContext) {
+        use tervia::terminal::shell::Tracker;
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                let cwd = if cfg!(windows) {
+                    r"C:\synthetic"
+                } else {
+                    "/synthetic"
+                };
+                let hex = |text: &str| {
+                    text.as_bytes()
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                };
+                let marker = |body: String| format!("\x1b]777;tervia;mock-token;{body}\x07");
+                this.suggestions.tracker = Some(Tracker::new("mock-token".into(), "zsh"));
+                this.suggestions.input.prompt();
+                this.send(b"sleep 1", cx);
+                this.send(b"\r", cx);
+                this.receive_output(
+                    marker(format!("C;{};{}", hex(cwd), hex("sleep 1"))).as_bytes(),
+                    cx,
+                );
+                this.send(b"git", cx);
+                this.receive_output(marker("D;0".into()).as_bytes(), cx);
+                this.receive_output(marker(format!("P;{}", hex(cwd))).as_bytes(), cx);
+                assert!(!this.suggestion_visible());
+                this.send(b"\r", cx);
+                this.receive_output(
+                    marker(format!("C;{};{}", hex(cwd), hex("git"))).as_bytes(),
+                    cx,
+                );
+                this.receive_output(marker("D;0".into()).as_bytes(), cx);
+                this.receive_output(marker(format!("P;{}", hex(cwd))).as_bytes(), cx);
+                assert!(!this.suggestion_visible());
+                this.send(b"git", cx);
+                assert!(this.suggestion_visible());
+            })
+        });
+    }
+
     fn mock_console(cx: &mut Context<Console>) -> Console {
         Console {
             focus: cx.focus_handle(),
@@ -1174,6 +1738,7 @@ mod tests {
             agent: None,
             attention: false,
             search: None,
+            suggestions: suggestions::State::new(tervia::suggestions::Worker::new(None)),
             buffer: TerminalBuffer::new(80, 24),
             session: None,
             appearance: Preferences {
@@ -1391,6 +1956,7 @@ impl Render for Console {
         let entity = cx.entity();
         let p = Palette::new(self.appearance.light_theme);
         let search_bar = self.search_bar(cx);
+        let suggestion_bar = self.suggestion_bar(cx);
         div()
             .id("native-console")
             .relative()
@@ -1467,7 +2033,8 @@ impl Render for Console {
                     )
                     .child(gpui_kit::component::scroll::Scrollbar::vertical(
                         &self.scrollbar,
-                    )),
+                    ))
+                    .children(suggestion_bar),
             )
             .children(self.status.as_ref().map(|status| {
                 div()
@@ -1496,6 +2063,12 @@ impl Console {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Frame {
+        let old_geometry = (
+            self.bounds,
+            self.cell_width,
+            self.cell_height,
+            self.suggestions.viewport,
+        );
         let p = Palette::new(self.appearance.light_theme);
         let font_size = px(self.appearance.code_size as f32);
         let font = Font {
@@ -1523,6 +2096,7 @@ impl Console {
                 (bounds.size.height - px(32.0)).max(px(1.0)),
             ),
         );
+        self.suggestions.viewport = bounds;
         let cols = (f32::from(self.bounds.size.width) / f32::from(self.cell_width))
             .floor()
             .max(2.0) as usize;
@@ -1543,6 +2117,12 @@ impl Console {
             }
         }
         self.sync_scrollbar(bounds);
+        // Overlay placement follows text metrics and pane bounds, without resizing the PTY.
+        if self.suggestions.input.prefix().is_some()
+            && old_geometry != (self.bounds, self.cell_width, self.cell_height, bounds)
+        {
+            cx.notify();
+        }
         let content = self.buffer.term.renderable_content();
         let selection = content.selection;
         let offset = content.display_offset;

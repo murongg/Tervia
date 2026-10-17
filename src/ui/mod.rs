@@ -90,6 +90,7 @@ pub struct Tervia {
     monitors: Vec<monitor::Monitor>,
     terminals: Vec<Vec<Option<Entity<console::Console>>>>,
     local_terminals: Vec<Option<Entity<console::Console>>>,
+    command_history: tervia::suggestions::Worker,
     git_states: Vec<git::GitUi>,
     git_scans: git::Scans,
     git_mutating: bool,
@@ -175,6 +176,11 @@ impl Tervia {
         let preferences = cx.new(|_| appearance.clone());
         let updater = cx.new(|cx| updates::Updater::new(preferences.clone(), cx));
         let local_terminals = vec![None; state.local_terminal.sessions.len()];
+        let command_history = tervia::suggestions::Worker::new(
+            config
+                .as_ref()
+                .map(|config| config.path().with_file_name("command-history.json")),
+        );
         let mut view = Self {
             focus: cx.focus_handle(),
             state,
@@ -193,6 +199,7 @@ impl Tervia {
             monitors: Vec::new(),
             terminals: Vec::new(),
             local_terminals,
+            command_history,
             git_states: Vec::new(),
             git_scans: git::Scans::default(),
             git_mutating: false,

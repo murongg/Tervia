@@ -68,6 +68,32 @@ fn file_nesting_defaults_off_and_round_trips_without_losing_comments() {
 }
 
 #[test]
+fn terminal_suggestions_default_on_and_round_trip_with_comments() {
+    let (_root, mut config) =
+        fixture("[terminal]\nsuggestions = false # synthetic preference\nfuture = 'mock'\n");
+    let mut preferences = config.load().unwrap();
+    assert!(!preferences.command_suggestions);
+    preferences.command_suggestions = true;
+    config.save(&preferences).unwrap();
+    assert!(
+        Config::new(config.path().into())
+            .load()
+            .unwrap()
+            .command_suggestions
+    );
+    let source = fs::read_to_string(config.path()).unwrap();
+    assert!(source.contains("# synthetic preference"));
+    assert!(source.contains("future = 'mock'"));
+    let (_root, mut config) = fixture("");
+    assert!(config.load().unwrap().command_suggestions);
+    for source in ["terminal = false", "[terminal]\nsuggestions = 'yes'"] {
+        let (_root, mut config) = fixture(source);
+        assert!(config.load().unwrap_err().contains("terminal"));
+        assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+    }
+}
+
+#[test]
 fn invalid_file_nesting_settings_leave_the_config_untouched() {
     for source in [
         "files = false",

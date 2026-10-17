@@ -11,6 +11,7 @@ pub mod process;
 #[cfg(feature = "pty")]
 pub mod pty;
 pub mod state;
+pub mod suggestions;
 pub mod terminal;
 pub mod updates;
 pub mod workspace;

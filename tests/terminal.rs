@@ -108,6 +108,42 @@ fn keyboard_and_paste_follow_terminal_modes() {
 }
 
 #[test]
+fn terminal_editing_keys_preserve_cross_platform_word_line_and_control_sequences() {
+    for mode in [
+        TermMode::empty(),
+        TermMode::APP_CURSOR,
+        TermMode::ALT_SCREEN,
+    ] {
+        assert_eq!(
+            key_bytes("backspace", true, false, false, mode),
+            Some(vec![0x17]),
+            "Ctrl+Backspace should request backward word deletion"
+        );
+        assert_eq!(
+            key_bytes("backspace", false, true, false, mode),
+            Some(vec![0x1b, 0x7f])
+        );
+        assert_eq!(
+            key_bytes("left", true, false, false, mode),
+            Some(b"\x1b[1;5D".to_vec())
+        );
+        assert_eq!(
+            key_bytes("right", true, false, false, mode),
+            Some(b"\x1b[1;5C".to_vec())
+        );
+        assert_eq!(
+            key_bytes("delete", true, false, false, mode),
+            Some(b"\x1b[3;5~".to_vec())
+        );
+        assert_eq!(key_bytes("u", true, false, false, mode), Some(vec![0x15]));
+        assert_eq!(key_bytes("a", true, false, false, mode), Some(vec![0x01]));
+        assert_eq!(key_bytes("e", true, false, false, mode), Some(vec![0x05]));
+        assert_eq!(key_bytes("c", true, false, false, mode), Some(vec![0x03]));
+        assert_eq!(key_bytes("v", true, false, false, mode), Some(vec![0x16]));
+    }
+}
+
+#[test]
 fn shell_cursor_is_a_blinking_beam_and_programs_can_change_its_shape() {
     use alacritty_terminal::vte::ansi::CursorShape;
     let mut terminal = TerminalBuffer::new(40, 8);

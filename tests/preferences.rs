@@ -1,6 +1,16 @@
 use tervia::preferences::Preferences;
 
 #[test]
+fn resetting_interface_preferences_does_not_resume_history_recording() {
+    let mut preferences = Preferences {
+        command_suggestions: false,
+        ..Preferences::default()
+    };
+    preferences.reset();
+    assert!(!preferences.command_suggestions);
+}
+
+#[test]
 fn font_sizes_stay_within_readable_bounds() {
     let mut prefs = Preferences::default();
     prefs.set_code_size(4);

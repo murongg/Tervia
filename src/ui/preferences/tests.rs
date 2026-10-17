@@ -368,6 +368,35 @@ fn update_settings_show_save_errors_without_an_interface_reset_action(cx: &mut T
 }
 
 #[gpui_test::test]
+fn terminal_suggestions_can_be_disabled_in_settings(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| {
+            this.scroll.set_offset(point(px(0.0), px(-2000.0)));
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let switch = cx
+        .debug_bounds("command-suggestions-switch")
+        .expect("Command suggestions switch");
+    cx.simulate_click(switch.center(), Modifiers::default());
+    cx.update(|_, cx| assert!(!settings.read(cx).preferences.read(cx).command_suggestions));
+}
+
+#[gpui_test::test]
 fn escape_on_the_welcome_screen_cannot_interrupt_installation(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut view = None;

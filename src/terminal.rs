@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 mod links;
+pub mod shell;
 pub use links::{FileLink, file_link};
 
 use alacritty_terminal::{
@@ -42,10 +43,15 @@ pub struct TerminalBuffer {
 
 impl TerminalBuffer {
     pub fn new(columns: usize, rows: usize) -> Self {
+        Self::with_history(columns, rows, 10000)
+    }
+
+    pub(crate) fn with_history(columns: usize, rows: usize, history: usize) -> Self {
         let events = Events::default();
         Self {
             term: Term::new(
                 Config {
+                    scrolling_history: history,
                     default_cursor_style: CursorStyle {
                         shape: CursorShape::Beam,
                         blinking: true,
@@ -282,6 +288,8 @@ pub fn key_bytes(
     let mut bytes = match key {
         "enter" => vec![b'\r'],
         "escape" => vec![27],
+        // Ctrl+W is understood by Readline, ZLE and PSReadLine (including Windows mode).
+        "backspace" if control => vec![0x17],
         "backspace" => vec![127],
         "tab" if shift => b"\x1b[Z".to_vec(),
         "tab" => vec![b'\t'],

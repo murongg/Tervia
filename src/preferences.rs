@@ -6,6 +6,7 @@ pub struct Preferences {
     pub light_theme: bool,
     pub language: Language,
     pub file_nesting: bool,
+    pub command_suggestions: bool,
     pub updates: crate::updates::Settings,
 }
 
@@ -18,6 +19,7 @@ impl Default for Preferences {
             light_theme: false,
             language: Language::System,
             file_nesting: false,
+            command_suggestions: true,
             updates: crate::updates::Settings::default(),
         }
     }
@@ -31,9 +33,10 @@ impl Preferences {
         self.ui_size = size.clamp(11, 16);
     }
     pub fn reset(&mut self) {
-        // Resetting Interface settings must not re-enable automatic network checks.
+        // Resetting appearance must not resume network checks or command-history recording.
         *self = Self {
             updates: self.updates,
+            command_suggestions: self.command_suggestions,
             ..Self::default()
         };
     }
