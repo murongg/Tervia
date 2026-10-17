@@ -117,6 +117,19 @@ fn metadata(directory: &Path) -> io::Result<Value> {
     Ok(value)
 }
 
+pub(super) fn has_exited(directory: &Path, process_exited: impl FnOnce(u32) -> bool) -> bool {
+    if directory.join("finished.json").is_file() || matches!(directory.try_exists(), Ok(false)) {
+        return true;
+    }
+    // A reconnect/lease failure is not proof of exit. Unknown metadata or process permissions keep the tab.
+    metadata(directory)
+        .ok()
+        .and_then(|value| value["pid"].as_u64())
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 0)
+        .is_some_and(process_exited)
+}
+
 fn socket(metadata: &Value) -> io::Result<BufReader<TcpStream>> {
     let port = metadata["port"]
         .as_u64()
@@ -293,4 +306,35 @@ fn deliver(
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recovery_discards_only_destroyed_or_confirmed_exited_processes() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("mock-session");
+        assert!(has_exited(&directory, |_| panic!("No process to inspect")));
+        fs::create_dir(&directory).unwrap();
+        assert!(!has_exited(&directory, |_| false));
+        fs::write(directory.join("endpoint.json"), "invalid mock metadata").unwrap();
+        assert!(!has_exited(&directory, |_| false));
+        fs::write(
+            directory.join("endpoint.json"),
+            json!({"version":VERSION,"pid":12345}).to_string(),
+        )
+        .unwrap();
+        assert!(!has_exited(&directory, |pid| {
+            assert_eq!(pid, 12345);
+            false
+        }));
+        assert!(has_exited(&directory, |pid| {
+            assert_eq!(pid, 12345);
+            true
+        }));
+        fs::write(directory.join("finished.json"), "{}").unwrap();
+        assert!(has_exited(&directory, |_| false));
+    }
 }

@@ -2,6 +2,22 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn closed_local_tabs_remain_empty_after_restart() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.show_local_terminal();
+    state.local_terminal.sessions[0].connection = Some("a".repeat(32));
+    store.save(&state).unwrap();
+    state.close_session(0);
+    store.save(&state).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.screen, tervia::state::Screen::Local);
+    assert!(restored.local_terminal.sessions.is_empty());
+}
+
+#[test]
 fn live_terminal_references_survive_restart_in_default_and_local_contexts() {
     let temporary = tempfile::tempdir().unwrap();
     let root = directory(&temporary, "mock-live-terminal");

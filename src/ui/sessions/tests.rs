@@ -24,6 +24,131 @@ fn window(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTes
     (view.unwrap(), cx)
 }
 
+fn saved_tabs(
+    cx: &mut TestAppContext,
+) -> (
+    Entity<Tervia>,
+    &mut gpui_test::VisualTestContext,
+    tempfile::TempDir,
+    std::path::PathBuf,
+) {
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("workspace.json");
+    let mut store = tervia::workspace::Store::new(path.clone());
+    store.load().unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_local_terminal(window, cx);
+            this.new_session(window, cx);
+            this.state.local_terminal.sessions[0].connection = Some("a".repeat(32));
+            this.state.local_terminal.sessions[1].connection = Some("b".repeat(32));
+            store.save(&this.state).unwrap();
+            this.workspace = Some(store);
+        })
+    });
+    (view, cx, root, path)
+}
+
+#[gpui_test::test]
+fn closing_a_tab_is_durable_before_shutdown_or_a_debounced_save(cx: &mut TestAppContext) {
+    let (view, cx, _root, path) = saved_tabs(cx);
+    cx.update(|window, cx| view.update(cx, |this, cx| this.close_terminal_session(1, window, cx)));
+    let restored = tervia::workspace::Store::new(path.clone()).load().unwrap();
+    assert_eq!(restored.local_terminal.sessions.len(), 1);
+    assert_eq!(
+        restored.local_terminal.sessions[0].connection,
+        Some("a".repeat(32))
+    );
+    cx.update(|window, cx| view.update(cx, |this, cx| this.close_terminal_session(0, window, cx)));
+    let restored = tervia::workspace::Store::new(path).load().unwrap();
+    assert!(restored.local_terminal.sessions.is_empty());
+}
+
+#[gpui_test::test]
+fn a_failed_recovery_save_keeps_the_tab_and_its_console_alive(cx: &mut TestAppContext) {
+    let (view, cx, _root, path) = saved_tabs(cx);
+    let external = std::fs::read_to_string(&path).unwrap() + "\n";
+    std::fs::write(&path, &external).unwrap();
+    cx.update(|window, cx| view.update(cx, |this, cx| this.close_terminal_session(1, window, cx)));
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.local_terminal.sessions.len(), 2);
+        assert_eq!(
+            this.state.local_terminal.sessions[1].connection,
+            Some("b".repeat(32))
+        );
+        assert!(this.local_terminals[1].is_some());
+        assert!(this.state.notice.contains("Workspace changed on disk"));
+    });
+    assert_eq!(std::fs::read_to_string(path).unwrap(), external);
+}
+
+#[gpui_test::test]
+fn startup_discards_exited_tabs_and_keeps_empty_projects_empty(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("mock-project");
+    std::fs::create_dir(&project).unwrap();
+    let path = root.path().join("workspace.json");
+    let mut store = tervia::workspace::Store::new(path.clone());
+    store.load().unwrap();
+    let mut state = tervia::state::Workspace::new(project);
+    state.project_mut().terminal.sessions[0].connection = Some("a".repeat(32));
+    state.show_local_terminal();
+    state.local_terminal.sessions[0].connection = Some("b".repeat(32));
+    state.new_session();
+    state.local_terminal.sessions[1].connection = Some("c".repeat(32));
+    state.local_terminal.split_terminal = true;
+    store.save(&state).unwrap();
+    for id in ['a', 'b', 'c'] {
+        let directory = root.path().join("sessions").join(id.to_string().repeat(32));
+        std::fs::create_dir_all(&directory).unwrap();
+        if id != 'c' {
+            std::fs::write(directory.join("finished.json"), "{}").unwrap();
+        }
+    }
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(
+                Ok(tervia::config::Config::new(root.path().join("config.toml"))),
+                window,
+                cx,
+            )
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    view.update(cx, |this, _| {
+        assert!(this.state.projects[0].terminal.sessions.is_empty());
+        assert_eq!(this.state.local_terminal.sessions.len(), 1);
+        assert_eq!(
+            this.state.local_terminal.sessions[0].connection,
+            Some("c".repeat(32))
+        );
+        assert_eq!(this.state.local_terminal.active_session, 0);
+        assert_eq!(this.state.local_terminal.focused_session, 0);
+        assert!(!this.state.local_terminal.split_terminal);
+    });
+    let restored = tervia::workspace::Store::new(path).load().unwrap();
+    assert!(restored.projects[0].terminal.sessions.is_empty());
+    assert_eq!(restored.local_terminal.sessions.len(), 1);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.change_project(0, window, cx);
+            this.change_tab(Tab::Terminal, window, cx);
+            this.change_tab(Tab::Git, window, cx);
+            this.toggle_terminal_dock(window, cx);
+            assert!(this.state.projects[0].terminal.sessions.is_empty());
+            this.new_session(window, cx);
+            assert_eq!(this.state.projects[0].terminal.sessions.len(), 1);
+            this.close_terminal_session(0, window, cx);
+            assert!(this.state.projects[0].terminal.sessions.is_empty());
+        })
+    });
+}
+
 #[gpui_test::test]
 fn quitting_retains_connections_but_explicit_tab_close_forgets_them(cx: &mut TestAppContext) {
     let (view, cx) = window(cx);

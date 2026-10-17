@@ -276,6 +276,7 @@ fn ended_shell_retains_its_final_output_and_exit_status_for_reopen() {
     let target = target(&root, 'e');
     let _cleanup = Cleanup(target.clone());
     let (session, events, _) = target.open(root.path(), size()).unwrap();
+    assert!(!target.has_exited());
     session
         .write(b"head -c 2097152 /dev/zero | tr '\\000' x; printf '\\nFINAL-%s\\n' MOCK; exit 7\r")
         .unwrap();
@@ -283,6 +284,7 @@ fn ended_shell_retains_its_final_output_and_exit_status_for_reopen() {
     while !target.directory().join("finished.json").exists() && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(10));
     }
+    assert!(target.has_exited());
     let saved = std::fs::read(target.directory().join("output")).unwrap();
     assert!(
         saved

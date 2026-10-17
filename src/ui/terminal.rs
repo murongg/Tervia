@@ -269,33 +269,26 @@ impl Tervia {
                         p.toolbar.opacity(0.0)
                     })
                     .child(title)
-                    .when(
-                        terminal.sessions.len() > 1 || !self.state.has_project(),
-                        |tab| {
-                            tab.child(
-                                icon_button(
-                                    ("close-session", index),
-                                    IconName::X,
-                                    self.t("close_session"),
-                                    p,
-                                    cx,
-                                )
-                                .custom(
-                                    ButtonCustomVariant::new(cx)
-                                        .foreground(p.text)
-                                        .hover(p.text.opacity(0.16))
-                                        .active(p.text.opacity(0.24)),
-                                )
-                                .accessibility_label(
-                                    self.f("close_named", &[("name", &session_name)]),
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, window, cx| {
-                                        this.close_terminal_session(index, window, cx)
-                                    },
-                                )),
-                            )
-                        },
+                    .child(
+                        icon_button(
+                            ("close-session", index),
+                            IconName::X,
+                            self.t("close_session"),
+                            p,
+                            cx,
+                        )
+                        .custom(
+                            ButtonCustomVariant::new(cx)
+                                .foreground(p.text)
+                                .hover(p.text.opacity(0.16))
+                                .active(p.text.opacity(0.24)),
+                        )
+                        .accessibility_label(self.f("close_named", &[("name", &session_name)]))
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.close_terminal_session(index, window, cx)
+                            },
+                        )),
                     )
                     .context_menu(move |menu, _, _| {
                         let weak = weak.clone();

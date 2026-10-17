@@ -66,6 +66,17 @@ impl Terminals {
         }
     }
 
+    pub fn retain(&mut self, mut keep: impl FnMut(&Session) -> bool) -> bool {
+        let count = self.sessions.len();
+        // Remove backwards through the existing close path so selection and split state follow surviving tabs.
+        for index in (0..self.sessions.len()).rev() {
+            if !keep(&self.sessions[index]) {
+                self.close(index);
+            }
+        }
+        self.sessions.len() != count
+    }
+
     fn add(&mut self) {
         let index = self.sessions.len();
         self.sessions.push(Session {
@@ -184,9 +195,6 @@ impl Workspace {
     }
 
     pub fn close_session(&mut self, index: usize) {
-        // Project docks retain their last surface; a local terminal may be explicitly left empty.
-        if self.screen != Screen::Project || self.terminals().sessions.len() > 1 {
-            self.terminals_mut().close(index);
-        }
+        self.terminals_mut().close(index);
     }
 }
