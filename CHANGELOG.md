@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.12.2 (2026-10-17)
+
+### Fixes
+
+- **terminal:** render empty project status bars safely (96ed2476)
+
 ## v0.12.1 (2026-10-17)
 
 ### Fixes
