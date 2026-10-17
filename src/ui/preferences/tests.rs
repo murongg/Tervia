@@ -8,6 +8,169 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn autostart_reads_system_state_and_toggles_without_changing_interface_preferences(
+    cx: &mut TestAppContext,
+) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    cx.update(gpui_kit::init);
+    let system = Arc::new(AtomicBool::new(true));
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx.new(|cx| {
+            let mut settings =
+                super::PreferencesWindow::new(preferences, None, error, updater, window, cx);
+            let system = system.clone();
+            settings.startup_action = Arc::new(move |enabled| {
+                if let Some(enabled) = enabled {
+                    system.store(enabled, Ordering::SeqCst);
+                }
+                Ok(system.load(Ordering::SeqCst))
+            });
+            settings
+        });
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(800.0), px(900.0)));
+    cx.run_until_parked();
+    assert_eq!(
+        cx.update(|_, cx| settings.read(cx).startup_enabled),
+        Some(true)
+    );
+    for enabled in [false, true] {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let switch = cx
+            .debug_bounds("autostart-switch")
+            .expect("Autostart is discoverable in settings");
+        cx.simulate_click(switch.center(), Modifiers::default());
+        cx.run_until_parked();
+        assert_eq!(system.load(Ordering::SeqCst), enabled);
+        cx.update(|_, cx| {
+            let settings = settings.read(cx);
+            assert_eq!(settings.startup_enabled, Some(enabled));
+            assert!(settings.startup_error.is_none());
+            assert_eq!(settings.current, Preferences::default());
+        });
+    }
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let reset = cx.debug_bounds("settings-reset-defaults").unwrap();
+    cx.simulate_click(reset.center(), Modifiers::default());
+    assert!(system.load(Ordering::SeqCst));
+}
+
+#[gpui_test::test]
+fn autostart_failure_keeps_the_last_state_and_shows_a_retry(cx: &mut TestAppContext) {
+    use std::sync::Arc;
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx.new(|cx| {
+            let mut settings =
+                super::PreferencesWindow::new(preferences, None, error, updater, window, cx);
+            settings.startup_action = Arc::new(|enabled| {
+                if enabled.is_some() {
+                    Err("Synthetic registration failure".into())
+                } else {
+                    Ok(false)
+                }
+            });
+            settings
+        });
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(800.0), px(900.0)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let switch = cx.debug_bounds("autostart-switch").unwrap();
+    cx.simulate_click(switch.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        let settings = settings.read(cx);
+        assert_eq!(settings.startup_enabled, Some(false));
+        assert_eq!(
+            settings.startup_error.as_deref(),
+            Some("Synthetic registration failure")
+        );
+        window.draw(cx).clear(cx);
+    });
+    let retry = cx
+        .debug_bounds("autostart-retry")
+        .expect("Registration failures offer a status refresh");
+    cx.simulate_click(retry.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|_, cx| assert!(settings.read(cx).startup_error.is_none()));
+}
+
+#[gpui_test::test]
+fn autostart_read_failure_disables_the_switch_until_a_successful_retry(cx: &mut TestAppContext) {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    cx.update(gpui_kit::init);
+    let failing = Arc::new(AtomicBool::new(true));
+    let reads = Arc::new(AtomicUsize::new(0));
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx.new(|cx| {
+            let mut settings =
+                super::PreferencesWindow::new(preferences, None, error, updater, window, cx);
+            let failing = failing.clone();
+            let reads = reads.clone();
+            settings.startup_action = Arc::new(move |enabled| {
+                assert_eq!(
+                    enabled, None,
+                    "An unreadable status must never allow a write"
+                );
+                reads.fetch_add(1, Ordering::SeqCst);
+                if failing.load(Ordering::SeqCst) {
+                    Err("Synthetic status failure".into())
+                } else {
+                    Ok(true)
+                }
+            });
+            settings
+        });
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.simulate_resize(size(px(800.0), px(1000.0)));
+    cx.run_until_parked();
+    assert_eq!(cx.update(|_, cx| settings.read(cx).startup_enabled), None);
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let before = reads.load(Ordering::SeqCst);
+    let switch = cx.debug_bounds("autostart-switch").unwrap();
+    cx.simulate_click(switch.center(), Modifiers::default());
+    cx.run_until_parked();
+    assert_eq!(reads.load(Ordering::SeqCst), before);
+    failing.store(false, Ordering::SeqCst);
+    let retry = cx.debug_bounds("autostart-retry").unwrap();
+    cx.simulate_click(retry.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        let settings = settings.read(cx);
+        assert_eq!(settings.startup_enabled, Some(true));
+        assert!(settings.startup_error.is_none());
+    });
+}
+
+#[gpui_test::test]
 fn window_resize_records_restored_state_before_an_immediate_quit(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();

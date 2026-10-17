@@ -21,6 +21,7 @@ use super::{
     theme::Palette,
 };
 
+mod startup;
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
 
@@ -56,6 +57,10 @@ pub struct PreferencesWindow {
     updates_selected: bool,
     font_select: Entity<SelectState<Vec<SharedString>>>,
     language_select: Entity<SelectState<Vec<LanguageChoice>>>,
+    startup_action: startup::Action,
+    startup_enabled: Option<bool>,
+    startup_busy: bool,
+    startup_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -177,6 +182,8 @@ impl PreferencesWindow {
         let focus = cx.focus_handle();
         focus.focus(window, cx);
         let config_observer = cx.observe(&config_error, |_, _, cx| cx.notify());
+        let entity = cx.entity();
+        cx.defer(move |cx| entity.update(cx, |this, cx| this.configure_startup(None, cx)));
         Self {
             focus,
             scroll: ScrollHandle::new(),
@@ -188,6 +195,10 @@ impl PreferencesWindow {
             updates_selected: false,
             font_select,
             language_select,
+            startup_action: std::sync::Arc::new(tervia::autostart::configure),
+            startup_enabled: None,
+            startup_busy: false,
+            startup_error: None,
             _subscriptions: vec![
                 subscription,
                 language_subscription,
@@ -542,6 +553,8 @@ impl Render for PreferencesWindow {
                                         ),
                                 ),
                         )
+                        .child(div().h(px(1.0)).bg(p.border))
+                        .child(self.startup_settings(cx))
                         .child(div().h(px(1.0)).bg(p.border))
                         .child(
                             div()

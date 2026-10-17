@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod autostart;
 pub mod config;
 pub mod files;
 pub mod git;
