@@ -1441,6 +1441,91 @@ mod tests {
     }
 
     #[gpui_test::test]
+    fn enter_runs_the_typed_command_when_completion_has_not_been_chosen(cx: &mut TestAppContext) {
+        let (console, cx) = ls_fixture(cx);
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| {
+            assert_eq!(
+                console.read(cx).transmitted.concat(),
+                b"ls\r",
+                "An unchosen lsof suggestion must not replace ls"
+            );
+            assert!(!console.read(cx).suggestion_visible());
+        });
+    }
+
+    #[gpui_test::test]
+    fn first_arrow_selects_a_candidate_before_enter_fills_without_executing(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = ls_fixture(cx);
+        cx.simulate_keystrokes("down enter");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted.concat(), b"lsof -nP -iTCP"));
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted.concat(), b"lsof -nP -iTCP\r"));
+    }
+
+    #[gpui_test::test]
+    fn tab_can_fill_the_first_candidate_without_arrow_selection(cx: &mut TestAppContext) {
+        let (console, cx) = ls_fixture(cx);
+        cx.simulate_keystrokes("tab");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted.concat(), b"lsof -nP -iTCP"));
+    }
+
+    #[gpui_test::test]
+    fn editing_the_prefix_clears_the_explicit_choice_before_enter(cx: &mut TestAppContext) {
+        use tervia::suggestions::{Source, Suggestion};
+        let (console, cx) = ls_fixture(cx);
+        cx.simulate_keystrokes("down");
+        cx.simulate_input("o");
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                this.apply_suggestions(
+                    this.suggestions.generation,
+                    vec![Suggestion {
+                        command: "lsof -nP -iTCP".into(),
+                        source: Source::History,
+                    }],
+                    None,
+                    cx,
+                );
+            })
+        });
+        cx.simulate_keystrokes("enter");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted.concat(), b"lso\r"));
+    }
+
+    fn ls_fixture(cx: &mut TestAppContext) -> (Entity<Console>, &mut VisualTestContext) {
+        use tervia::suggestions::{Source, Suggestion};
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            init(cx);
+            console.update(cx, |this, cx| {
+                this.focus.focus(window, cx);
+                this.suggestions.input.prompt();
+                this.send(b"ls", cx);
+                this.apply_suggestions(
+                    this.suggestions.generation,
+                    vec![
+                        Suggestion {
+                            command: "lsof -nP -iTCP".into(),
+                            source: Source::History,
+                        },
+                        Suggestion {
+                            command: "ls -la".into(),
+                            source: Source::Common,
+                        },
+                    ],
+                    None,
+                    cx,
+                );
+                assert!(this.suggestion_visible());
+            });
+        });
+        (console, cx)
+    }
+
+    #[gpui_test::test]
     fn typing_a_prefix_opens_a_keyboard_selectable_list_and_enter_only_fills(
         cx: &mut TestAppContext,
     ) {
@@ -1465,7 +1550,7 @@ mod tests {
         });
         assert!(cx.debug_bounds("terminal-suggestion-row-0").is_some());
         assert!(cx.debug_bounds("terminal-suggestion-row-2").is_some());
-        cx.simulate_keystrokes("down down up down enter");
+        cx.simulate_keystrokes("down down down up down enter");
         cx.update(|_, cx| {
             let this = console.read(cx);
             assert_eq!(this.transmitted, [b"git".to_vec(), b" commit".to_vec()]);
@@ -1603,6 +1688,7 @@ mod tests {
                 this.focus.focus(window, cx);
                 this.suggestions.input.prompt();
                 this.send(b"git", cx);
+                this.suggestion_key("down", window, cx);
                 this.suggestion_key("down", window, cx);
                 this.apply_suggestions(
                     this.suggestions.generation,
