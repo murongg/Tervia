@@ -626,6 +626,18 @@ impl Console {
         )
     }
 
+    fn selection_anchor(&self, position: Point<Pixels>) -> (CellPoint, Side) {
+        let point = self.grid_point(position);
+        // Both endpoints use the pointer's cell half so a stationary click leaves no selection.
+        let middle = self.bounds.left() + self.cell_width * (point.column.0 as f32 + 0.5);
+        let side = if position.x < middle {
+            Side::Left
+        } else {
+            Side::Right
+        };
+        (point, side)
+    }
+
     fn mouse_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.stop_selecting();
         self.mouse_reporting = false;
@@ -663,11 +675,8 @@ impl Console {
             3.. => SelectionType::Lines,
             _ => SelectionType::Simple,
         };
-        self.buffer.term.selection = Some(Selection::new(
-            ty,
-            self.grid_point(event.position),
-            Side::Left,
-        ));
+        let (point, side) = self.selection_anchor(event.position);
+        self.buffer.term.selection = Some(Selection::new(ty, point, side));
         cx.notify();
     }
 
@@ -884,6 +893,119 @@ mod tests {
         cx.executor().advance_clock(Duration::from_millis(200));
         cx.run_until_parked();
         cx.update(|window, cx| window.draw(cx).clear(cx));
+    }
+
+    #[gpui_test::test]
+    fn terminal_single_click_clears_selection_without_highlighting_a_cell(cx: &mut TestAppContext) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer = TerminalBuffer::new(80, 24);
+                this.buffer.feed(b"mock> ");
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
+        for light in [false, true] {
+            for (column, row) in [
+                (0.2, 0.5),
+                (0.8, 0.5),
+                (7.2, 0.5),
+                (7.8, 0.5),
+                (3.2, 1.5),
+                (3.8, 1.5),
+            ] {
+                let (position, cursor) = cx.update(|_, cx| {
+                    console.update(cx, |this, _| {
+                        this.appearance.light_theme = light;
+                        this.buffer.select(
+                            CellPoint::new(Line(0), Column(0)),
+                            CellPoint::new(Line(0), Column(3)),
+                        );
+                        (
+                            this.bounds.origin
+                                + point(this.cell_width * column, this.cell_height * row),
+                            this.buffer.term.grid().cursor.point,
+                        )
+                    })
+                });
+                cx.simulate_mouse_down(position, MouseButton::Left, Modifiers::default());
+                cx.simulate_mouse_move(position, Some(MouseButton::Left), Modifiers::default());
+                cx.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+                cx.update(|window, cx| {
+                    let this = console.read(cx);
+                    assert!(
+                        this.buffer.term.renderable_content().selection.is_none(),
+                        "A stationary click must not select a character cell"
+                    );
+                    assert!(this.buffer.selected_text().is_empty());
+                    assert_eq!(this.buffer.term.grid().cursor.point, cursor);
+                    assert!(this.focus.is_focused(window));
+                    assert!(this.transmitted.is_empty());
+                });
+            }
+        }
+    }
+
+    #[gpui_test::test]
+    fn terminal_drag_selection_uses_the_same_cell_edges_in_both_directions(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer = TerminalBuffer::new(80, 24);
+                this.buffer.feed(b"mock> ");
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
+        let (start, end) = cx.update(|_, cx| {
+            let this = console.read(cx);
+            let at = |column| {
+                this.bounds.origin + point(this.cell_width * column, this.cell_height * 0.5)
+            };
+            (at(0.9), at(2.9))
+        });
+        for (from, to) in [(start, end), (end, start)] {
+            cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+            cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
+            cx.update(|_, cx| assert_eq!(console.read(cx).buffer.selected_text(), "oc"));
+        }
+    }
+
+    #[gpui_test::test]
+    fn terminal_double_and_triple_click_still_select_words_and_lines(cx: &mut TestAppContext) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.buffer = TerminalBuffer::new(80, 24);
+                this.buffer.feed(b"mock alpha beta");
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
+        let position = cx.update(|_, cx| {
+            let this = console.read(cx);
+            this.bounds.origin + point(this.cell_width * 6.8, this.cell_height * 0.5)
+        });
+        for (count, expected) in [(2, "alpha"), (3, "mock alpha beta\n")] {
+            cx.simulate_event(MouseDownEvent {
+                position,
+                button: MouseButton::Left,
+                click_count: count,
+                modifiers: Modifiers::default(),
+                first_mouse: false,
+            });
+            cx.simulate_event(MouseUpEvent {
+                position,
+                button: MouseButton::Left,
+                click_count: count,
+                modifiers: Modifiers::default(),
+            });
+            cx.update(|_, cx| assert_eq!(console.read(cx).buffer.selected_text(), expected));
+        }
     }
 
     #[gpui_test::test]
