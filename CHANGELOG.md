@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.12.1 (2026-10-17)
+
+### Fixes
+
+- **terminal:** restore only surviving terminal tabs (5906951d)
+- **terminal:** preserve signed macOS host bundles (44bfea8e)
+- **sessions:** retry transient executable busy errors (5c2567d4)
+- **git:** match sidebar divider to workbench borders (931b29d7)
+- **terminal:** retry busy Linux session hosts (283dc9b8)
+
 ## v0.12.0 (2026-10-17)
 
 ### Features
