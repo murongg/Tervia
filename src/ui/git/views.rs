@@ -4,7 +4,9 @@ use super::super::{
 };
 use super::*;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable};
+use gpui_kit::component::resizable::{
+    h_resizable, resizable_panel, resize_handle_appearance_without_line, v_resizable,
+};
 use gpui_kit::component::scroll::ScrollableElement as _;
 
 impl Tervia {
@@ -299,6 +301,8 @@ impl Tervia {
             } else {
                 body.child(
                     h_resizable(("git-sidebar-layout", project))
+                        // The sidebar paints the workbench hairline; keep only the native engagement indicator.
+                        .with_handle_appearance(resize_handle_appearance_without_line())
                         // Keep the split alive while focus mode or project navigation hides it.
                         .with_state(&ui.sidebar_split)
                         .child(
