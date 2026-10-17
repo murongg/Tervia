@@ -286,22 +286,37 @@ impl Tervia {
                 Mode::Worktrees => self.git_worktrees(snapshot, cx).into_any_element(),
             }
         };
-        body.child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .flex()
-                .when(!focused, |body| body.child(self.git_sidebar(snapshot, cx)))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .min_h_0()
-                        .flex()
-                        .flex_col()
-                        .child(content),
-                ),
-        )
+        let content = div()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .child(content);
+        body.child(div().flex_1().min_w_0().min_h_0().flex().map(|body| {
+            if focused {
+                body.child(content)
+            } else {
+                body.child(
+                    h_resizable(("git-sidebar-layout", project))
+                        // Keep the split alive while focus mode or project navigation hides it.
+                        .with_state(&ui.sidebar_split)
+                        .child(
+                            resizable_panel()
+                                .size(px(174.0))
+                                // Localized worktree badges still need room for a branch name.
+                                .size_range(px(174.0)..px(400.0))
+                                .flex_none()
+                                .child(self.git_sidebar(snapshot, cx)),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size_range(px(420.0)..Pixels::MAX)
+                                .child(content),
+                        ),
+                )
+            }
+        }))
         .child(
             div()
                 .h(px(24.0))

@@ -30,6 +30,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants as _},
     diff::{DiffFile, DiffMode, DiffState},
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
+    resizable::ResizableState,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -81,6 +82,7 @@ pub(super) struct GitUi {
     switcher: switcher::Switcher,
     sidebar_scroll: [UniformListScrollHandle; sidebar::SECTIONS.len()],
     sidebar_layout: sections::State,
+    sidebar_split: Entity<ResizableState>,
     raw_scroll: UniformListScrollHandle,
     metadata_scroll: UniformListScrollHandle,
     commit_files_scroll: UniformListScrollHandle,
@@ -301,6 +303,7 @@ impl GitUi {
         subscriptions: &mut Vec<Subscription>,
         cx: &mut Context<Tervia>,
     ) {
+        subscriptions.push(cx.observe(&self.sidebar_split, |_, _, cx| cx.notify()));
         subscriptions.push(cx.subscribe(
             &self.switcher.input,
             move |this, _, event: &InputEvent, cx| {
@@ -327,6 +330,7 @@ impl GitUi {
             switcher: switcher::Switcher::new(window, cx),
             sidebar_scroll: std::array::from_fn(|_| UniformListScrollHandle::new()),
             sidebar_layout: sections::State::default(),
+            sidebar_split: cx.new(|_| ResizableState::default()),
             raw_scroll: UniformListScrollHandle::new(),
             metadata_scroll: UniformListScrollHandle::new(),
             commit_files_scroll: UniformListScrollHandle::new(),

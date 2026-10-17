@@ -146,6 +146,125 @@ fn click_menu(view: &Entity<Tervia>, cx: &mut VisualTestContext, index: usize, k
 }
 
 #[gpui_test::test]
+fn sidebar_width_drags_with_limits_and_survives_navigation(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            for root in ["/synthetic/sidebar-one", "/synthetic/sidebar-two"] {
+                let project = this.state.open_directory(root.into());
+                this.init_project(project, window, cx);
+                this.state.set_tab(Tab::Git);
+                this.git_states[project].snapshot = Some(Arc::new(Snapshot::default()));
+            }
+            this.state.active_project = 0;
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.simulate_resize(size(px(1400.0), px(800.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.run_until_parked();
+
+    fn width(cx: &mut VisualTestContext) -> Pixels {
+        cx.debug_bounds("git-sidebar-section-git_worktrees")
+            .unwrap()
+            .size
+            .width
+    }
+
+    fn drag(cx: &mut VisualTestContext, desired: f32) {
+        let sidebar = cx
+            .debug_bounds("git-sidebar-section-git_worktrees")
+            .unwrap();
+        let start = point(sidebar.right(), sidebar.center().y);
+        let end = point(sidebar.left() + px(desired), start.y);
+        cx.simulate_mouse_down(start, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+        cx.simulate_mouse_move(end, Some(MouseButton::Left), Modifiers::default());
+        cx.simulate_mouse_up(end, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.run_until_parked();
+    }
+
+    let initial = width(cx);
+    drag(cx, 280.0);
+    assert!(
+        (width(cx) - px(280.0)).abs() <= px(1.0),
+        "Dragging the Git sidebar divider changes its width: initial={initial:?}, after={:?}",
+        width(cx)
+    );
+    for mode in [
+        Mode::History,
+        Mode::Stash,
+        Mode::Remotes,
+        Mode::Worktrees,
+        Mode::Changes,
+    ] {
+        view.update(cx, |this, cx| {
+            this.git_states[0].mode = mode;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!((width(cx) - px(280.0)).abs() <= px(1.0));
+    }
+    view.update(cx, |this, cx| {
+        this.git_states[0].review.focused = true;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("git-sidebar-section-git_worktrees")
+            .is_none()
+    );
+    view.update(cx, |this, cx| {
+        this.git_states[0].review.focused = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!((width(cx) - px(280.0)).abs() <= px(1.0));
+
+    view.update(cx, |this, cx| {
+        this.state.active_project = 1;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        (width(cx) - px(174.0)).abs() <= px(1.0),
+        "Other projects start at the default width: other={:?}",
+        width(cx)
+    );
+    drag(cx, 220.0);
+    view.update(cx, |this, cx| {
+        this.state.active_project = 0;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!((width(cx) - px(280.0)).abs() <= px(1.0));
+
+    drag(cx, 60.0);
+    assert!((width(cx) - px(174.0)).abs() <= px(1.0));
+    drag(cx, 560.0);
+    assert!((width(cx) - px(400.0)).abs() <= px(1.0));
+    cx.simulate_resize(size(px(880.0), px(560.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.run_until_parked();
+    let sidebar = cx
+        .debug_bounds("git-sidebar-section-git_worktrees")
+        .unwrap();
+    let changes = cx.debug_bounds("git-changes-pane").unwrap();
+    let viewer = cx.debug_bounds("git-diff-viewer").unwrap();
+    assert!((px(174.0)..=px(400.0)).contains(&sidebar.size.width));
+    assert!(changes.left() >= sidebar.right());
+    assert!(changes.size.width >= px(200.0));
+    assert!(viewer.size.width >= px(220.0));
+    assert!(viewer.right() <= px(880.0));
+}
+
+#[gpui_test::test]
 fn primary_worktree_badge_stays_visible_beside_long_names_in_both_themes(cx: &mut TestAppContext) {
     let (_root, repo) = fixture();
     let (view, cx) = mount(cx, &repo);
