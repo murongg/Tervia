@@ -347,8 +347,10 @@ impl Tervia {
             }),
         };
         let path = if project.tab == Tab::Terminal {
-            self.terminals[self.state.active_project][self.state.command_session()]
-                .as_ref()
+            // Closed/exited tabs can leave the restored terminal page empty; keep showing its project directory.
+            self.terminals[self.state.active_project]
+                .get(self.state.command_session())
+                .and_then(Option::as_ref)
                 .map(|console| {
                     let cwd = &console.read(cx).cwd;
                     if std::env::var_os("HOME")

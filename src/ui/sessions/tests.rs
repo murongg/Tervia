@@ -84,6 +84,50 @@ fn a_failed_recovery_save_keeps_the_tab_and_its_console_alive(cx: &mut TestAppCo
 }
 
 #[gpui_test::test]
+fn an_empty_project_terminal_draws_after_restart_and_after_its_last_tab_closes(
+    cx: &mut TestAppContext,
+) {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("mock-empty-project");
+    std::fs::create_dir(&project).unwrap();
+    let path = root.path().join("workspace.json");
+    let mut store = tervia::workspace::Store::new(path.clone());
+    store.load().unwrap();
+    let mut state = tervia::state::Workspace::new(project);
+    state.set_tab(Tab::Terminal);
+    state.close_session(0);
+    store.save(&state).unwrap();
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            Tervia::configured(
+                Ok(tervia::config::Config::new(root.path().join("config.toml"))),
+                window,
+                cx,
+            )
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    // State-only assertions miss statusbar indexing: draw the complete restored workspace.
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("local-terminal-empty").is_some());
+    cx.update(|window, cx| view.update(cx, |this, cx| this.new_session(window, cx)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| view.update(cx, |this, cx| this.close_terminal_session(0, window, cx)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("local-terminal-empty").is_some());
+    assert!(
+        tervia::workspace::Store::new(path).load().unwrap().projects[0]
+            .terminal
+            .sessions
+            .is_empty()
+    );
+}
+
+#[gpui_test::test]
 fn startup_discards_exited_tabs_and_keeps_empty_projects_empty(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("mock-project");
