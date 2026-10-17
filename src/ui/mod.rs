@@ -90,6 +90,8 @@ pub struct Tervia {
     monitors: Vec<monitor::Monitor>,
     terminals: Vec<Vec<Option<Entity<console::Console>>>>,
     local_terminals: Vec<Option<Entity<console::Console>>>,
+    terminal_name: Entity<InputState>,
+    terminal_rename: Option<(sessions::Owner, usize)>,
     command_history: tervia::suggestions::Worker,
     git_states: Vec<git::GitUi>,
     git_scans: git::Scans,
@@ -199,6 +201,11 @@ impl Tervia {
             monitors: Vec::new(),
             terminals: Vec::new(),
             local_terminals,
+            terminal_name: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .validate(|value, _| tervia::state::Session::valid_custom_name(value))
+            }),
+            terminal_rename: None,
             command_history,
             git_states: Vec::new(),
             git_scans: git::Scans::default(),
@@ -215,6 +222,15 @@ impl Tervia {
             files_active: window.is_window_active(),
             subscriptions: Vec::new(),
         };
+        view.subscriptions.push(cx.subscribe_in(
+            &view.terminal_name,
+            window,
+            |this, _, event, _, cx| {
+                if matches!(event, InputEvent::Blur) && this.terminal_rename.take().is_some() {
+                    cx.notify();
+                }
+            },
+        ));
         view.subscriptions.push(cx.subscribe_in(
             &view.updater,
             window,
@@ -484,6 +500,7 @@ impl Tervia {
         {
             return;
         }
+        self.terminal_rename = None;
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }
@@ -512,6 +529,7 @@ impl Tervia {
         if !self.state.has_project() {
             return;
         }
+        self.terminal_rename = None;
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }

@@ -23,6 +23,7 @@ pub enum FileClose {
 #[derive(Clone, Debug)]
 pub struct Session {
     pub name: String,
+    pub custom_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]

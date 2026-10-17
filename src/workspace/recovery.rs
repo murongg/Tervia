@@ -13,11 +13,13 @@ pub(super) fn snapshot(
         if project.terminal.sessions.is_empty()
             || project.terminal.sessions.len() > 64
             || project.open_files.len() > 512
-            || project
-                .terminal
-                .sessions
-                .iter()
-                .any(|session| session.name.len() > 1024)
+            || project.terminal.sessions.iter().any(|session| {
+                session.name.len() > 1024
+                    || session
+                        .custom_name
+                        .as_ref()
+                        .is_some_and(|name| !Session::valid_custom_name(name))
+            })
         {
             return Err(serde_json::Error::io(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -26,6 +28,8 @@ pub(super) fn snapshot(
         }
         if project.open_files.is_empty()
             && project.terminal.sessions.len() == 1
+            // A lone renamed tab still needs a recovery context in the default Git layout.
+            && project.terminal.sessions[0].custom_name.is_none()
             && !project.dock.visible
             && project.tab == Tab::Git
             && project.positions.is_empty()
@@ -69,6 +73,7 @@ pub(super) fn snapshot(
             "tab": match project.tab { Tab::Terminal => "terminal", Tab::Git => "git", Tab::Files => "files" },
             "dock": { "visible": project.dock.visible, "size": project.dock.size },
             "sessions": project.terminal.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
+            "custom_names": project.terminal.sessions.iter().map(|session| &session.custom_name).collect::<Vec<_>>(),
             "active_session": project.terminal.active_session, "focused_session": project.terminal.focused_session,
             "split_terminal": project.terminal.split_terminal, "files": files,
             "active_file": project.current_file().map(|file| serde_json::to_value(&file.disk_path)).transpose()?
@@ -225,14 +230,40 @@ pub(super) fn terminals(context: &Value, allow_empty: bool) -> Result<Terminals,
     if (!allow_empty && sessions.is_empty()) || sessions.len() > 64 {
         return Err("Invalid recovery terminal count".into());
     }
+    // Optional parallel aliases keep the existing sessions array readable by older workspaces.
+    let custom_names = context
+        .get("custom_names")
+        .map(|names| {
+            names
+                .as_array()
+                .filter(|names| names.len() == sessions.len())
+                .ok_or("Invalid terminal custom names")
+        })
+        .transpose()?;
     let sessions = sessions
         .iter()
-        .map(|name| {
+        .enumerate()
+        .map(|(index, name)| {
             let name = name
                 .as_str()
                 .filter(|name| name.len() <= 1024)
                 .ok_or("Invalid terminal name")?;
-            Ok(Session { name: name.into() })
+            let custom_name = custom_names
+                .map(|names| &names[index])
+                .filter(|name| !name.is_null())
+                .map(|name| {
+                    name.as_str()
+                        .filter(|name| Session::valid_custom_name(name))
+                        .map(str::trim)
+                        .ok_or("Invalid terminal custom name")
+                })
+                .transpose()?
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned);
+            Ok(Session {
+                name: name.into(),
+                custom_name,
+            })
         })
         .collect::<Result<Vec<_>, String>>()?;
     let active = number(context.get("active_session"), 0, 63)? as usize;
