@@ -8,6 +8,74 @@ use std::{
     process::{Command, Stdio},
 };
 
+pub(super) fn cache_bundle(
+    runtime: &Path,
+    source: &Path,
+    hash: &str,
+) -> io::Result<Option<PathBuf>> {
+    let Some(macos) = source.parent().filter(|path| path.ends_with("MacOS")) else {
+        return Ok(None);
+    };
+    let Some(contents) = macos.parent().filter(|path| path.ends_with("Contents")) else {
+        return Ok(None);
+    };
+    let Some(bundle) = contents
+        .parent()
+        .filter(|path| path.extension().is_some_and(|extension| extension == "app"))
+    else {
+        return Ok(None);
+    };
+    let relative = source.strip_prefix(bundle).map_err(io::Error::other)?;
+    let destination = runtime.join(format!("{hash}.app"));
+    if !destination.exists() {
+        let temporary = tempfile::tempdir_in(runtime)?;
+        let prepared = temporary.path().join("host.app");
+        // A signed main executable depends on its Info.plist and resource seal; a bare copy cannot execute.
+        // ditto preserves the complete signed bundle, including nested code, symlinks and notarization metadata.
+        let copied = Command::new("/usr/bin/ditto")
+            .arg(bundle)
+            .arg(&prepared)
+            .output()?;
+        if !copied.status.success() {
+            return Err(io::Error::other(format!(
+                "Cannot copy terminal host application: {}",
+                String::from_utf8_lossy(&copied.stderr).trim()
+            )));
+        }
+        if runtime::fingerprint(&mut fs::File::open(prepared.join(relative))?)? != hash {
+            return Err(io::Error::other(
+                "The application changed while preparing its terminal host; retry the terminal",
+            ));
+        }
+        if prepared
+            .join("Contents/_CodeSignature/CodeResources")
+            .exists()
+        {
+            let checked = Command::new("/usr/bin/codesign")
+                .args(["--verify", "--deep", "--strict"])
+                .arg(&prepared)
+                .output()?;
+            if !checked.status.success() {
+                return Err(io::Error::other(format!(
+                    "Terminal host application signature is invalid: {}",
+                    String::from_utf8_lossy(&checked.stderr).trim()
+                )));
+            }
+        }
+        // Publish only a complete verified bundle; another window may have prepared the same image first.
+        match fs::rename(&prepared, &destination) {
+            Ok(()) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::AlreadyExists | io::ErrorKind::DirectoryNotEmpty
+                ) => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(Some(destination.join(relative)))
+}
+
 fn domain() -> String {
     format!("gui/{}", unsafe { libc::geteuid() })
 }

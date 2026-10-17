@@ -34,20 +34,28 @@ pub(super) fn write_private(path: &Path, value: &Value) -> io::Result<()> {
     Ok(())
 }
 
-fn executable(root: &Path, source: &Path) -> io::Result<PathBuf> {
-    let runtime = root.join("runtime");
-    private_directory(&runtime)?;
+pub(super) fn fingerprint(reader: &mut impl Read) -> io::Result<String> {
     let mut hasher = Sha256::new();
-    let mut source_file = fs::File::open(source)?;
     let mut block = [0u8; 65536];
     loop {
-        let count = source_file.read(&mut block)?;
+        let count = reader.read(&mut block)?;
         if count == 0 {
             break;
         }
         hasher.update(&block[..count]);
     }
-    let hash = format!("{:x}", hasher.finalize());
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn executable(root: &Path, source: &Path) -> io::Result<PathBuf> {
+    let runtime = root.join("runtime");
+    private_directory(&runtime)?;
+    let mut source_file = fs::File::open(source)?;
+    let hash = fingerprint(&mut source_file)?;
+    #[cfg(target_os = "macos")]
+    if let Some(image) = super::macos::cache_bundle(&runtime, source, &hash)? {
+        return Ok(image);
+    }
     let destination = runtime.join(format!("{hash}{}", std::env::consts::EXE_SUFFIX));
     // Hosts run immutable copies, so replacing an app bundle/EXE cannot invalidate a live PTY.
     if !destination.exists() {
@@ -137,6 +145,67 @@ pub(super) fn spawn(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_cached_app_retains_its_signature_after_the_installation_is_removed() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("mock.app");
+        let contents = bundle.join("Contents");
+        fs::create_dir_all(contents.join("MacOS")).unwrap();
+        fs::create_dir_all(contents.join("Resources")).unwrap();
+        let source = contents.join("MacOS/mock-host");
+        fs::copy(std::env::current_exe().unwrap(), &source).unwrap();
+        fs::write(contents.join("Resources/mock.txt"), "mock-resource").unwrap();
+        fs::write(
+            contents.join("Info.plist"),
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>test.tervia.mock-host</string>
+<key>CFBundleExecutable</key><string>mock-host</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>"#,
+        )
+        .unwrap();
+        let signed = std::process::Command::new("/usr/bin/codesign")
+            .args([
+                "--force",
+                "--sign",
+                "-",
+                "--timestamp=none",
+                "--options",
+                "runtime",
+            ])
+            .arg(&bundle)
+            .output()
+            .unwrap();
+        assert!(
+            signed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&signed.stderr)
+        );
+        let cached = executable(root.path(), &source).unwrap();
+        assert_eq!(cached, executable(root.path(), &source).unwrap());
+        fs::remove_dir_all(&bundle).unwrap();
+        let checked = std::process::Command::new("/usr/bin/codesign")
+            .args(["--verify", "--strict"])
+            .arg(&cached)
+            .output()
+            .unwrap();
+        assert!(
+            checked.status.success(),
+            "{}",
+            String::from_utf8_lossy(&checked.stderr)
+        );
+        let resources = cached
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("Resources/mock.txt");
+        assert_eq!(fs::read_to_string(resources).unwrap(), "mock-resource");
+    }
 
     #[test]
     fn busy_launch_retries_until_the_executable_is_available() {
