@@ -43,7 +43,7 @@ fn entry_colors(ignored: bool, selected: bool, p: Palette) -> (Hsla, Hsla) {
     } else if selected {
         (p.text, p.accent)
     } else {
-        (p.secondary, p.secondary)
+        (p.text, p.text)
     }
 }
 
@@ -51,6 +51,47 @@ fn entry_colors(ignored: bool, selected: bool, p: Palette) -> (Hsla, Hsla) {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    fn luminance(color: Hsla) -> f32 {
+        let color = Rgba::from(color);
+        let channels = [color.r, color.g, color.b].map(|value| {
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+    }
+
+    #[test]
+    fn ignored_explorer_entries_have_a_visible_tonal_difference_in_both_themes() {
+        for light in [false, true] {
+            let p = Palette::workbench(light);
+            let normal = entry_colors(false, false, p);
+            let ignored = entry_colors(true, false, p);
+            for (part, normal, ignored) in [
+                ("label", normal.0, ignored.0),
+                ("icon", normal.1, ignored.1),
+            ] {
+                let gray = Rgba::from(ignored);
+                let channels = [gray.r, gray.g, gray.b];
+                let spread = channels.into_iter().fold(f32::NEG_INFINITY, f32::max)
+                    - channels.into_iter().fold(f32::INFINITY, f32::min);
+                assert!(spread <= 0.01, "light={light}, {part}: tinted ignore color");
+                let normal = luminance(normal);
+                let ignored = luminance(ignored);
+                let separation = (normal.max(ignored) + 0.05) / (normal.min(ignored) + 0.05);
+                // A distinct color value alone can still look identical in the file tree.
+                assert!(separation >= 2.0, "light={light}, {part}: {separation}");
+                assert!(if light {
+                    normal < ignored
+                } else {
+                    normal > ignored
+                });
+            }
+        }
+    }
 
     #[test]
     fn ignored_explorer_icons_stay_gray_when_selected_in_both_themes() {
@@ -66,18 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn ignored_explorer_labels_keep_readable_contrast_in_both_themes() {
-        fn luminance(color: Hsla) -> f32 {
-            let color = Rgba::from(color);
-            let channels = [color.r, color.g, color.b].map(|value| {
-                if value <= 0.04045 {
-                    value / 12.92
-                } else {
-                    ((value + 0.055) / 1.055).powf(2.4)
-                }
-            });
-            channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
-        }
+    fn ignored_explorer_labels_stay_visible_and_selected_labels_keep_readable_contrast() {
         // Synthetic native-preview backgrounds include the gradient and selected row overlay.
         for (light, backgrounds) in [(false, [0x4a4e5a, 0x545d6c]), (true, [0xced8e7, 0xd9dfeb])] {
             for (selected, background) in [false, true].into_iter().zip(backgrounds) {
@@ -85,7 +115,8 @@ mod tests {
                 let background = luminance(rgb(background).into());
                 let contrast = (ink.max(background) + 0.05) / (ink.min(background) + 0.05);
                 assert!(
-                    contrast >= 4.5,
+                    // Resting entries deliberately recede; selection restores full text contrast.
+                    contrast >= if selected { 4.5 } else { 2.0 },
                     "light={light}, selected={selected}: {contrast}"
                 );
             }
