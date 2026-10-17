@@ -117,14 +117,11 @@ impl Tervia {
             ));
         }
         div()
-            .w(px(174.0))
-            .flex_shrink_0()
+            .size_full()
             .min_h_0()
             .flex()
             .flex_col()
             .bg(p.sidebar)
-            .border_r_1()
-            .border_color(p.border)
             .child(
                 div().flex_shrink_0().flex().flex_col().children(
                     navigation
