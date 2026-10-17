@@ -14,6 +14,8 @@ pub use integration::ShellIntegration;
 
 pub enum PtyEvent {
     Data(Vec<u8>),
+    Resized { columns: usize, rows: usize },
+    ReplayComplete,
     Exited(String),
     Error(String),
 }

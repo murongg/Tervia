@@ -25,6 +25,30 @@ fn window(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTes
 }
 
 #[gpui_test::test]
+fn quitting_retains_connections_but_explicit_tab_close_forgets_them(cx: &mut TestAppContext) {
+    let (view, cx) = window(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_local_terminal(window, cx);
+            this.new_session(window, cx);
+            this.state.local_terminal.sessions[0].connection = Some("a".repeat(32));
+            this.state.local_terminal.sessions[1].connection = Some("b".repeat(32));
+            this.shutdown_terminals(cx);
+            assert_eq!(
+                this.state.local_terminal.sessions[0].connection,
+                Some("a".repeat(32))
+            );
+            this.close_terminal_session(1, window, cx);
+            assert_eq!(this.state.local_terminal.sessions.len(), 1);
+            assert_eq!(
+                this.state.local_terminal.sessions[0].connection,
+                Some("a".repeat(32))
+            );
+        });
+    });
+}
+
+#[gpui_test::test]
 fn welcome_new_terminal_opens_a_focused_local_shell_without_a_project(cx: &mut TestAppContext) {
     let (view, cx) = window(cx);
     cx.update(|window, cx| {

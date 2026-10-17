@@ -2,6 +2,101 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn live_terminal_references_survive_restart_in_default_and_local_contexts() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-live-terminal");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root);
+    state.terminals_mut().sessions[0].connection = Some("a".repeat(32));
+    state.terminals_mut().sessions[0].scroll_offset = 17;
+    state.show_local_terminal();
+    state.terminals_mut().sessions[0].connection = Some("b".repeat(32));
+    store.save(&state).unwrap();
+    let mut restored = Store::new(path).load().unwrap();
+    assert_eq!(
+        restored.local_terminal.sessions[0].connection,
+        Some("b".repeat(32))
+    );
+    restored.switch_project(0);
+    assert_eq!(
+        restored.terminals().sessions[0].connection,
+        Some("a".repeat(32))
+    );
+    assert_eq!(restored.terminals().sessions[0].scroll_offset, 17);
+}
+
+#[test]
+fn invalid_terminal_connections_preserve_the_recovery_file() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-invalid-connection");
+    let path = temporary.path().join("workspace.json");
+    for connections in [
+        serde_json::json!([]),
+        serde_json::json!([42]),
+        serde_json::json!(["../mock"]),
+        serde_json::json!(["a".repeat(33)]),
+    ] {
+        let source = serde_json::json!({
+            "version": 2, "projects": [{"root": root, "directory": root}], "active": root,
+            "contexts": [{"root": root, "sessions": ["shell"], "connections": connections, "files": []}]
+        }).to_string();
+        fs::write(&path, &source).unwrap();
+        let mut store = Store::new(path.clone());
+        assert!(store.load().is_err());
+        assert!(store.save(&Workspace::new(root.clone())).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), source);
+    }
+}
+
+#[test]
+fn terminal_connections_cannot_be_owned_by_two_contexts() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-connection-owner");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root);
+    state.terminals_mut().sessions[0].connection = Some("a".repeat(32));
+    store.save(&state).unwrap();
+    let before = fs::read(&path).unwrap();
+    state.show_local_terminal();
+    state.terminals_mut().sessions[0].connection = Some("a".repeat(32));
+    assert!(store.save(&state).is_err());
+    assert_eq!(fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn temporarily_unavailable_projects_retain_their_live_terminal_reference() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-unavailable-session");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root.clone());
+    state.terminals_mut().sessions[0].connection = Some("a".repeat(32));
+    store.save(&state).unwrap();
+    fs::remove_dir(&root).unwrap();
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.show_local_terminal();
+    store.save(&state).unwrap();
+    fs::create_dir(&root).unwrap();
+    let mut restored = Store::new(path).load().unwrap();
+    let index = restored
+        .projects
+        .iter()
+        .position(|project| project.root == root)
+        .unwrap();
+    restored.switch_project(index);
+    assert_eq!(
+        restored.terminals().sessions[0].connection,
+        Some("a".repeat(32))
+    );
+}
+
+#[test]
 fn terminal_custom_names_survive_restart_even_with_an_otherwise_default_project() {
     let temporary = tempfile::tempdir().unwrap();
     let root = directory(&temporary, "mock-renamed-terminal");

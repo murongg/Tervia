@@ -55,7 +55,25 @@ impl Tervia {
         };
         let preferences = self.preferences.clone();
         let history = self.command_history.clone();
-        let console = cx.new(|cx| console::Console::new(cwd, preferences, history, window, cx));
+        let existing = self.state.terminals().sessions[session]
+            .connection
+            .is_some();
+        let offset = self.state.terminals().sessions[session].scroll_offset;
+        let target = (|| -> Result<_, String> {
+            let id = match self.state.terminals().sessions[session].connection.clone() {
+                Some(id) => id,
+                None => tervia::sessions::Target::identifier()?,
+            };
+            let target = self.session_target(id.clone())?;
+            self.state.terminals_mut().sessions[session].connection = Some(id);
+            // Record ownership before starting a host; a fast exit/update must not orphan a live shell.
+            if let Some(store) = &mut self.workspace {
+                store.save(&self.state)?;
+            }
+            Ok((target, existing))
+        })();
+        let console = cx
+            .new(|cx| console::Console::new(cwd, preferences, history, target, offset, window, cx));
         self.subscriptions.push(
             cx.subscribe(&console, |_, _, _: &console::AttentionChanged, cx| {
                 cx.notify()
@@ -144,9 +162,14 @@ impl Tervia {
         }
         // Session indices shift on removal; an outstanding rename must never target its neighbor.
         self.terminal_rename = None;
+        let connection = self.state.terminals().sessions[session].connection.clone();
         self.state.close_session(session);
         if let Some(console) = self.consoles_mut().remove(session) {
-            console.update(cx, |console, _| console.shutdown());
+            if let Err(error) = console.update(cx, |console, _| console.shutdown()) {
+                self.state.notice = format!("{}: {error}", self.t("connection_error"));
+            }
+        } else if let Some(id) = connection {
+            self.end_session(id, cx);
         }
         if self.state.terminals().sessions.is_empty() {
             self.focus.focus(window, cx);
@@ -158,6 +181,73 @@ impl Tervia {
                 .focus(window, cx);
         }
         cx.notify();
+    }
+
+    pub(super) fn session_target(&self, id: String) -> Result<tervia::sessions::Target, String> {
+        let config = self
+            .config
+            .as_ref()
+            .ok_or("Terminal recovery requires a valid configuration location")?;
+        Ok(tervia::sessions::Target::new(
+            config.path().with_file_name("sessions"),
+            id,
+            std::env::current_exe().map_err(|error| error.to_string())?,
+        ))
+    }
+
+    pub(super) fn end_session(&self, id: String, cx: &mut Context<Self>) {
+        if let Ok(target) = self.session_target(id) {
+            cx.spawn(async move |weak, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move { target.terminate() })
+                    .await;
+                if let Err(error) = result {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.state.notice = format!("{}: {error}", this.t("connection_error"));
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+    }
+
+    pub(super) fn capture_terminal_positions(&mut self, cx: &App) {
+        for (sessions, consoles) in self
+            .state
+            .projects
+            .iter_mut()
+            .map(|project| &mut project.terminal.sessions)
+            .zip(&self.terminals)
+            .chain(std::iter::once((
+                &mut self.state.local_terminal.sessions,
+                &self.local_terminals,
+            )))
+        {
+            for (session, console) in sessions.iter_mut().zip(consoles) {
+                if let Some(console) = console {
+                    session.scroll_offset = console.read(cx).scroll_offset();
+                }
+            }
+        }
+    }
+
+    pub(super) fn flush_terminals(&mut self, cx: &mut Context<Self>) -> bool {
+        for console in self
+            .terminals
+            .iter()
+            .flatten()
+            .chain(&self.local_terminals)
+            .flatten()
+        {
+            if let Err(error) = console.read(cx).flush() {
+                self.state.notice = format!("{}: {error}", self.t("input_failed"));
+                cx.notify();
+                return false;
+            }
+        }
+        true
     }
 
     fn leave_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {

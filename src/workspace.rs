@@ -151,6 +151,22 @@ fn snapshot(
     fallbacks: &BTreeMap<PathBuf, PathBuf>,
     orphans: &[Value],
 ) -> Result<Value, serde_json::Error> {
+    let mut connections = std::collections::BTreeSet::new();
+    for session in workspace
+        .projects
+        .iter()
+        .flat_map(|project| &project.terminal.sessions)
+        .chain(&workspace.local_terminal.sessions)
+    {
+        if let Some(id) = &session.connection
+            && (!crate::state::Session::valid_connection(id) || !connections.insert(id))
+        {
+            return Err(serde_json::Error::io(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "A terminal connection must have exactly one workspace owner",
+            )));
+        }
+    }
     let projects = workspace
         .all_project_rows()
         .into_iter()

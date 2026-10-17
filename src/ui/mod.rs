@@ -469,14 +469,19 @@ impl Tervia {
     pub(crate) fn shutdown_terminals(&mut self, cx: &mut Context<Self>) {
         self.workspace_save.take();
         self.persist_workspace(cx);
-        for console in self
+        self.detach_terminals(cx);
+    }
+
+    pub(super) fn detach_terminals(&mut self, cx: &mut Context<Self>) {
+        for slot in self
             .terminals
-            .iter()
+            .iter_mut()
             .flatten()
-            .chain(self.local_terminals.iter())
-            .flatten()
+            .chain(self.local_terminals.iter_mut())
         {
-            console.update(cx, |console, _| console.shutdown());
+            if let Some(console) = slot.take() {
+                console.update(cx, |console, _| console.detach());
+            }
         }
     }
 
@@ -485,6 +490,7 @@ impl Tervia {
             return;
         }
         self.capture_reading_positions(cx);
+        self.capture_terminal_positions(cx);
         if let Some(workspace) = &mut self.workspace
             && let Err(error) = workspace.save(&self.state)
             && self.state.notice.is_empty()

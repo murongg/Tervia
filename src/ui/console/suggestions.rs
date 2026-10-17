@@ -96,7 +96,9 @@ impl Console {
                         self.refresh_suggestions(cx);
                     }
                 }
-                Event::Completed(command) if self.appearance.command_suggestions => {
+                Event::Completed(command)
+                    if self.appearance.command_suggestions && !self.replaying =>
+                {
                     // Keep recording in PTY order, but never show a post-command prediction.
                     let response = self
                         .suggestions

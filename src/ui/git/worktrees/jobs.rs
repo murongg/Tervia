@@ -72,13 +72,34 @@ impl Tervia {
                 continue;
             }
             self.stop_project_monitor(index, cx);
+            let connections: Vec<_> = self.state.projects[index]
+                .terminal
+                .sessions
+                .iter_mut()
+                .enumerate()
+                .filter_map(|(slot, session)| {
+                    session.scroll_offset = 0;
+                    let connection = session.connection.take();
+                    self.terminals[index]
+                        .get(slot)
+                        .is_none_or(Option::is_none)
+                        .then_some(connection)
+                        .flatten()
+                })
+                .collect();
+            for id in connections {
+                self.end_session(id, cx);
+            }
             self.file_reads.select(index);
             for file in &self.state.projects[index].files {
                 self.file_reads.invalidate(index, &file.disk_path);
             }
+            let connection_error = self.t("connection_error");
             for terminal in &mut self.terminals[index] {
-                if let Some(console) = terminal.take() {
-                    console.update(cx, |console, _| console.shutdown());
+                if let Some(console) = terminal.take()
+                    && let Err(error) = console.update(cx, |console, _| console.shutdown())
+                {
+                    self.state.notice = format!("{connection_error}: {error}");
                 }
             }
             self.state.retire_project(index);

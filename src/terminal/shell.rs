@@ -18,6 +18,7 @@ struct Capture {
 }
 
 pub struct Tracker {
+    token: String,
     prefix: Vec<u8>,
     shell: Shell,
     pending: Vec<u8>,
@@ -27,6 +28,9 @@ pub struct Tracker {
 }
 
 impl Tracker {
+    pub fn token(&self) -> &str {
+        &self.token
+    }
     pub fn shell(&self) -> Shell {
         self.shell
     }
@@ -34,6 +38,7 @@ impl Tracker {
     pub fn new(token: String, shell: &str) -> Self {
         Self {
             prefix: format!("\x1b]777;tervia;{token};").into_bytes(),
+            token,
             shell: Shell::from_executable(shell),
             pending: Vec::new(),
             passthrough: false,

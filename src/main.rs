@@ -12,6 +12,17 @@ use ui::{
 };
 
 fn main() {
+    if std::env::args_os()
+        .nth(1)
+        .as_deref()
+        .is_some_and(tervia::sessions::is_host_argument)
+    {
+        if let Err(error) = tervia::sessions::run_from_args() {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     application().with_assets(assets::AllAssets).run(|cx| {
         gpui_kit::init(cx);
         ui::console::init(cx);

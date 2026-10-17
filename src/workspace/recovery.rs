@@ -19,6 +19,11 @@ pub(super) fn snapshot(
                         .custom_name
                         .as_ref()
                         .is_some_and(|name| !Session::valid_custom_name(name))
+                    || session
+                        .connection
+                        .as_ref()
+                        .is_some_and(|id| !Session::valid_connection(id))
+                    || session.scroll_offset > 10000
             })
         {
             return Err(serde_json::Error::io(io::Error::new(
@@ -30,6 +35,8 @@ pub(super) fn snapshot(
             && project.terminal.sessions.len() == 1
             // A lone renamed tab still needs a recovery context in the default Git layout.
             && project.terminal.sessions[0].custom_name.is_none()
+            && project.terminal.sessions[0].connection.is_none()
+            && project.terminal.sessions[0].scroll_offset == 0
             && !project.dock.visible
             && project.tab == Tab::Git
             && project.positions.is_empty()
@@ -74,6 +81,8 @@ pub(super) fn snapshot(
             "dock": { "visible": project.dock.visible, "size": project.dock.size },
             "sessions": project.terminal.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
             "custom_names": project.terminal.sessions.iter().map(|session| &session.custom_name).collect::<Vec<_>>(),
+            "connections": project.terminal.sessions.iter().map(|session| &session.connection).collect::<Vec<_>>(),
+            "scroll_offsets": project.terminal.sessions.iter().map(|session| session.scroll_offset).collect::<Vec<_>>(),
             "active_session": project.terminal.active_session, "focused_session": project.terminal.focused_session,
             "split_terminal": project.terminal.split_terminal, "files": files,
             "active_file": project.current_file().map(|file| serde_json::to_value(&file.disk_path)).transpose()?
@@ -85,7 +94,7 @@ pub(super) fn snapshot(
             "Too many recovery directories",
         )));
     }
-    // Unavailable directories must not erase their only surviving unsaved draft.
+    // Unavailable directories must retain both drafts and ownership of still-running terminal hosts.
     for orphan in orphans {
         if !contexts
             .iter()
@@ -183,7 +192,12 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
             });
         }
         if !root.is_dir() {
-            if files.iter().any(File::dirty) {
+            if files.iter().any(File::dirty)
+                || terminal
+                    .sessions
+                    .iter()
+                    .any(|session| session.connection.is_some())
+            {
                 orphans.push(context.clone());
             }
             continue;
@@ -240,6 +254,20 @@ pub(super) fn terminals(context: &Value, allow_empty: bool) -> Result<Terminals,
                 .ok_or("Invalid terminal custom names")
         })
         .transpose()?;
+    let parallel = |key: &str| -> Result<Option<&Vec<Value>>, String> {
+        context
+            .get(key)
+            .map(|values| {
+                values
+                    .as_array()
+                    .filter(|values| values.len() == sessions.len())
+                    .ok_or_else(|| format!("Invalid terminal {key}"))
+            })
+            .transpose()
+    };
+    let connections = parallel("connections")?;
+    let offsets = parallel("scroll_offsets")?;
+    let mut identities = std::collections::BTreeSet::new();
     let sessions = sessions
         .iter()
         .enumerate()
@@ -263,6 +291,19 @@ pub(super) fn terminals(context: &Value, allow_empty: bool) -> Result<Terminals,
             Ok(Session {
                 name: name.into(),
                 custom_name,
+                connection: connections
+                    .map(|values| &values[index])
+                    .filter(|id| !id.is_null())
+                    .map(|id| {
+                        id.as_str()
+                            .filter(|id| {
+                                Session::valid_connection(id) && identities.insert((*id).to_owned())
+                            })
+                            .map(str::to_owned)
+                            .ok_or("Invalid or duplicate terminal connection")
+                    })
+                    .transpose()?,
+                scroll_offset: number(offsets.map(|values| &values[index]), 0, 10000)? as usize,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;

@@ -72,7 +72,7 @@ Intervals are measured from the last completed check, including manual checks an
 
 Updates require an exact platform/architecture match and verify the archive against its SHA-256 digest captured during the check. macOS replaces the complete signed, notarized `.app` after signature and Gatekeeper checks; Windows and Linux replace the executable from the release archive. The installation must be writable by the current user; updates do not elevate privileges. Failed verification or installation preserves the existing app.
 
-Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal processes; the last screen and project list restore after restarting with fresh shells. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
+Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart disconnects the UI while terminal hosts keep their processes alive; the new version reconnects to those same sessions. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
 
 ## Available interactions
 
@@ -98,13 +98,21 @@ Save all edited files across projects and worktrees and wait for pending writes/
 - The welcome page offers Open Project and Use Terminal, recent projects, and a secondary Clone Repository action.
 - A separate native settings window with a feature-category sidebar to select installed common monospaced fonts, adjust terminal / code and interface font sizes, preview changes immediately, and restore defaults.
 
-On startup, Tervia restores the last project, local terminal, or welcome screen, together with the project list, its order and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. First launch opens the welcome page with project and terminal entry points. An unavailable last project returns to the welcome page with an explanation. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Project tabs reopen as new shells in their directory, and local tabs reopen in the home directory; running processes and AI conversations are not automatically resumed.
+On startup, Tervia restores the last project, local terminal, or welcome screen, together with the project list, its order and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. First launch opens the welcome page with project and terminal entry points. An unavailable last project returns to the welcome page with an explanation. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Quitting disconnects the UI while terminal hosts keep running. Reopening or updating reconnects to the same shells, running programs and AI conversations, with output, terminal modes and scroll positions restored. New project shells start in their working directory and new local shells start in the home directory.
 
 ## Local terminal
 
 The permanent Local Terminal entry at the top of the project sidebar needs no project or directory selection. It starts in your home directory using your existing shell configuration and has independent tabs, split panes, search and output copying. It never scans your home directory or registers it as a project. Switching projects preserves running local sessions.
 
-Cmd+T / Ctrl+Shift+T enters the local terminal from the welcome page and creates a session in the current context elsewhere. Cmd+Shift+N / Ctrl+Shift+N creates a local terminal from any main screen. Closing the last local tab leaves an empty surface with a New Terminal action; each context supports up to 64 tabs. Restart restores tabs and layout with fresh shells, not running processes or AI conversations. Running `cd` in a local shell never creates or switches projects; explicitly open a project for Files and Git.
+Cmd+T / Ctrl+Shift+T enters the local terminal from the welcome page and creates a session in the current context elsewhere. Cmd+Shift+N / Ctrl+Shift+N creates a local terminal from any main screen. Closing the last local tab leaves an empty surface with a New Terminal action; each context supports up to 64 tabs. Exit, reopen and application updates preserve live terminal sessions. Explicitly closing a tab ends its session. Running `cd` in a local shell never creates or switches projects; explicitly open a project for Files and Git.
+
+## Terminal session recovery
+
+Independent local hosts own terminal processes. Quitting, closing the main window or updating Tervia disconnects the UI while shells, agents and running programs continue. Reopening reconnects to the same PTY, replays output and resize events in order, then enables live input. Historical bells, clipboard requests and command-history recording are suppressed during replay.
+
+Closing a terminal tab, confirming Close Project or removing a worktree ends the corresponding sessions. An unavailable host reports an error instead of silently rerunning commands or substituting a new shell. OS reboot, logout or termination of the host ends live-process continuity.
+
+Metadata, authentication and raw output remain local in `sessions/` beside `config.toml`. Unix directories use `0700` and data files use `0600`; Windows inherits the user configuration directory's access controls. Output streams to disk while in-memory scrollback remains bounded to 10,000 lines. Long-running noisy sessions increase disk use and replay time. Clear Terminal restores the cleared screen; closing the tab or project removes its replay records. Immutable host executables in `sessions/runtime/` keep app replacement from disrupting running sessions.
 
 ## Project management
 
@@ -179,11 +187,11 @@ Child repository scanning runs in the background, traversing at most 3 child-dir
 - Merge / rebase status, viewing all three conflict stages, editing the result, marking conflicts resolved, continuing, and aborting. Deleting a file is also supported as a resolution.
 - The Git page refreshes in the background every 3 seconds, when opened, and after operations complete. Background results retain their project association, and stale diff / file reads are rejected.
 
-Git uses your existing configuration, SSH, credential helpers, and signing programs. Interactive authentication can be completed in the terminal. The editor is limited to UTF-8 text and files up to 4 MiB. Non-UTF-8 diffs display a notice, while whole-file staging preserves the original bytes. Git output is capped at 8 MiB. Interactive rebase, PR / Issue / CI integration, and terminal process persistence are planned for later.
+Git uses your existing configuration, SSH, credential helpers, and signing programs. Interactive authentication can be completed in the terminal. The editor is limited to UTF-8 text and files up to 4 MiB. Non-UTF-8 diffs display a notice, while whole-file staging preserves the original bytes. Git output is capped at 8 MiB. Interactive rebase and PR / Issue / CI integration are planned for later.
 
 When creating a terminal, the app removes `NO_COLOR` inherited from the launcher and declares `xterm-256color` / `truecolor` support, so launching from a command environment without colors does not cause TUIs to disable colors automatically. Your shell configuration or individual commands can still explicitly set `NO_COLOR`.
 
-The terminal currently focuses on standard xterm / VT interaction. Image protocols, the complete Kitty keyboard protocol, and persistent terminal processes are not yet implemented. Compatibility needs to be verified for individual plugins and applications.
+The terminal currently focuses on standard xterm / VT interaction. Image protocols and the complete Kitty keyboard protocol are not yet implemented. Compatibility needs to be verified for individual plugins and applications.
 
 ## Keyboard shortcuts
 

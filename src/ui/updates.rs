@@ -631,7 +631,7 @@ impl Tervia {
             cx.notify();
             return false;
         }
-        true
+        self.flush_terminals(cx)
     }
 
     pub(super) fn update_restart_allowed(&self) -> bool {
@@ -691,9 +691,22 @@ impl Tervia {
                     ));
                     return;
                 }
+                this.capture_reading_positions(cx);
+                if !this.flush_terminals(cx) {
+                    return;
+                }
+                this.capture_terminal_positions(cx);
+                // The replacement process may load immediately; ownership must be durable before relaunch.
+                if let Some(store) = &mut this.workspace
+                    && let Err(error) = store.save(&this.state)
+                {
+                    this.state.notice = format!("{}\n{error}", this.t("workspace_error"));
+                    cx.notify();
+                    return;
+                }
+                this.detach_terminals(cx);
                 match installed.relaunch() {
                     Ok(()) => {
-                        this.shutdown_terminals(cx);
                         cx.quit();
                     }
                     Err(error) => {
