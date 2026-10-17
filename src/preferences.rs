@@ -34,11 +34,23 @@ impl Preferences {
     }
     pub fn reset(&mut self) {
         // Resetting appearance must not resume network checks or command-history recording.
-        *self = Self {
-            updates: self.updates,
-            command_suggestions: self.command_suggestions,
-            ..Self::default()
-        };
+        self.reset_general();
+        self.reset_workspace();
+    }
+
+    pub fn reset_general(&mut self) {
+        let defaults = Self::default();
+        self.light_theme = defaults.light_theme;
+        self.language = defaults.language;
+        self.ui_size = defaults.ui_size;
+    }
+
+    pub fn reset_workspace(&mut self) {
+        // History recording is an explicit choice, even when the rest of this page is reset.
+        let defaults = Self::default();
+        self.font_family = defaults.font_family;
+        self.code_size = defaults.code_size;
+        self.file_nesting = defaults.file_nesting;
     }
 }
 use crate::{locale::Language, platform::Platform};
