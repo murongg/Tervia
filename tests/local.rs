@@ -131,11 +131,12 @@ fn local_only_and_empty_local_sessions_survive_restart_without_a_project() {
     let mut restored = Store::new(path.clone()).load().unwrap();
     assert_eq!(restored.screen, Screen::Local);
     assert!(restored.projects.is_empty());
+    assert_eq!(restored.local_terminal.sessions.len(), 1);
     restored.close_session(0);
     store.save(&restored).unwrap();
     let restored = Store::new(path).load().unwrap();
     assert_eq!(restored.screen, Screen::Local);
-    assert_eq!(restored.local_terminal.sessions.len(), 1);
+    assert!(restored.local_terminal.sessions.is_empty());
 }
 
 #[test]

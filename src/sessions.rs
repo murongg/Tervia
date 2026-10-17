@@ -60,6 +60,10 @@ impl Target {
         self.root.join(&self.id)
     }
 
+    pub fn has_exited(&self) -> bool {
+        client::has_exited(&self.directory(), crate::process::has_exited)
+    }
+
     pub fn identifier() -> Result<String, String> {
         random_id().map_err(|e| e.to_string())
     }

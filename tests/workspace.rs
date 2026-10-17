@@ -353,11 +353,11 @@ fn invalid_project_switch_does_not_lose_current_state() {
 }
 
 #[test]
-fn closing_last_terminal_keeps_one_session_available() {
+fn closing_last_terminal_leaves_an_empty_project() {
     let mut workspace = workspace();
     workspace.close_session(1);
     workspace.close_session(0);
-    assert_eq!(workspace.project().terminal.sessions.len(), 1);
+    assert!(workspace.project().terminal.sessions.is_empty());
     assert_eq!(workspace.project().terminal.active_session, 0);
 }
 

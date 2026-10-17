@@ -148,7 +148,7 @@ impl Tervia {
             .as_ref()
             .map(|config| Store::new(config.path().with_file_name("workspace.json")));
         let state = workspace.as_mut().map(Store::load).transpose();
-        let state = match state {
+        let mut state = match state {
             Ok(state) => state.unwrap_or_else(Workspace::empty),
             Err(error) => {
                 let mut state = Workspace::empty();
@@ -156,6 +156,15 @@ impl Tervia {
                 state
             }
         };
+        if let Some(config) = &config {
+            let root = config.path().with_file_name("sessions");
+            if sessions::discard_exited(&mut state, &root)
+                && let Some(store) = &mut workspace
+                && let Err(error) = store.save(&state)
+            {
+                state.notice = format!("{}\n{error}", appearance.language.text("workspace_error"));
+            }
+        }
         Self::build(appearance, config, error, state, workspace, window, cx)
     }
 
@@ -522,11 +531,7 @@ impl Tervia {
             self.load_directory(index, PathBuf::new(), false, window, cx);
         }
         if self.state.project().tab == Tab::Terminal {
-            self.ensure_console(self.state.project().terminal.active_session, window, cx)
-                .read(cx)
-                .focus
-                .clone()
-                .focus(window, cx);
+            self.focus_terminal(window, cx);
         }
         cx.notify();
     }
@@ -557,11 +562,7 @@ impl Tervia {
         }
         self.focus.focus(window, cx);
         if tab == Tab::Terminal {
-            self.ensure_console(self.state.project().terminal.active_session, window, cx)
-                .read(cx)
-                .focus
-                .clone()
-                .focus(window, cx);
+            self.focus_terminal(window, cx);
         }
         cx.notify();
     }

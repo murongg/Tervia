@@ -12,7 +12,7 @@ pub(super) fn snapshot(workspace: &Workspace) -> Result<Value, serde_json::Error
         "focused_session": terminal.focused_session,
         "split_terminal": terminal.split_terminal,
     });
-    recovery::terminals(&saved, true).map_err(|error| {
+    recovery::terminals(&saved).map_err(|error| {
         serde_json::Error::io(io::Error::new(io::ErrorKind::InvalidData, error))
     })?;
     Ok(json!({
@@ -31,11 +31,11 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<(), St
         startup
             .get("local_terminal")
             .ok_or("Local terminal recovery is missing")?,
-        true,
     )?;
     match startup.get("screen").and_then(Value::as_str) {
         Some("welcome") => workspace.screen = Screen::Welcome,
-        Some("local") => workspace.show_local_terminal(),
+        // Restoring a screen must not create a new tab after the user explicitly closed the last one.
+        Some("local") => workspace.screen = Screen::Local,
         Some("project") => {
             let active = saved
                 .get("active")

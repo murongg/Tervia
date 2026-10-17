@@ -10,8 +10,7 @@ pub(super) fn snapshot(
         if !workspace.project_available(index) {
             continue;
         }
-        if project.terminal.sessions.is_empty()
-            || project.terminal.sessions.len() > 64
+        if project.terminal.sessions.len() > 64
             || project.open_files.len() > 512
             || project.terminal.sessions.iter().any(|session| {
                 session.name.len() > 1024
@@ -132,7 +131,7 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
             "files" => Tab::Files,
             _ => return Err("Invalid recovery module".into()),
         };
-        let terminal = terminals(context, false)?;
+        let terminal = terminals(context)?;
         let dock = context.get("dock");
         let visible = boolean(dock.and_then(|dock| dock.get("visible")), false)?;
         let size = number(dock.and_then(|dock| dock.get("size")), 220, 800)?.max(120) as u32;
@@ -236,12 +235,12 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
     Ok(orphans)
 }
 
-pub(super) fn terminals(context: &Value, allow_empty: bool) -> Result<Terminals, String> {
+pub(super) fn terminals(context: &Value) -> Result<Terminals, String> {
     let sessions = context
         .get("sessions")
         .and_then(Value::as_array)
         .ok_or("Recovery sessions must be an array")?;
-    if (!allow_empty && sessions.is_empty()) || sessions.len() > 64 {
+    if sessions.len() > 64 {
         return Err("Invalid recovery terminal count".into());
     }
     // Optional parallel aliases keep the existing sessions array readable by older workspaces.

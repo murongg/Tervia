@@ -9,9 +9,7 @@ impl Tervia {
         let visible = !self.state.project().dock.visible;
         self.state.project_mut().dock.visible = visible;
         if visible {
-            let console =
-                self.ensure_console(self.state.project().terminal.active_session, window, cx);
-            console.read(cx).focus.clone().focus(window, cx);
+            self.focus_terminal(window, cx);
         } else if self.state.project().tab == Tab::Files
             && self.state.project().current_file().is_some()
         {

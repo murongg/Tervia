@@ -8,7 +8,41 @@ pub(super) enum Owner {
     Project(usize),
 }
 
+pub(super) fn discard_exited(state: &mut tervia::state::Workspace, root: &std::path::Path) -> bool {
+    let mut changed = false;
+    for terminal in state
+        .projects
+        .iter_mut()
+        .map(|project| &mut project.terminal)
+        .chain(std::iter::once(&mut state.local_terminal))
+    {
+        changed |= terminal.retain(|session| {
+            session.connection.as_ref().is_none_or(|id| {
+                !tervia::sessions::Target::new(
+                    root.to_owned(),
+                    id.clone(),
+                    std::path::PathBuf::new(),
+                )
+                .has_exited()
+            })
+        });
+    }
+    changed
+}
+
 impl Tervia {
+    pub(super) fn focus_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.terminals().sessions.is_empty() {
+            self.focus.focus(window, cx);
+        } else {
+            self.ensure_console(self.state.terminals().active_session, window, cx)
+                .read(cx)
+                .focus
+                .clone()
+                .focus(window, cx);
+        }
+    }
+
     pub(super) fn console_owner(&self) -> Owner {
         if self.state.has_project() {
             Owner::Project(self.state.active_project)
@@ -155,15 +189,24 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if session >= self.state.terminals().sessions.len()
-            || (self.state.has_project() && self.state.terminals().sessions.len() == 1)
-        {
+        if session >= self.state.terminals().sessions.len() {
             return;
         }
         // Session indices shift on removal; an outstanding rename must never target its neighbor.
         self.terminal_rename = None;
         let connection = self.state.terminals().sessions[session].connection.clone();
+        self.capture_terminal_positions(cx);
+        let previous = self.state.terminals().clone();
         self.state.close_session(session);
+        // Forget the tab durably before destroying its process or view, including on an immediate crash.
+        if let Some(store) = &mut self.workspace
+            && let Err(error) = store.save(&self.state)
+        {
+            *self.state.terminals_mut() = previous;
+            self.state.notice = format!("{}\n{error}", self.t("workspace_error"));
+            cx.notify();
+            return;
+        }
         if let Some(console) = self.consoles_mut().remove(session) {
             if let Err(error) = console.update(cx, |console, _| console.shutdown()) {
                 self.state.notice = format!("{}: {error}", self.t("connection_error"));
@@ -171,15 +214,7 @@ impl Tervia {
         } else if let Some(id) = connection {
             self.end_session(id, cx);
         }
-        if self.state.terminals().sessions.is_empty() {
-            self.focus.focus(window, cx);
-        } else {
-            self.ensure_console(self.state.terminals().active_session, window, cx)
-                .read(cx)
-                .focus
-                .clone()
-                .focus(window, cx);
-        }
+        self.focus_terminal(window, cx);
         cx.notify();
     }
 

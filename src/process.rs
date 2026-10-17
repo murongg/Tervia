@@ -1,6 +1,22 @@
 use crate::agent::Agent;
 use std::collections::{BTreeSet, VecDeque};
 
+pub fn has_exited(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(pid) = i32::try_from(pid) else {
+            return false;
+        };
+        pid > 0
+            && unsafe { libc::kill(pid, 0) } == -1
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+    }
+    #[cfg(windows)]
+    {
+        windows::has_exited(pid)
+    }
+}
+
 pub fn descendants(root: u32, rows: &[(u32, u32)]) -> Vec<u32> {
     let mut queue = VecDeque::from([root]);
     let mut visited = BTreeSet::new();
@@ -268,6 +284,18 @@ mod windows {
                 CloseHandle(self.0);
             }
         }
+    }
+    pub fn has_exited(pid: u32) -> bool {
+        use windows_sys::Win32::{
+            Foundation::{ERROR_INVALID_PARAMETER, GetLastError, WAIT_OBJECT_0},
+            System::Threading::{PROCESS_SYNCHRONIZE, WaitForSingleObject},
+        };
+        let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
+        if handle.is_null() {
+            return pid > 0 && unsafe { GetLastError() } == ERROR_INVALID_PARAMETER;
+        }
+        let handle = Handle(handle);
+        unsafe { WaitForSingleObject(handle.0, 0) == WAIT_OBJECT_0 }
     }
     pub fn foreground(root: u32) -> Option<Agent> {
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
