@@ -285,12 +285,26 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
         gpui_kit::base::Root::new(settings, window, cx)
     });
     let shared = shared.unwrap();
-    cx.simulate_resize(size(px(800.0), px(800.0)));
+    cx.simulate_resize(size(px(700.0), px(580.0)));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let footer = cx.debug_bounds("settings-footer").unwrap();
+    // Platform font metrics can put this row below the fixed footer after Startup is added.
+    cx.simulate_event(ScrollWheelEvent {
+        position: point(footer.center().x, footer.top() - px(24.0)),
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-1000.0))),
+        ..Default::default()
+    });
     for enabled in [true, false] {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         let control = cx
             .debug_bounds("file-nesting-switch")
             .expect("File nesting is discoverable in Interface settings");
+        let footer = cx.debug_bounds("settings-footer").unwrap();
+        assert!(
+            control.bottom() <= footer.top(),
+            "The switch must be visible before clicking: {control:?}, footer: {footer:?}"
+        );
         cx.simulate_click(control.center(), Modifiers::default());
         cx.update(|_, cx| assert_eq!(shared.read(cx).file_nesting, enabled));
     }
