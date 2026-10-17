@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::component::menu::PopupMenuItem;
 use gpui_test::{TestAppContext, VisualTestContext};
 use std::{fs, path::Path, process::Command};
 use tervia::locale::Language;
@@ -87,7 +88,7 @@ fn mount<'a>(
     (entity.unwrap(), cx)
 }
 
-fn open_menu(cx: &mut VisualTestContext, row: &'static str) {
+fn show_menu(cx: &mut VisualTestContext, row: &'static str) {
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let row = cx.debug_bounds(row).expect("The worktree row is visible");
     cx.simulate_mouse_move(row.center(), None, Modifiers::default());
@@ -95,8 +96,53 @@ fn open_menu(cx: &mut VisualTestContext, row: &'static str) {
     cx.simulate_mouse_up(row.center(), MouseButton::Right, Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    cx.simulate_keystrokes("down down enter");
+}
+
+fn open_menu(cx: &mut VisualTestContext, row: &'static str) {
+    show_menu(cx, row);
+    cx.simulate_keystrokes("up enter");
     cx.run_until_parked();
+}
+
+fn menu_item(
+    view: &Entity<Tervia>,
+    cx: &mut VisualTestContext,
+    index: usize,
+    key: &'static str,
+) -> PopupMenuItem {
+    cx.update(|_, cx| {
+        let this = view.read(cx);
+        let project = this.state.active_project;
+        let tree = &this.git_states[project]
+            .snapshot
+            .as_ref()
+            .unwrap()
+            .worktrees[index];
+        this.worktree_menu_items(project, tree, view.downgrade()).into_iter().find(|item| {
+            matches!(item, PopupMenuItem::Item { label, .. } if label.as_ref() == this.t(key))
+        }).unwrap_or_else(|| panic!("Missing worktree menu item: {key}"))
+    })
+}
+
+fn item_disabled(item: &PopupMenuItem) -> bool {
+    match item {
+        PopupMenuItem::Item { disabled, .. } => *disabled,
+        _ => panic!("Expected a menu action"),
+    }
+}
+
+fn click_menu(view: &Entity<Tervia>, cx: &mut VisualTestContext, index: usize, key: &'static str) {
+    match menu_item(view, cx, index, key) {
+        PopupMenuItem::Item {
+            disabled: false,
+            handler: Some(handler),
+            ..
+        } => {
+            cx.update(|window, cx| handler(&ClickEvent::default(), window, cx));
+            cx.run_until_parked();
+        }
+        _ => panic!("Menu action is disabled or has no handler: {key}"),
+    }
 }
 
 #[gpui_test::test]
@@ -239,13 +285,15 @@ fn worktree_context_menu_disables_removal_for_main_locked_and_busy_rows(cx: &mut
     let (_root, repo) = fixture();
     let (view, cx) = mount(cx, &repo);
     cx.simulate_resize(size(px(880.0), px(800.0)));
-    open_menu(cx, "git-sidebar-worktree-0");
+    show_menu(cx, "git-sidebar-worktree-0");
+    assert!(item_disabled(&menu_item(&view, cx, 0, "worktree_remove")));
     assert!(!cx.has_pending_prompt());
     cx.simulate_keystrokes("escape");
     view.update(cx, |view, _| {
         view.git_states[view.state.active_project].busy = true
     });
-    open_menu(cx, "git-sidebar-worktree-1");
+    show_menu(cx, "git-sidebar-worktree-1");
+    assert!(item_disabled(&menu_item(&view, cx, 1, "worktree_remove")));
     assert!(!cx.has_pending_prompt());
     cx.simulate_keystrokes("escape");
     view.update(cx, |view, _| {
@@ -254,7 +302,62 @@ fn worktree_context_menu_disables_removal_for_main_locked_and_busy_rows(cx: &mut
         Arc::make_mut(ui.snapshot.as_mut().unwrap()).worktrees[1].locked =
             Some("Synthetic lock".into());
     });
-    open_menu(cx, "git-sidebar-worktree-1");
+    show_menu(cx, "git-sidebar-worktree-1");
+    assert!(item_disabled(&menu_item(&view, cx, 1, "worktree_remove")));
     assert!(!cx.has_pending_prompt());
     assert_eq!(repo.worktrees().unwrap().len(), 2);
+}
+
+#[gpui_test::test]
+fn worktree_menu_copies_the_clicked_directory_without_changing_the_active_one(
+    cx: &mut TestAppContext,
+) {
+    let (root, repo) = fixture();
+    let linked = root.path().join("linked").canonicalize().unwrap();
+    let (view, cx) = mount(cx, &repo);
+    for key in [
+        "worktree_open",
+        "worktree_copy_path",
+        "project_reveal",
+        "worktree_lock",
+        "worktree_remove",
+    ] {
+        assert!(!item_disabled(&menu_item(&view, cx, 1, key)));
+    }
+    click_menu(&view, cx, 1, "worktree_copy_path");
+    assert_eq!(
+        cx.read_from_clipboard().unwrap().text().unwrap(),
+        linked.to_string_lossy()
+    );
+    cx.update(|_, cx| assert_eq!(view.read(cx).state.project().root, repo.root));
+    assert!(item_disabled(&menu_item(&view, cx, 0, "worktree_open")));
+    assert!(item_disabled(&menu_item(&view, cx, 0, "worktree_remove")));
+    assert!(!item_disabled(&menu_item(
+        &view,
+        cx,
+        0,
+        "worktree_copy_path"
+    )));
+    assert!(!item_disabled(&menu_item(&view, cx, 0, "project_reveal")));
+}
+
+#[gpui_test::test]
+fn worktree_menu_opens_the_clicked_worktree(cx: &mut TestAppContext) {
+    let (root, repo) = fixture();
+    let linked = root.path().join("linked").canonicalize().unwrap();
+    let (view, cx) = mount(cx, &repo);
+    click_menu(&view, cx, 1, "worktree_open");
+    cx.update(|_, cx| assert_eq!(view.read(cx).state.project().root, linked));
+}
+
+#[gpui_test::test]
+fn worktree_menu_locks_and_unlocks_the_clicked_worktree(cx: &mut TestAppContext) {
+    let (_root, repo) = fixture();
+    let (view, cx) = mount(cx, &repo);
+    click_menu(&view, cx, 1, "worktree_lock");
+    assert!(repo.worktrees().unwrap()[1].locked.is_some());
+    assert!(item_disabled(&menu_item(&view, cx, 1, "worktree_remove")));
+    click_menu(&view, cx, 1, "worktree_unlock");
+    assert!(repo.worktrees().unwrap()[1].locked.is_none());
+    cx.update(|_, cx| assert_eq!(view.read(cx).state.project().root, repo.root));
 }

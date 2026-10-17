@@ -4,8 +4,7 @@ use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
-use tervia::git::WorktreeOperation;
+use gpui_kit::component::menu::ContextMenuExt as _;
 
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
@@ -409,25 +408,10 @@ impl Tervia {
                         let Some(view) = owner.upgrade() else {
                             return menu;
                         };
-                        let this = view.read(cx);
-                        let removable = this.worktree_removable(project, &menu_tree);
-                        let tree = menu_tree.clone();
-                        let owner = owner.clone();
-                        menu.label(this.worktree_caption(&tree)).item(
-                            PopupMenuItem::new(this.t("worktree_remove"))
-                                .icon(icon(IconName::Trash, p.red))
-                                .disabled(!removable)
-                                .on_click(move |_, window, cx| {
-                                    let _ = owner.update(cx, |this, cx| {
-                                        this.request_worktree_operation(
-                                            project,
-                                            WorktreeOperation::Remove(tree.clone()),
-                                            window,
-                                            cx,
-                                        );
-                                    });
-                                }),
-                        )
+                        view.read(cx)
+                            .worktree_menu_items(project, &menu_tree, owner.clone())
+                            .into_iter()
+                            .fold(menu, |menu, item| menu.item(item))
                     })
                     .into_any_element()
             }

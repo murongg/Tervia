@@ -1,5 +1,6 @@
 use crate::ui::scroll::ListScrollbars as _;
 mod jobs;
+mod menu;
 
 use super::super::controls::{icon, icon_button};
 use super::*;
