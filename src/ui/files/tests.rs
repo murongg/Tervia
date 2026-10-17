@@ -186,7 +186,7 @@ fn configured_recovery_loads_clean_files_from_disk_and_preserves_unsaved_drafts(
         );
         assert_eq!(this.state.project().files[1].draft, "current clean\n");
         assert_eq!(this.editors[0][0].read(cx).cursor_position().line, 1);
-        assert_eq!(this.state.project().sessions.len(), 2);
+        assert_eq!(this.state.project().terminal.sessions.len(), 2);
         assert!(this.state.project().dock.visible);
         window.draw(cx).clear(cx);
     });

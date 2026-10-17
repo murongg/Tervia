@@ -127,7 +127,17 @@ impl Tervia {
                 div()
                     .ml(px(8.0))
                     .min_w_0()
-                    .child(self.working_directory_switcher(cx)),
+                    .child(if self.state.has_project() {
+                        self.working_directory_switcher(cx).into_any_element()
+                    } else {
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.0))
+                            .child(icon(IconName::SquareTerminal, p.secondary))
+                            .child(self.t("local_terminal"))
+                            .into_any_element()
+                    }),
             )
             .child(
                 div()
@@ -136,6 +146,15 @@ impl Tervia {
                     .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
             )
             // Keep transient actions before the fixed controls so their click targets never move.
+            .when(!self.state.has_project(), |bar| {
+                bar.child(
+                    label_button("local-open-project", self.t("welcome_open_project"), p)
+                        .icon(icon(IconName::FolderOpen, p.secondary))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.choose_repository(window, cx)),
+                        ),
+                )
+            })
             .when_some(update, |titlebar, update| {
                 titlebar.child(div().mr(px(8.0)).child(update))
             })
@@ -253,6 +272,40 @@ impl Tervia {
 
     pub(super) fn statusbar(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p();
+        if !self.state.has_project() {
+            let path = self
+                .consoles()
+                .get(self.state.command_session())
+                .and_then(Option::as_ref)
+                .map(|console| console.read(cx).cwd.clone());
+            let path = path
+                .filter(|path| dirs::home_dir().as_ref() != Some(path))
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "~".into());
+            return div()
+                .h(px(28.0))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .gap(px(8.0))
+                .px(px(16.0))
+                .border_t_1()
+                .border_color(p.chrome_border())
+                .text_size(px(11.0))
+                .text_color(p.secondary)
+                .child(icon(IconName::SquareTerminal, p.secondary).size(px(12.0)))
+                .child(self.t("local_terminal"))
+                .child(path)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_ellipsis()
+                        .text_color(p.accent)
+                        .child(self.appearance.language.text(&self.state.notice).to_owned()),
+                )
+                .child(tervia::pty::default_shell().to_string_lossy().into_owned());
+        }
         let project = self.state.project();
         let context = match project.tab {
             Tab::Terminal => {
@@ -390,6 +443,9 @@ impl Tervia {
         .into_iter()
         .enumerate()
         {
+            if !self.state.has_project() && tab != Tab::Terminal {
+                continue;
+            }
             commands = commands.child(
                 Button::new(("palette-tab", index))
                     .ghost()
@@ -407,11 +463,35 @@ impl Tervia {
                     .accessibility_label(label)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.state.palette_open = false;
-                        this.change_tab(tab, window, cx);
+                        if this.state.has_project() {
+                            this.change_tab(tab, window, cx);
+                        } else {
+                            this.open_local_terminal(window, cx);
+                        }
                     })),
             );
         }
         commands = commands
+            .child(
+                Button::new("palette-local-terminal")
+                    .ghost()
+                    .w_full()
+                    .h(px(38.0))
+                    .compact()
+                    .label(self.t("new_local_terminal"))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.new_local_terminal(window, cx)),
+                    ),
+            )
+            .child(
+                Button::new("palette-welcome")
+                    .ghost()
+                    .w_full()
+                    .h(px(38.0))
+                    .compact()
+                    .label(self.t("welcome_home"))
+                    .on_click(cx.listener(|this, _, window, cx| this.open_welcome(window, cx))),
+            )
             .child(
                 Button::new("palette-sidebar")
                     .ghost()

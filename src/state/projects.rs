@@ -138,7 +138,8 @@ impl Workspace {
         self.catalog.hidden.extend(members.iter().copied());
         self.catalog.closed.retain(|index| *index != owner);
         self.catalog.closed.insert(0, owner);
-        if members.contains(&self.active_project) {
+        // Visibility is already hidden above; screen ownership decides whether navigation must change.
+        if self.screen == super::Screen::Project && members.contains(&self.active_project) {
             let next = self
                 .catalog
                 .recent
@@ -152,6 +153,10 @@ impl Workspace {
                 });
             if let Some(next) = next {
                 self.switch_project(next);
+            } else if !self.local_terminal.sessions.is_empty() {
+                self.screen = super::Screen::Local;
+            } else {
+                self.screen = super::Screen::Welcome;
             }
         }
         Some(members)

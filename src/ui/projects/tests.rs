@@ -300,7 +300,7 @@ fn the_titlebar_switches_working_directories_while_the_project_rail_restores_the
             view.init_project(other, window, cx);
             view.state.projects[other].tab = tervia::state::Tab::Files;
             view.state.switch_project(child);
-            view.state.project_mut().sessions[0].name = "synthetic child session".into();
+            view.state.project_mut().terminal.sessions[0].name = "synthetic child session".into();
             view
         });
         entity = Some(view.clone());
@@ -343,7 +343,7 @@ fn the_titlebar_switches_working_directories_while_the_project_rail_restores_the
     view.update(cx, |view, _| {
         assert_eq!(view.state.active_project, 1);
         assert_eq!(
-            view.state.project().sessions[0].name,
+            view.state.project().terminal.sessions[0].name,
             "synthetic child session"
         );
     });

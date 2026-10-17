@@ -114,7 +114,7 @@ fn closing_a_project_hides_all_directories_and_reopening_retains_drafts_and_layo
     );
     assert_eq!(state.project().tab, Tab::Files);
     assert!(state.project().dock.visible);
-    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().terminal.sessions.len(), 2);
     assert!(state.closed_project_rows().is_empty());
 }
 

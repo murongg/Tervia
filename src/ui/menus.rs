@@ -3,14 +3,25 @@ use tervia::locale::Language;
 use tervia::platform::Platform;
 
 use super::{
-    ClearTerminal, CloseFileTab, CopyCodeContext, CopyTerminalOutput, FilesTab, GitTab, NewSession,
-    OpenFile, OpenPreferences, OpenProject, QuickOpenFile, Quit, ReopenFileTab, SaveFile,
-    SearchProjectText, SplitTerminal, TerminalTab, TogglePalette, ToggleSidebar,
-    ToggleTerminalDock, ToggleTheme,
+    ClearTerminal, CloseFileTab, CloseSession, CopyCodeContext, CopyTerminalOutput, FilesTab,
+    GitTab, NewLocalTerminal, NewSession, OpenFile, OpenPreferences, OpenProject, QuickOpenFile,
+    Quit, ReopenFileTab, SaveFile, SearchProjectText, SplitTerminal, TerminalTab, TogglePalette,
+    ToggleSidebar, ToggleTerminalDock, ToggleTheme, Welcome,
 };
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("secondary-shift-n", NewLocalTerminal, Some("Tervia")),
+        // Keep Ctrl+W available to shell line editing outside macOS.
+        KeyBinding::new(
+            if Platform::CURRENT == Platform::Mac {
+                "cmd-w"
+            } else {
+                "ctrl-shift-w"
+            },
+            CloseSession,
+            Some("Tervia && Terminal"),
+        ),
         KeyBinding::new(
             if Platform::CURRENT == Platform::Mac {
                 "cmd-j"
@@ -60,6 +71,7 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::action(format!("{} Tervia", language.text("quit")), Quit),
         ]),
         Menu::new(language.text("menu_file")).items([
+            MenuItem::action(language.text("welcome_home"), Welcome),
             MenuItem::action(language.text("git_open_repository"), OpenProject),
             MenuItem::action(
                 language.text("project_quick_switch"),
@@ -103,6 +115,8 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
         ]),
         Menu::new(language.text("terminal")).items([
             MenuItem::action(language.text("new_terminal"), NewSession),
+            MenuItem::action(language.text("new_local_terminal"), NewLocalTerminal),
+            MenuItem::action(language.text("close_session"), CloseSession),
             MenuItem::action(language.text("toggle_split"), SplitTerminal),
             MenuItem::separator(),
             MenuItem::action(language.text("clear_terminal"), ClearTerminal),
@@ -234,7 +248,7 @@ mod tests {
         cx.update(|window, cx| {
             let view = view.read(cx);
             assert_eq!(view.state.project().tab, Tab::Terminal);
-            assert_eq!(view.state.project().sessions.len(), 2);
+            assert_eq!(view.state.project().terminal.sessions.len(), 2);
             assert!(
                 view.terminals[0][1]
                     .as_ref()
@@ -255,15 +269,15 @@ mod tests {
         cx.update(|_, cx| {
             let view = view.read(cx);
             assert_eq!(view.state.project().tab, Tab::Terminal);
-            assert_eq!(view.state.project().sessions.len(), 2);
-            assert!(view.state.project().split_terminal);
+            assert_eq!(view.state.project().terminal.sessions.len(), 2);
+            assert!(view.state.project().terminal.split_terminal);
         });
         cx.update(|window, cx| window.draw(cx).clear(cx));
         cx.update(|window, cx| window.dispatch_action(menu_action("toggle_split"), cx));
         cx.update(|_, cx| {
             let view = view.read(cx);
-            assert!(!view.state.project().split_terminal);
-            assert_eq!(view.state.project().sessions.len(), 2);
+            assert!(!view.state.project().terminal.split_terminal);
+            assert_eq!(view.state.project().terminal.sessions.len(), 2);
         });
     }
 
@@ -277,7 +291,7 @@ mod tests {
         cx.update(|window, cx| {
             window.draw(cx).clear(cx);
             let available = window.available_actions(cx);
-            for key in ["new_terminal", "toggle_split", "clear_terminal", "save"] {
+            for key in ["toggle_split", "clear_terminal", "save"] {
                 let action = menu_action(key);
                 assert!(
                     !available
@@ -291,6 +305,12 @@ mod tests {
                 available
                     .iter()
                     .any(|candidate| candidate.name() == open.name())
+            );
+            let local = menu_action("new_terminal");
+            assert!(
+                available
+                    .iter()
+                    .any(|candidate| candidate.name() == local.name())
             );
         });
     }

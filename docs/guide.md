@@ -72,7 +72,7 @@ Intervals are measured from the last completed check, including manual checks an
 
 Updates require an exact platform/architecture match and verify the archive against its SHA-256 digest captured during the check. macOS replaces the complete signed, notarized `.app` after signature and Gatekeeper checks; Windows and Linux replace the executable from the release archive. The installation must be writable by the current user; updates do not elevate privileges. Failed verification or installation preserves the existing app.
 
-Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal sessions; the open project list is restored after restarting. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
+Save all edited files across projects and worktrees and wait for pending writes/Git operations before restarting. Restart confirmation ends terminal processes; the last screen and project list restore after restarting with fresh shells. Development builds support automatic and manual checks but cannot install updates. Older versions need one manual upgrade to a release containing this feature.
 
 ## Available interactions
 
@@ -91,10 +91,16 @@ Save all edited files across projects and worktrees and wait for pending writes/
 - Single-click previews files in one temporary tab; double-click or editing pins it. Cmd+P (Ctrl+P on the Files page) finds filenames; Cmd/Ctrl+Shift+F searches project text. Arrow keys select results, Enter opens them and Escape returns to the tree; text matches jump to their source line/column. Markdown has native reading/source views and common image formats have read-only native previews under the existing 4 MiB read limit. Searches honor ignore rules, skip dependency trees/images/binary files, and report incomplete or capped results.
 - File tabs support close buttons, middle-click close, context menus for closing other/right/all tabs, drag reordering, Ctrl+Tab navigation and reopening closed tabs. Unsaved files are confirmed before closing.
 - Select source in Files or Git Diff and choose **Copy Context**, or press Cmd/Ctrl+Shift+C, to copy the project-relative path, inclusive line numbers and selected code. Files uses the current draft. Diff uses its displayed source, marks `original` / `modified`, and separates versions or gaps between supplied patch lines; it also supports native text selection and gutter line selection. Markdown must be in Source view; image previews have no code context.
-- Open folders or clone repositories from the welcome page, add real directories from the project rail, and use quick actions.
+- The welcome page offers Open Project and Use Terminal, recent projects, and a secondary Clone Repository action.
 - A separate native settings window with a feature-category sidebar to select installed common monospaced fonts, adjust terminal / code and interface font sizes, preview changes immediately, and restore defaults.
 
-On startup, Tervia restores the open project list, its order, the selected project and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. Missing project directories are skipped; an empty list opens the welcome page. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Terminal tabs reopen as new shells in their project directory; running processes and AI conversations are not automatically resumed.
+On startup, Tervia restores the last project, local terminal, or welcome screen, together with the project list, its order and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. First launch opens the welcome page with project and terminal entry points. An unavailable last project returns to the welcome page with an explanation. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Project tabs reopen as new shells in their directory, and local tabs reopen in the home directory; running processes and AI conversations are not automatically resumed.
+
+## Local terminal
+
+The permanent Local Terminal entry at the top of the project sidebar needs no project or directory selection. It starts in your home directory using your existing shell configuration and has independent tabs, split panes, search and output copying. It never scans your home directory or registers it as a project. Switching projects preserves running local sessions.
+
+Cmd+T / Ctrl+Shift+T enters the local terminal from the welcome page and creates a session in the current context elsewhere. Cmd+Shift+N / Ctrl+Shift+N creates a local terminal from any main screen. Closing the last local tab leaves an empty surface with a New Terminal action; each context supports up to 64 tabs. Restart restores tabs and layout with fresh shells, not running processes or AI conversations. Running `cd` in a local shell never creates or switches projects; explicitly open a project for Files and Git.
 
 ## Project management
 
@@ -102,7 +108,7 @@ The sidebar Search control, File menu and Cmd+Option+P (Ctrl+Alt+P on Windows/Li
 
 Favorite projects with the star or context menu. Drag rows within the favorite or ordinary group to reorder them; Move Up/Down provides the same operation from the context menu. Sidebar order stays stable while switching projects and survives restarting.
 
-Close Project saves drafts, reading positions and layout to workspace recovery before ending that project's terminal sessions with a named confirmation. Failed recovery saves keep the project and terminals open; Git/file operations must finish before closing. Recently Closed Projects is available in the sidebar, File menu and welcome screen. Reopening restores the editing context and starts new shells when needed. Closing leaves project files on disk unchanged.
+Close Project saves drafts, reading positions and layout to workspace recovery before ending that project's terminal sessions with a named confirmation. Failed recovery saves keep the project and terminals open; Git/file operations must finish before closing. Recently Closed Projects is available in the sidebar, File menu and welcome screen. Reopening restores the editing context and starts new shells when needed. Closing leaves project files on disk unchanged and preserves local terminal processes. Closing the final project returns to existing local sessions, or to the welcome page if there are none.
 
 ## Configuration
 
@@ -186,9 +192,11 @@ The native menu bar includes File, View and Terminal menus for opening folders/f
 | ⌘J | Ctrl+Shift+J | Show / hide the bottom terminal in Git / Files |
 | ⌘F in Terminal | Ctrl+Shift+F in Terminal | Find in terminal output and scrollback |
 | ⌘1 / ⌘2 / ⌘3 | Ctrl+1 / Ctrl+2 / Ctrl+3 | Terminal / Git / Files |
-| ⌘T | Ctrl+Shift+T | New terminal |
+| ⌘T | Ctrl+Shift+T | New terminal in the current context; enter a terminal from welcome |
+| ⌘Shift+N | Ctrl+Shift+N | New local terminal |
 | ⌘S | Ctrl+S | Save the current file to disk |
 | ⌘W | Ctrl+W | Close the current file tab |
+| ⌘W | Ctrl+Shift+W | Close the current terminal tab; projects retain their final terminal |
 | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous file tab |
 | ⌘Shift+T | Ctrl+Shift+T | Reopen the last closed file tab |
 | ⌘F | Ctrl+F | Find in the editor |

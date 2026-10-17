@@ -110,8 +110,10 @@ impl Tervia {
                 }
             }
         }
-        if !self.state.project_rows().is_empty() {
+        if self.state.has_project() {
             self.change_project(self.state.active_project, window, cx);
+        } else if self.state.screen == tervia::state::Screen::Local {
+            self.open_local_terminal(window, cx);
         } else {
             self.focus.focus(window, cx);
         }
@@ -127,7 +129,7 @@ impl Tervia {
         self.reopen_project_target(owner, None, window, cx);
     }
 
-    pub(super) fn reopen_project_target(
+    pub(in crate::ui) fn reopen_project_target(
         &mut self,
         owner: usize,
         target: Option<usize>,

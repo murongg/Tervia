@@ -1,5 +1,5 @@
 use super::*;
-use crate::state::{File, ReadingPosition, Session, Tab};
+use crate::state::{File, ReadingPosition, Session, Tab, Terminals};
 
 pub(super) fn snapshot(
     workspace: &Workspace,
@@ -10,10 +10,11 @@ pub(super) fn snapshot(
         if !workspace.project_available(index) {
             continue;
         }
-        if project.sessions.is_empty()
-            || project.sessions.len() > 64
+        if project.terminal.sessions.is_empty()
+            || project.terminal.sessions.len() > 64
             || project.open_files.len() > 512
             || project
+                .terminal
                 .sessions
                 .iter()
                 .any(|session| session.name.len() > 1024)
@@ -24,7 +25,7 @@ pub(super) fn snapshot(
             )));
         }
         if project.open_files.is_empty()
-            && project.sessions.len() == 1
+            && project.terminal.sessions.len() == 1
             && !project.dock.visible
             && project.tab == Tab::Git
             && project.positions.is_empty()
@@ -67,9 +68,9 @@ pub(super) fn snapshot(
             "owner": serde_json::to_value(workspace.folder(index).map(|owner| &workspace.projects[owner].root).unwrap_or(&project.root))?,
             "tab": match project.tab { Tab::Terminal => "terminal", Tab::Git => "git", Tab::Files => "files" },
             "dock": { "visible": project.dock.visible, "size": project.dock.size },
-            "sessions": project.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
-            "active_session": project.active_session, "focused_session": project.focused_session,
-            "split_terminal": project.split_terminal, "files": files,
+            "sessions": project.terminal.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
+            "active_session": project.terminal.active_session, "focused_session": project.terminal.focused_session,
+            "split_terminal": project.terminal.split_terminal, "files": files,
             "active_file": project.current_file().map(|file| serde_json::to_value(&file.disk_path)).transpose()?
         }));
     }
@@ -117,32 +118,10 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
             "files" => Tab::Files,
             _ => return Err("Invalid recovery module".into()),
         };
-        let sessions = context
-            .get("sessions")
-            .and_then(Value::as_array)
-            .ok_or("Recovery sessions must be an array")?;
-        if sessions.is_empty() || sessions.len() > 64 {
-            return Err("Invalid recovery terminal count".into());
-        }
-        let sessions = sessions
-            .iter()
-            .map(|name| {
-                let name = name
-                    .as_str()
-                    .filter(|name| name.len() <= 1024)
-                    .ok_or("Invalid terminal name")?;
-                Ok(Session { name: name.into() })
-            })
-            .collect::<Result<Vec<_>, String>>()?;
-        let active = number(context.get("active_session"), 0, 63)? as usize;
-        let focused = number(context.get("focused_session"), active as u64, 63)? as usize;
-        if active >= sessions.len() || focused >= sessions.len() {
-            return Err("Invalid active terminal".into());
-        }
+        let terminal = terminals(context, false)?;
         let dock = context.get("dock");
         let visible = boolean(dock.and_then(|dock| dock.get("visible")), false)?;
         let size = number(dock.and_then(|dock| dock.get("size")), 220, 800)?.max(120) as u32;
-        let split = boolean(context.get("split_terminal"), false)?;
         let stored_files = context
             .get("files")
             .and_then(Value::as_array)
@@ -226,10 +205,7 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
         let project = &mut workspace.projects[index];
         project.tab = tab;
         project.dock = crate::state::Dock { visible, size };
-        project.sessions = sessions;
-        project.active_session = active;
-        project.focused_session = focused;
-        project.split_terminal = split && project.sessions.len() > 1;
+        project.terminal = terminal;
         project.active_file = active_file
             .and_then(|path| files.iter().position(|file| file.disk_path == path))
             .unwrap_or(0);
@@ -239,6 +215,38 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
         project.restoring = restoring;
     }
     Ok(orphans)
+}
+
+pub(super) fn terminals(context: &Value, allow_empty: bool) -> Result<Terminals, String> {
+    let sessions = context
+        .get("sessions")
+        .and_then(Value::as_array)
+        .ok_or("Recovery sessions must be an array")?;
+    if (!allow_empty && sessions.is_empty()) || sessions.len() > 64 {
+        return Err("Invalid recovery terminal count".into());
+    }
+    let sessions = sessions
+        .iter()
+        .map(|name| {
+            let name = name
+                .as_str()
+                .filter(|name| name.len() <= 1024)
+                .ok_or("Invalid terminal name")?;
+            Ok(Session { name: name.into() })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let active = number(context.get("active_session"), 0, 63)? as usize;
+    let focused = number(context.get("focused_session"), active as u64, 63)? as usize;
+    if active > sessions.len().saturating_sub(1) || focused > sessions.len().saturating_sub(1) {
+        return Err("Invalid active terminal".into());
+    }
+    let split = boolean(context.get("split_terminal"), false)?;
+    Ok(Terminals {
+        active_session: active,
+        focused_session: focused,
+        split_terminal: split && sessions.len() > 1,
+        sessions,
+    })
 }
 
 fn source(value: &Value) -> Result<&str, String> {

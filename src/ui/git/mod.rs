@@ -370,6 +370,8 @@ impl GitUi {
 
 impl Tervia {
     pub(super) fn choose_repository(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigation.cancel();
+        let generation = self.navigation.generation();
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -384,11 +386,17 @@ impl Tervia {
                     .background_executor()
                     .spawn(async move { tervia::files::directory(&path, std::path::Path::new("")) })
                     .await;
-                let _ = weak.update_in(cx, |this, window, cx| match opened {
-                    Ok(root) => this.open_directory(root, window, cx),
-                    Err(error) => {
-                        this.state.notice = error;
-                        cx.notify();
+                let _ = weak.update_in(cx, |this, window, cx| {
+                    // Native folder validation may finish after an explicit switch to a local shell.
+                    if this.navigation.generation() != generation {
+                        return;
+                    }
+                    match opened {
+                        Ok(root) => this.open_directory(root, window, cx),
+                        Err(error) => {
+                            this.state.notice = error;
+                            cx.notify();
+                        }
                     }
                 });
             }
@@ -992,6 +1000,7 @@ impl Tervia {
         if url.trim().is_empty() || self.git_mutating {
             return;
         }
+        let generation = self.navigation.generation();
         let root = project
             .map(|project| self.state.projects[project].root.clone())
             .unwrap_or_else(|| {
@@ -1015,7 +1024,9 @@ impl Tervia {
             let _ = weak.update_in(cx, |this, window, cx| {
                 this.git_mutating = false;
                 match result {
-                    Some(Ok(repository)) => this.open_repository(repository.root, window, cx),
+                    Some(Ok(repository)) => {
+                        this.finish_clone(repository.root, generation, window, cx)
+                    }
                     Some(Err(error)) => {
                         if let Some(project) = project {
                             this.git_states[project].error.action(error);
@@ -1029,5 +1040,31 @@ impl Tervia {
             });
         })
         .detach();
+    }
+
+    pub(in crate::ui) fn finish_clone(
+        &mut self,
+        root: PathBuf,
+        generation: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.navigation.generation() == generation {
+            self.open_repository(root, window, cx);
+            return;
+        }
+        if self.worktree_removing(&root) {
+            return;
+        }
+        // Keep a completed clone discoverable without overriding a later explicit screen choice.
+        let count = self.state.projects.len();
+        let index = self.state.register_directory(root);
+        if index == count {
+            self.init_project(index, window, cx);
+        }
+        self.attach_navigation(index);
+        self.persist_workspace(cx);
+        self.refresh_git(index, window, cx);
+        cx.notify();
     }
 }

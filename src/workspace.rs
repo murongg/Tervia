@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use crate::state::Workspace;
 mod catalog;
 mod recovery;
+mod startup;
 
 /// App-owned project history, stored separately from the user-editable configuration.
 pub struct Store {
@@ -53,6 +54,8 @@ impl Store {
             self.orphans =
                 recovery::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
             catalog::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
+            // Restore the screen last: project/catalog restoration temporarily changes selection.
+            startup::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
         }
         self.saved = Some(
             snapshot(&workspace, &fallbacks, &self.orphans).map_err(|error| self.error(error))?,
@@ -192,6 +195,7 @@ fn snapshot(
         "window_maximized": workspace.window_maximized,
         "contexts": recovery::snapshot(workspace, orphans)?,
         "catalog": catalog::snapshot(workspace)?,
+        "startup": startup::snapshot(workspace)?,
     }))
 }
 

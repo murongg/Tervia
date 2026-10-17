@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 mod projects;
+mod terminal;
 pub use projects::ProjectMatch;
+pub use terminal::{Screen, Terminals};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -49,10 +51,7 @@ pub struct Project {
     pub repository: Option<PathBuf>,
     pub branch: String,
     pub tab: Tab,
-    pub sessions: Vec<Session>,
-    pub active_session: usize,
-    pub focused_session: usize,
-    pub split_terminal: bool,
+    pub terminal: Terminals,
     pub dock: Dock,
     pub positions: std::collections::BTreeMap<PathBuf, ReadingPosition>,
     pub restoring: std::collections::BTreeSet<PathBuf>,
@@ -262,6 +261,8 @@ struct FolderGroup {
 #[derive(Clone, Debug)]
 pub struct Workspace {
     pub projects: Vec<Project>,
+    pub local_terminal: Terminals,
+    pub screen: Screen,
     pub(crate) catalog: projects::Catalog,
     closed_projects: std::collections::BTreeSet<usize>,
     repositories: std::collections::BTreeMap<PathBuf, RepositoryGroup>,
@@ -283,6 +284,8 @@ impl Workspace {
     pub fn empty() -> Self {
         Self {
             projects: Vec::new(),
+            local_terminal: Terminals::empty(),
+            screen: Screen::Welcome,
             catalog: Default::default(),
             closed_projects: Default::default(),
             repositories: Default::default(),
@@ -305,6 +308,7 @@ impl Workspace {
 
     pub fn switch_project(&mut self, index: usize) {
         if self.project_visible(index) {
+            self.screen = Screen::Project;
             if let Some(parent) = self.folder(index)
                 && let Some(group) = self.folders.get_mut(&parent)
             {
@@ -621,7 +625,9 @@ impl Workspace {
     }
 
     pub fn set_tab(&mut self, tab: Tab) {
-        self.project_mut().tab = tab;
+        if self.has_project() {
+            self.project_mut().tab = tab;
+        }
         self.notice.clear();
     }
 
@@ -633,57 +639,6 @@ impl Workspace {
         let was_open = self.palette_open;
         self.palette_open = false;
         was_open
-    }
-
-    pub fn toggle_split(&mut self) {
-        self.project_mut().split_terminal = !self.project().split_terminal;
-    }
-
-    pub fn new_session(&mut self) {
-        let project = self.project_mut();
-        project.sessions.push(Session {
-            name: format!("shell {}", project.sessions.len() + 1),
-        });
-        project.active_session = project.sessions.len() - 1;
-        project.focused_session = project.active_session;
-    }
-
-    pub fn select_session(&mut self, index: usize) {
-        if index < self.project().sessions.len() {
-            self.project_mut().active_session = index;
-            self.project_mut().focused_session = index;
-        }
-    }
-
-    pub fn focus_session(&mut self, index: usize) {
-        if index < self.project().sessions.len() {
-            self.project_mut().focused_session = index;
-        }
-    }
-
-    pub fn command_session(&self) -> usize {
-        self.project()
-            .focused_session
-            .min(self.project().sessions.len() - 1)
-    }
-
-    pub fn close_session(&mut self, index: usize) {
-        let project = self.project_mut();
-        // A project always keeps one terminal surface, even when its last tab is closed.
-        if project.sessions.len() > 1 && index < project.sessions.len() {
-            project.sessions.remove(index);
-            project.active_session = project
-                .active_session
-                .saturating_sub(usize::from(index <= project.active_session));
-            project.active_session = project.active_session.min(project.sessions.len() - 1);
-            project.focused_session = project
-                .focused_session
-                .saturating_sub(usize::from(index <= project.focused_session))
-                .min(project.sessions.len() - 1);
-            if project.sessions.len() == 1 {
-                project.split_terminal = false;
-            }
-        }
     }
 
     pub fn open_file(&mut self, index: usize) {
@@ -730,12 +685,7 @@ impl Workspace {
             repository: None,
             branch: "—".into(),
             tab: Tab::Git,
-            sessions: vec![Session {
-                name: "shell".into(),
-            }],
-            active_session: 0,
-            focused_session: 0,
-            split_terminal: false,
+            terminal: Terminals::default(),
             dock: Dock::default(),
             positions: Default::default(),
             restoring: Default::default(),
