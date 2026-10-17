@@ -58,6 +58,12 @@ Pull requests targeting `main` run formatting checks, tests, and Clippy on macOS
 
 Linux packages require the runtime libraries described above. Each archive targets the architecture of its CI runner; macOS archives include that architecture in the filename.
 
+## Launch at login
+
+Enable **Settings → Interface → Startup → Launch at login** to open Tervia automatically when you sign in. It is off by default. This setting reads and changes the current user's system startup entry directly, is not stored in `config.toml`, and is preserved by **Reset defaults**. Failures show their cause and a retry action in settings.
+
+macOS uses a user LaunchAgent, Windows uses the current user's Run entry, and Linux uses XDG Autostart. Install the app in a stable location first; after moving it, turn the setting off and on again to update its path.
+
 ## Online updates
 
 By default, Tervia checks the latest stable GitHub Release in the background at startup and every **60 minutes** while running. **Settings → Updates** provides an automatic-check switch, common check intervals, manual checking, release notes, and **Download and install**. An available update shows a dotted download icon at the top right of the main window; click it to confirm installation. During downloads, the icon becomes a circular progress indicator. It spins while the download size is unknown or verification/installation is in progress, then becomes a restart action after installation. Failures show their cause in the initiating window and keep the update available for retry. Once installed, choose **Restart Tervia**, or restart later yourself.

@@ -7330,6 +7330,7 @@ dependencies = [
  "tempfile",
  "toml_edit 0.25.17+spec-1.1.0",
  "trash",
+ "windows-registry 0.6.1",
  "windows-sys 0.61.2",
  "zip",
 ]
