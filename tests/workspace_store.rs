@@ -2,6 +2,105 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn terminal_custom_names_survive_restart_even_with_an_otherwise_default_project() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-renamed-terminal");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root.clone());
+    assert!(state.terminals_mut().rename(0, "mock project shell"));
+    state.show_local_terminal();
+    state.new_session();
+    assert!(state.terminals_mut().rename(1, "本地 mock 终端"));
+    store.save(&state).unwrap();
+
+    let mut store = Store::new(path.clone());
+    let mut restored = store.load().unwrap();
+    assert_eq!(restored.local_terminal.sessions[0].custom_name, None);
+    assert_eq!(
+        restored.local_terminal.sessions[1].custom_name.as_deref(),
+        Some("本地 mock 终端")
+    );
+    restored.switch_project(0);
+    assert_eq!(restored.project().root, root);
+    assert_eq!(
+        restored.terminals().sessions[0].custom_name.as_deref(),
+        Some("mock project shell")
+    );
+    assert!(restored.terminals_mut().rename(0, ""));
+    store.save(&restored).unwrap();
+    assert_eq!(
+        Store::new(path).load().unwrap().terminals().sessions[0].custom_name,
+        None
+    );
+}
+
+#[test]
+fn legacy_terminal_names_restore_without_becoming_custom_names() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-legacy-terminal");
+    let path = temporary.path().join("workspace.json");
+    fs::write(
+        &path,
+        serde_json::json!({
+            "version": 2, "projects": [{"root": root, "directory": root}], "active": root,
+            "contexts": [{"root": root, "sessions": ["shell", "mock legacy shell"], "files": []}],
+            "startup": {"screen": "project", "local_terminal": {"sessions": ["shell"]}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.terminals().sessions[1].name, "mock legacy shell");
+    assert!(
+        restored
+            .terminals()
+            .sessions
+            .iter()
+            .all(|session| session.custom_name.is_none())
+    );
+    assert_eq!(restored.local_terminal.sessions[0].custom_name, None);
+}
+
+#[test]
+fn malformed_terminal_custom_names_cannot_overwrite_workspace_recovery() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-invalid-terminal-names");
+    let path = temporary.path().join("workspace.json");
+    for local in [false, true] {
+        for aliases in [
+            serde_json::json!(true),
+            serde_json::json!([]),
+            serde_json::json!([null, "extra"]),
+            serde_json::json!([42]),
+            serde_json::json!(["mock\nname"]),
+            serde_json::json!(["界".repeat(342)]),
+        ] {
+            let terminal = serde_json::json!({"sessions": ["shell"], "custom_names": aliases});
+            let mut saved = serde_json::json!({
+                "version": 2, "projects": [{"root": root, "directory": root}], "active": root,
+            });
+            if local {
+                saved["startup"] =
+                    serde_json::json!({"screen": "local", "local_terminal": terminal});
+            } else {
+                let mut context = terminal;
+                context["root"] = serde_json::json!(root);
+                context["files"] = serde_json::json!([]);
+                saved["contexts"] = serde_json::json!([context]);
+            }
+            let source = saved.to_string();
+            fs::write(&path, &source).unwrap();
+            let mut store = Store::new(path.clone());
+            assert!(store.load().is_err());
+            assert!(store.save(&Workspace::new(root.clone())).is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), source);
+        }
+    }
+}
+
+#[test]
 fn window_maximization_survives_workspace_saves_and_restarts() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("workspace.json");

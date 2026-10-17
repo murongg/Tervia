@@ -1,6 +1,53 @@
 use tervia::state::{File, FileClose, Tab, Workspace};
 
 #[test]
+fn terminal_custom_names_are_trimmed_resettable_and_scoped_to_their_session() {
+    let mut state = Workspace::new("/synthetic/mock-terminal-names".into());
+    state.new_session();
+    assert!(state.terminals_mut().rename(0, "  mock frontend  "));
+    assert_eq!(
+        state.terminals().sessions[0].custom_name.as_deref(),
+        Some("mock frontend")
+    );
+    assert_eq!(state.terminals().sessions[0].name, "shell");
+    assert_eq!(state.terminals().sessions[1].custom_name, None);
+    state.show_local_terminal();
+    assert!(state.terminals_mut().rename(0, "mock local"));
+    state.switch_project(0);
+    state.close_session(1);
+    assert_eq!(
+        state.terminals().sessions[0].custom_name.as_deref(),
+        Some("mock frontend")
+    );
+    assert_eq!(
+        state.local_terminal.sessions[0].custom_name.as_deref(),
+        Some("mock local")
+    );
+    assert!(state.terminals_mut().rename(0, " \t "));
+    assert_eq!(state.terminals().sessions[0].custom_name, None);
+    assert_eq!(state.terminals().sessions[0].name, "shell");
+}
+
+#[test]
+fn invalid_terminal_custom_names_leave_the_existing_name_intact() {
+    let mut state = Workspace::new("/synthetic/mock-terminal-validation".into());
+    assert!(state.terminals_mut().rename(0, "mock backend"));
+    for name in [
+        "x".repeat(1025),
+        "mock\nname".into(),
+        "mock\u{1b}name".into(),
+    ] {
+        assert!(!state.terminals_mut().rename(0, &name));
+        assert_eq!(
+            state.terminals().sessions[0].custom_name.as_deref(),
+            Some("mock backend")
+        );
+    }
+    assert!(!state.terminals_mut().rename(99, "missing"));
+    assert!(state.terminals_mut().rename(0, &"界".repeat(341)));
+}
+
+#[test]
 fn git_children_are_listed_automatically_and_manual_directories_keep_their_state() {
     let mut state = Workspace::new("/synthetic/mock-project".into());
     let scanned = state.register_directory("/synthetic/mock-project/mock-repo".into());

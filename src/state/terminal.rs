@@ -1,5 +1,11 @@
 use super::{Session, Tab, Workspace};
 
+impl Session {
+    pub fn valid_custom_name(name: &str) -> bool {
+        name.len() <= 1024 && !name.chars().any(char::is_control)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Screen {
     #[default]
@@ -21,6 +27,7 @@ impl Default for Terminals {
         Self {
             sessions: vec![Session {
                 name: "shell".into(),
+                custom_name: None,
             }],
             active_session: 0,
             focused_session: 0,
@@ -30,6 +37,19 @@ impl Default for Terminals {
 }
 
 impl Terminals {
+    pub fn rename(&mut self, index: usize, name: &str) -> bool {
+        let name = name.trim();
+        if !Session::valid_custom_name(name) {
+            return false;
+        }
+        let Some(session) = self.sessions.get_mut(index) else {
+            return false;
+        };
+        // Keep the automatic shell name so clearing an alias restores normal Agent detection.
+        session.custom_name = (!name.is_empty()).then(|| name.to_owned());
+        true
+    }
+
     pub fn empty() -> Self {
         Self {
             sessions: Vec::new(),
@@ -45,6 +65,7 @@ impl Terminals {
             } else {
                 format!("shell {}", index + 1)
             },
+            custom_name: None,
         });
         self.active_session = index;
         self.focused_session = index;

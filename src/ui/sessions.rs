@@ -3,13 +3,13 @@ use gpui_kit::*;
 use tervia::state::Screen;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Owner {
+pub(super) enum Owner {
     Local,
     Project(usize),
 }
 
 impl Tervia {
-    fn console_owner(&self) -> Owner {
+    pub(super) fn console_owner(&self) -> Owner {
         if self.state.has_project() {
             Owner::Project(self.state.active_project)
         } else {
@@ -114,6 +114,7 @@ impl Tervia {
     }
 
     pub(super) fn new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.terminal_rename = None;
         if self.state.screen == Screen::Welcome {
             self.open_local_terminal(window, cx);
             return;
@@ -141,6 +142,8 @@ impl Tervia {
         {
             return;
         }
+        // Session indices shift on removal; an outstanding rename must never target its neighbor.
+        self.terminal_rename = None;
         self.state.close_session(session);
         if let Some(console) = self.consoles_mut().remove(session) {
             console.update(cx, |console, _| console.shutdown());
@@ -158,6 +161,7 @@ impl Tervia {
     }
 
     fn leave_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.terminal_rename = None;
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }

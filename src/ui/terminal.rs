@@ -3,6 +3,8 @@ use gpui_kit::component::Icon;
 use gpui_kit::component::{
     Disableable, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
+    input::Input,
+    menu::{ContextMenuExt as _, PopupMenuItem},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -13,7 +15,104 @@ use super::{
     controls::{icon, icon_button, separator},
 };
 
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests;
+
 impl Tervia {
+    fn terminal_session_name(&self, index: usize, cx: &App) -> String {
+        let session = &self.state.terminals().sessions[index];
+        if let Some(name) = &session.custom_name {
+            return name.clone();
+        }
+        let agent = self.consoles()[index]
+            .as_ref()
+            .and_then(|console| console.read(cx).agent);
+        match agent {
+            Some(agent) if index == 0 => agent.name().to_owned(),
+            Some(agent) => format!("{} {}", agent.name(), index + 1),
+            None => session.name.clone(),
+        }
+    }
+
+    pub(super) fn rename_terminal_session(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if index >= self.state.terminals().sessions.len() {
+            return;
+        }
+        self.terminal_rename = None;
+        let name = self.terminal_session_name(index, cx);
+        self.state.select_session(index);
+        self.ensure_console(index, window, cx);
+        self.terminal_rename = Some((self.console_owner(), index));
+        self.terminal_name.update(cx, |input, cx| {
+            input.set_value(name, window, cx);
+            input.set_placeholder(self.t("terminal_name_placeholder"), window, cx);
+            input.focus(window, cx);
+            input.select_all(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn finish_terminal_rename(&mut self, save: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((owner, index)) = self.terminal_rename.take() else {
+            return;
+        };
+        if owner != self.console_owner() {
+            return;
+        }
+        if save {
+            let name = self.terminal_name.read(cx).value().to_string();
+            if self.state.terminals_mut().rename(index, &name) {
+                self.persist_workspace(cx);
+            }
+        }
+        self.ensure_console(self.state.terminals().active_session, window, cx)
+            .read(cx)
+            .focus
+            .clone()
+            .focus(window, cx);
+        cx.notify();
+    }
+
+    fn terminal_name_input(&self, cx: &mut Context<Self>) -> Div {
+        div()
+            .debug_selector(|| "terminal-rename-input".into())
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::base::actions::Confirm, window, cx| {
+                    this.finish_terminal_rename(true, window, cx);
+                    cx.stop_propagation();
+                },
+            ))
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Enter, window, cx| {
+                    this.finish_terminal_rename(true, window, cx);
+                    cx.stop_propagation();
+                },
+            ))
+            .capture_action(
+                cx.listener(|this, _: &gpui_kit::base::actions::Cancel, window, cx| {
+                    this.finish_terminal_rename(false, window, cx);
+                    cx.stop_propagation();
+                }),
+            )
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                    this.finish_terminal_rename(false, window, cx);
+                    cx.stop_propagation();
+                },
+            ))
+            .child(
+                Input::new(&self.terminal_name)
+                    .small()
+                    .w(px(180.0))
+                    .h(px(29.0)),
+            )
+    }
+
     pub(super) fn open_terminal_link(
         &mut self,
         project: usize,
@@ -102,19 +201,64 @@ impl Tervia {
             .gap(px(4.0))
             .border_b_1()
             .border_color(p.chrome_border());
-        for (index, _session) in terminal.sessions.iter().enumerate() {
+        for index in 0..terminal.sessions.len() {
             let selected = active == index;
             let agent = self.consoles()[index]
                 .as_ref()
                 .and_then(|console| console.read(cx).agent);
-            let session_name = match agent {
-                Some(agent) if index == 0 => agent.name().to_owned(),
-                Some(agent) => format!("{} {}", agent.name(), index + 1),
-                None => _session.name.clone(),
+            let session_name = self.terminal_session_name(index, cx);
+            let owner = self.console_owner();
+            let weak = cx.weak_entity();
+            let rename = self.t("rename_terminal");
+            let title = if self.terminal_rename == Some((owner, index)) {
+                self.terminal_name_input(cx).into_any_element()
+            } else {
+                Button::new(("session", index))
+                    .debug_selector(move || format!("session-title-{index}"))
+                    .custom(ButtonCustomVariant::new(cx).foreground(p.text))
+                    .small()
+                    .h(px(29.0))
+                    .rounded(px(5.0))
+                    .icon(agent_icon(agent, selected, p, self.appearance.light_theme))
+                    .label(session_name.clone())
+                    .max_w(px(220.0))
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .tooltip(format!(
+                        "{}\n{}",
+                        session_name,
+                        self.t("terminal_rename_hint")
+                    ))
+                    .when(
+                        self.consoles()[index]
+                            .as_ref()
+                            .is_some_and(|console| console.read(cx).attention),
+                        |button| {
+                            button
+                                .child(icon(IconName::Bell, p.accent).size(px(11.0)))
+                                .tooltip(self.t("terminal_attention"))
+                        },
+                    )
+                    .text_color(if selected { p.text } else { p.secondary })
+                    .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        if event.click_count() >= 2 {
+                            this.rename_terminal_session(index, window, cx);
+                            return;
+                        }
+                        this.state.select_session(index);
+                        this.ensure_console(index, window, cx)
+                            .read(cx)
+                            .focus
+                            .clone()
+                            .focus(window, cx);
+                        cx.notify();
+                    }))
+                    .into_any_element()
             };
             tabs = tabs.child(
                 div()
                     .id(("session-tab", index))
+                    .debug_selector(move || format!("session-tab-{index}"))
                     .flex()
                     .items_center()
                     .rounded(px(5.0))
@@ -124,35 +268,7 @@ impl Tervia {
                     } else {
                         p.toolbar.opacity(0.0)
                     })
-                    .child(
-                        Button::new(("session", index))
-                            .custom(ButtonCustomVariant::new(cx).foreground(p.text))
-                            .small()
-                            .h(px(29.0))
-                            .rounded(px(5.0))
-                            .icon(agent_icon(agent, selected, p, self.appearance.light_theme))
-                            .label(session_name.clone())
-                            .when(
-                                self.consoles()[index]
-                                    .as_ref()
-                                    .is_some_and(|console| console.read(cx).attention),
-                                |button| {
-                                    button
-                                        .child(icon(IconName::Bell, p.accent).size(px(11.0)))
-                                        .tooltip(self.t("terminal_attention"))
-                                },
-                            )
-                            .text_color(if selected { p.text } else { p.secondary })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.state.select_session(index);
-                                this.ensure_console(index, window, cx)
-                                    .read(cx)
-                                    .focus
-                                    .clone()
-                                    .focus(window, cx);
-                                cx.notify();
-                            })),
-                    )
+                    .child(title)
                     .when(
                         terminal.sessions.len() > 1 || !self.state.has_project(),
                         |tab| {
@@ -180,7 +296,20 @@ impl Tervia {
                                 )),
                             )
                         },
-                    ),
+                    )
+                    .context_menu(move |menu, _, _| {
+                        let weak = weak.clone();
+                        menu.item(PopupMenuItem::new(rename).on_click(move |_, window, cx| {
+                            let _ = weak.update(cx, |_, cx| {
+                                // Let the menu restore its focus before focusing the inline editor.
+                                cx.defer_in(window, move |this, window, cx| {
+                                    if this.console_owner() == owner {
+                                        this.rename_terminal_session(index, window, cx);
+                                    }
+                                });
+                            });
+                        }))
+                    }),
             );
         }
         tabs = tabs

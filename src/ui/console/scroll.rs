@@ -66,9 +66,9 @@ impl Console {
     }
 
     pub(super) fn update_selection(&mut self, position: Point<Pixels>) {
-        let point = self.grid_point(position);
+        let (point, side) = self.selection_anchor(position);
         if let Some(selection) = self.buffer.term.selection.as_mut() {
-            selection.update(point, Side::Right);
+            selection.update(point, side);
         }
     }
 

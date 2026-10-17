@@ -5,6 +5,7 @@ pub(super) fn snapshot(workspace: &Workspace) -> Result<Value, serde_json::Error
     let terminal = &workspace.local_terminal;
     let saved = json!({
         "sessions": terminal.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
+        "custom_names": terminal.sessions.iter().map(|session| &session.custom_name).collect::<Vec<_>>(),
         "active_session": terminal.active_session,
         "focused_session": terminal.focused_session,
         "split_terminal": terminal.split_terminal,
