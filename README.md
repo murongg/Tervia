@@ -22,7 +22,7 @@ Tervia brings the terminal, Git, and lightweight file editing into one desktop w
 
 ## Core features
 
-- **Terminal and AI tools**: Keep your familiar shell, with tabs, split panes, and output search. Tools like Claude Code and Codex are recognized and shown with their icons.
+- **Terminal and AI tools**: Open an independent local terminal without choosing a project. Keep your familiar shell, with tabs, split panes, and output search. Tools like Claude Code and Codex are recognized and shown with their icons.
 - **Git management**: Review changes, stage whole files or selected changes, commit, browse history, switch branches, and resolve conflicts.
 - **File browsing and editing**: Find files, search project contents, and make small edits with syntax highlighting, Markdown reading, and image previews.
 - **Multiple projects**: Favorite projects and switch between their own terminals, files, and drafts. Use Git worktrees to work on tasks in parallel.

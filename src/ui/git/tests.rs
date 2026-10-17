@@ -1461,7 +1461,7 @@ fn opening_a_folder_keeps_the_parent_selected_and_nests_detected_repositories(
             this.change_project(0, window, cx);
             assert_eq!(this.state.project().tab, tervia::state::Tab::Files);
             this.change_project(1, window, cx);
-            assert_eq!(this.state.project().sessions.len(), 2);
+            assert_eq!(this.state.project().terminal.sessions.len(), 2);
             assert_eq!(this.state.project().tab, tervia::state::Tab::Terminal);
             this.open_workspace(
                 tervia::git::Discovery {

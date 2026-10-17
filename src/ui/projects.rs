@@ -186,7 +186,7 @@ impl Tervia {
 
     fn project_row(&self, parent: usize, expanded: bool, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p();
-        let active = self.working_directory_owner() == parent;
+        let active = self.state.has_project() && self.working_directory_owner() == parent;
         let name = self.state.project_label(parent);
         let favorite = self.state.project_favorite(parent);
         let drag = ProjectDrag {
@@ -366,6 +366,48 @@ impl Tervia {
             .flex_col()
             .px(px(8.0))
             .py(px(12.0));
+        let local = self.state.screen == tervia::state::Screen::Local;
+        let attention = self
+            .local_terminals
+            .iter()
+            .flatten()
+            .any(|console| console.read(cx).attention);
+        content = content
+            .child(
+                Button::new("local-terminal-entry")
+                    .ghost()
+                    .compact()
+                    .w_full()
+                    .h(px(36.0))
+                    .rounded(px(7.0))
+                    .bg(if local {
+                        p.selected
+                    } else {
+                        p.sidebar.opacity(0.0)
+                    })
+                    .icon(icon(
+                        IconName::SquareTerminal,
+                        if local { p.accent } else { p.secondary },
+                    ))
+                    .debug_selector(|| "local-terminal-entry".into())
+                    .accessibility_label(self.t("local_terminal"))
+                    .tooltip(self.t("local_terminal"))
+                    .when(expanded, |button| button.label(self.t("local_terminal")))
+                    .when(attention, |button| {
+                        button.child(icon(IconName::Bell, p.accent).size(px(11.0)))
+                    })
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.open_local_terminal(window, cx)),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(1.0))
+                    .flex_shrink_0()
+                    .bg(p.chrome_border())
+                    .mx(px(8.0))
+                    .my(px(16.0)),
+            );
         content =
             content.child(
                 Button::new("search-projects")
@@ -422,6 +464,20 @@ impl Tervia {
                     .gap(px(8.0))
                     .p(px(8.0))
                     .pb(px(12.0))
+                    .child(
+                        Button::new("open-welcome")
+                            .ghost()
+                            .compact()
+                            .h(px(36.0))
+                            .w_full()
+                            .icon(icon(IconName::House, p.secondary))
+                            .when(expanded, |button| button.label(self.t("welcome_home")))
+                            .accessibility_label(self.t("welcome_home"))
+                            .tooltip(self.t("welcome_home"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_welcome(window, cx)),
+                            ),
+                    )
                     .child(
                         Button::new("add-project")
                             .ghost()

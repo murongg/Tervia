@@ -450,7 +450,8 @@ impl Tervia {
         self.state.projects[project].close_files(targets);
         self.prune_previews(project);
         self.reveal_file_tab(project);
-        if self.state.active_project == project && self.state.project().tab == Tab::Files {
+        // Local screens retain the last project index, so a completed close must also check the visible module.
+        if self.state.active_project == project && self.state.active_tab() == Tab::Files {
             if self.state.project().current_file().is_some() {
                 self.focus_file_document(project, self.state.project().active_file, window, cx);
             } else {

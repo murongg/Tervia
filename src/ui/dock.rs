@@ -3,13 +3,14 @@ use gpui_kit::component::resizable::{resizable_panel, v_resizable};
 
 impl Tervia {
     pub(super) fn toggle_terminal_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.state.project().tab == Tab::Terminal {
+        if !self.state.has_project() || self.state.project().tab == Tab::Terminal {
             return;
         }
         let visible = !self.state.project().dock.visible;
         self.state.project_mut().dock.visible = visible;
         if visible {
-            let console = self.ensure_console(self.state.project().active_session, window, cx);
+            let console =
+                self.ensure_console(self.state.project().terminal.active_session, window, cx);
             console.read(cx).focus.clone().focus(window, cx);
         } else if self.state.project().tab == Tab::Files
             && self.state.project().current_file().is_some()
@@ -32,7 +33,7 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let project = self.state.active_project;
-        let tab = self.state.project().tab;
+        let tab = self.state.active_tab();
         if tab == Tab::Terminal {
             return self.terminal(window, cx).into_any_element();
         }

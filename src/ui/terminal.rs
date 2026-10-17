@@ -1,7 +1,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::Icon;
 use gpui_kit::component::{
-    Sizable,
+    Disableable, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -21,7 +21,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.state.active_project != project {
+        if !self.state.has_project() || self.state.active_project != project {
             return;
         }
         let root = self.state.projects[project].root.clone();
@@ -35,7 +35,8 @@ impl Tervia {
                 .await;
             let _ = weak.update_in(cx, |this, window, cx| {
                 // Later directory/module navigation wins while the filesystem resolves this link.
-                if this.state.active_project != project
+                if !this.state.has_project()
+                    || this.state.active_project != project
                     || !this.file_reads.selected(project, selection)
                 {
                     return;
@@ -53,10 +54,13 @@ impl Tervia {
     }
 
     pub(super) fn split_terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.state.project().dock.visible {
+        if self.state.has_project() && !self.state.project().dock.visible {
             self.change_tab(tervia::state::Tab::Terminal, window, cx);
         }
-        if self.state.project().sessions.len() == 1 {
+        if self.state.terminals().sessions.is_empty() {
+            self.new_session(window, cx);
+        }
+        if self.state.terminals().sessions.len() == 1 {
             self.new_session(window, cx);
         }
         self.state.toggle_split();
@@ -64,20 +68,20 @@ impl Tervia {
     }
 
     pub(super) fn clear_terminal(&mut self, cx: &mut Context<Self>) {
-        let project = self.state.active_project;
         // The focused split pane can differ from the selected session tab.
         let session = self.state.command_session();
-        if let Some(console) = &self.terminals[project][session] {
+        if let Some(console) = self.consoles().get(session).and_then(Option::as_ref) {
             console.update(cx, |console, cx| console.clear(cx));
         }
         cx.notify();
     }
 
     pub(super) fn copy_terminal_output(&mut self, cx: &mut Context<Self>) {
-        let project = self.state.active_project;
         let session = self.state.command_session();
-        let output = self.terminals[project][session]
-            .as_ref()
+        let output = self
+            .consoles()
+            .get(session)
+            .and_then(Option::as_ref)
             .map(|console| console.read(cx).output())
             .unwrap_or_default();
         cx.write_to_clipboard(ClipboardItem::new_string(output));
@@ -87,8 +91,8 @@ impl Tervia {
 
     pub(super) fn terminal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let p = self.p();
-        let project = self.state.project().clone();
-        let active = project.active_session;
+        let terminal = self.state.terminals().clone();
+        let active = terminal.active_session;
         let mut tabs = div()
             .h(px(42.0))
             .flex_shrink_0()
@@ -98,9 +102,9 @@ impl Tervia {
             .gap(px(4.0))
             .border_b_1()
             .border_color(p.chrome_border());
-        for (index, _session) in project.sessions.iter().enumerate() {
+        for (index, _session) in terminal.sessions.iter().enumerate() {
             let selected = active == index;
-            let agent = self.terminals[self.state.active_project][index]
+            let agent = self.consoles()[index]
                 .as_ref()
                 .and_then(|console| console.read(cx).agent);
             let session_name = match agent {
@@ -129,7 +133,7 @@ impl Tervia {
                             .icon(agent_icon(agent, selected, p, self.appearance.light_theme))
                             .label(session_name.clone())
                             .when(
-                                self.terminals[self.state.active_project][index]
+                                self.consoles()[index]
                                     .as_ref()
                                     .is_some_and(|console| console.read(cx).attention),
                                 |button| {
@@ -149,53 +153,53 @@ impl Tervia {
                                 cx.notify();
                             })),
                     )
-                    .when(project.sessions.len() > 1, |tab| {
-                        tab.child(
-                            icon_button(
-                                ("close-session", index),
-                                IconName::X,
-                                self.t("close_session"),
-                                p,
-                                cx,
+                    .when(
+                        terminal.sessions.len() > 1 || !self.state.has_project(),
+                        |tab| {
+                            tab.child(
+                                icon_button(
+                                    ("close-session", index),
+                                    IconName::X,
+                                    self.t("close_session"),
+                                    p,
+                                    cx,
+                                )
+                                .custom(
+                                    ButtonCustomVariant::new(cx)
+                                        .foreground(p.text)
+                                        .hover(p.text.opacity(0.16))
+                                        .active(p.text.opacity(0.24)),
+                                )
+                                .accessibility_label(
+                                    self.f("close_named", &[("name", &session_name)]),
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        this.close_terminal_session(index, window, cx)
+                                    },
+                                )),
                             )
-                            .custom(
-                                ButtonCustomVariant::new(cx)
-                                    .foreground(p.text)
-                                    .hover(p.text.opacity(0.16))
-                                    .active(p.text.opacity(0.24)),
-                            )
-                            .accessibility_label(self.f("close_named", &[("name", &session_name)]))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.state.close_session(index);
-                                    if let Some(console) =
-                                        this.terminals[this.state.active_project].remove(index)
-                                    {
-                                        console.update(cx, |console, _| console.shutdown());
-                                    }
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                    }),
+                        },
+                    ),
             );
         }
         tabs = tabs
-            .when(project.tab != tervia::state::Tab::Terminal, |tabs| {
-                tabs.child(
-                    icon_button("close-terminal-dock", IconName::X, self.t("close"), p, cx)
-                        .accessibility_label(format!(
-                            "{} {}",
-                            self.t("close"),
-                            self.t("terminal_dock")
-                        ))
-                        .on_click(
-                            cx.listener(|this, _, window, cx| {
+            .when(
+                self.state.active_tab() != tervia::state::Tab::Terminal,
+                |tabs| {
+                    tabs.child(
+                        icon_button("close-terminal-dock", IconName::X, self.t("close"), p, cx)
+                            .accessibility_label(format!(
+                                "{} {}",
+                                self.t("close"),
+                                self.t("terminal_dock")
+                            ))
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.toggle_terminal_dock(window, cx)
-                            }),
-                        ),
-                )
-            })
+                            })),
+                    )
+                },
+            )
             .child(
                 icon_button(
                     "new-session",
@@ -229,6 +233,8 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("terminal_search"))
+                .debug_selector(|| "terminal-search".into())
+                .disabled(terminal.sessions.is_empty())
                 .on_click(cx.listener(|this, _, window, cx| {
                     let console = this.ensure_console(this.state.command_session(), window, cx);
                     console.update(cx, |console, cx| console.open_search(window, cx));
@@ -243,6 +249,7 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("clear_terminal"))
+                .disabled(terminal.sessions.is_empty())
                 .on_click(cx.listener(|this, _, _, cx| this.clear_terminal(cx))),
             )
             .child(
@@ -254,19 +261,40 @@ impl Tervia {
                     cx,
                 )
                 .accessibility_label(self.t("copy_terminal"))
+                .disabled(terminal.sessions.is_empty())
                 .on_click(cx.listener(|this, _, _, cx| this.copy_terminal_output(cx))),
             );
-        let mut panes = div()
-            .flex()
-            .flex_1()
-            .min_h_0()
-            .child(self.terminal_pane(active, window, cx));
-        if project.split_terminal {
-            let second = if active == 0 && project.sessions.len() > 1 {
-                1
-            } else {
-                0
-            };
+        let mut panes = div().flex().flex_1().min_h_0();
+        if terminal.sessions.is_empty() {
+            panes = panes.child(
+                div()
+                    .debug_selector(|| "local-terminal-empty".into())
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(16.0))
+                    .child(
+                        div()
+                            .text_color(p.secondary)
+                            .child(self.t("local_terminal_empty")),
+                    )
+                    .child(
+                        Button::new("empty-new-terminal")
+                            .ghost()
+                            .icon(icon(IconName::Plus, p.secondary))
+                            .label(self.t("new_terminal"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.new_session(window, cx)),
+                            ),
+                    ),
+            );
+        } else {
+            panes = panes.child(self.terminal_pane(active, window, cx));
+        }
+        if terminal.split_terminal && terminal.sessions.len() > 1 {
+            let second = if active == 0 { 1 } else { 0 };
             panes = panes
                 .child(div().w(px(1.0)).bg(p.chrome_border()))
                 .child(self.terminal_pane(second, window, cx));

@@ -20,7 +20,7 @@ fn git_children_are_listed_automatically_and_manual_directories_keep_their_state
     assert_eq!(state.working_directories(0), vec![0, manual]);
     state.switch_project(manual);
     assert_eq!(state.project_target(0), manual);
-    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().terminal.sessions.len(), 2);
     assert_eq!(state.project().tab, Tab::Files);
 }
 
@@ -78,7 +78,7 @@ fn opening_the_first_real_project_from_the_welcome_screen_selects_its_workspace(
         std::path::PathBuf::from("/synthetic/project")
     );
     workspace.new_session();
-    assert_eq!(workspace.project().sessions.len(), 2);
+    assert_eq!(workspace.project().terminal.sessions.len(), 2);
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn reopening_a_project_preserves_its_terminals_and_module() {
     let root = workspace.project().root.clone();
     workspace.switch_project(1);
     assert_eq!(workspace.open_directory(root), 0);
-    assert_eq!(workspace.project().sessions.len(), 2);
+    assert_eq!(workspace.project().terminal.sessions.len(), 2);
     assert_eq!(workspace.project().tab, Tab::Files);
 }
 
@@ -127,7 +127,7 @@ fn ordinary_directories_inside_one_repository_keep_their_own_context_and_owner()
         state.project().root,
         std::path::PathBuf::from("/synthetic/mock-repository/src")
     );
-    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().terminal.sessions.len(), 2);
     assert_eq!(state.project().tab, Tab::Files);
     assert_eq!(state.project_rows(), vec![0]);
     assert_eq!(state.folder(src), Some(0));
@@ -158,7 +158,7 @@ fn folders_keep_repositories_nested_and_remember_the_selected_directory() {
     );
     state.switch_project(beta);
     assert_eq!(state.project().tab, Tab::Files);
-    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().terminal.sessions.len(), 2);
 }
 
 #[test]
@@ -220,7 +220,7 @@ fn opening_an_enclosing_folder_reuses_an_already_open_repository_as_a_child() {
     assert_eq!(state.project_rows(), vec![parent]);
     assert_eq!(state.folder(0), Some(parent));
     assert_eq!(state.project_target(parent), 0);
-    assert_eq!(state.projects[0].sessions.len(), 2);
+    assert_eq!(state.projects[0].terminal.sessions.len(), 2);
 }
 
 #[test]
@@ -276,7 +276,7 @@ fn worktrees_share_one_project_entry_and_restore_its_last_directory() {
     state.switch_project(state.project_target(0));
     assert_eq!(state.active_project, linked);
     assert_eq!(state.project().tab, Tab::Files);
-    assert_eq!(state.project().sessions.len(), 2);
+    assert_eq!(state.project().terminal.sessions.len(), 2);
     state.switch_project(other);
     state.retire_project(linked);
     assert_eq!(state.project_target(0), 0);
@@ -291,9 +291,9 @@ fn projects_restore_their_own_module_and_session() {
     workspace.new_session();
     workspace.switch_project(0);
     assert_eq!(workspace.project().tab, Tab::Files);
-    assert_eq!(workspace.project().sessions.len(), 2);
+    assert_eq!(workspace.project().terminal.sessions.len(), 2);
     workspace.switch_project(1);
-    assert_eq!(workspace.project().sessions.len(), 3);
+    assert_eq!(workspace.project().terminal.sessions.len(), 3);
 }
 
 #[test]
@@ -310,8 +310,8 @@ fn closing_last_terminal_keeps_one_session_available() {
     let mut workspace = workspace();
     workspace.close_session(1);
     workspace.close_session(0);
-    assert_eq!(workspace.project().sessions.len(), 1);
-    assert_eq!(workspace.project().active_session, 0);
+    assert_eq!(workspace.project().terminal.sessions.len(), 1);
+    assert_eq!(workspace.project().terminal.active_session, 0);
 }
 
 #[test]
@@ -328,7 +328,7 @@ fn closing_the_second_pane_disables_split_instead_of_rendering_one_session_twice
     let mut workspace = workspace();
     workspace.toggle_split();
     workspace.close_session(1);
-    assert!(!workspace.project().split_terminal);
+    assert!(!workspace.project().terminal.split_terminal);
 }
 
 #[test]
@@ -337,7 +337,7 @@ fn focused_pane_commands_leave_the_selected_tab_and_pane_order_stable() {
     workspace.toggle_split();
     workspace.focus_session(1);
     assert_eq!(workspace.command_session(), 1);
-    assert_eq!(workspace.project().active_session, 0);
+    assert_eq!(workspace.project().terminal.active_session, 0);
     workspace.close_session(1);
     assert_eq!(workspace.command_session(), 0);
 }

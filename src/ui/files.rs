@@ -430,6 +430,8 @@ impl Tervia {
     }
 
     pub(super) fn choose_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.navigation.cancel();
+        let generation = self.navigation.generation();
         let project = self.state.active_project;
         let root = self.state.projects[project].root.clone();
         let receiver = cx.prompt_for_paths(PathPromptOptions {
@@ -446,11 +448,19 @@ impl Tervia {
                     .strip_prefix(&root)
                     .map(PathBuf::from)
                     .map_err(|_| "Choose a file inside this project".to_owned());
-                let _ = weak.update_in(cx, |this, window, cx| match relative {
-                    Ok(path) => this.open_real_file(project, path, window, cx),
-                    Err(error) => {
-                        this.state.notice = error;
-                        cx.notify();
+                let _ = weak.update_in(cx, |this, window, cx| {
+                    if !this.state.has_project()
+                        || this.state.active_project != project
+                        || this.navigation.generation() != generation
+                    {
+                        return;
+                    }
+                    match relative {
+                        Ok(path) => this.open_real_file(project, path, window, cx),
+                        Err(error) => {
+                            this.state.notice = error;
+                            cx.notify();
+                        }
                     }
                 });
             }
@@ -666,7 +676,8 @@ impl Tervia {
     }
 
     pub(super) fn can_save_file(&self) -> bool {
-        self.state.project().tab == Tab::Files
+        self.state.has_project()
+            && self.state.project().tab == Tab::Files
             && !self.git_mutating
             && !self.saving_file
             && !self.file_closing

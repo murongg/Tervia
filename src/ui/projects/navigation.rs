@@ -29,6 +29,10 @@ impl Navigation {
         self.generation += 1;
         self.open = false;
     }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
 }
 
 impl Tervia {

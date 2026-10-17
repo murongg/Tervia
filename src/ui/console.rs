@@ -1325,7 +1325,7 @@ mod tests {
                 cx.read_from_clipboard().unwrap().text().unwrap().trim(),
                 "synthetic-secondary"
             );
-            assert_eq!(view.state.project().active_session, 0);
+            assert_eq!(view.state.project().terminal.active_session, 0);
             assert_eq!(view.state.command_session(), 1);
             let primary = view.terminals[0][0].as_ref().unwrap().read(cx);
             let secondary = view.terminals[0][1].as_ref().unwrap().read(cx);

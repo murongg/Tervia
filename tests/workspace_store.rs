@@ -230,8 +230,8 @@ fn recovery_keeps_tabs_layout_drafts_and_reading_positions_without_overwriting_d
     let restored = Store::new(path.clone()).load().unwrap();
     let project = restored.project();
     assert_eq!(project.tab, Tab::Files);
-    assert_eq!(project.sessions.len(), 3);
-    assert_eq!(project.active_session, 2);
+    assert_eq!(project.terminal.sessions.len(), 3);
+    assert_eq!(project.terminal.active_session, 2);
     assert!(project.dock.visible);
     assert_eq!(project.dock.size, 260);
     let file = project
@@ -345,7 +345,7 @@ fn project_order_selection_and_sidebar_survive_a_new_store_instance() {
     );
     assert_eq!(restored.project().root, alpha);
     assert!(restored.sidebar_expanded);
-    assert_eq!(restored.project().sessions.len(), 1);
+    assert_eq!(restored.project().terminal.sessions.len(), 1);
     assert!(restored.project().files.is_empty());
 }
 
