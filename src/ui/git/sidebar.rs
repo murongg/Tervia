@@ -4,7 +4,11 @@ use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::ButtonVariants as _;
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
+use tervia::git::WorktreeOperation;
+
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests;
 
 pub(super) const SECTIONS: [&str; 4] = [
     "git_worktrees",
@@ -330,7 +334,12 @@ impl Tervia {
                 let tree = snapshot.worktrees[*index].clone();
                 let current = tree.path == self.state.projects[project].root;
                 let caption = self.worktree_caption(&tree);
-                label_button(("git-sidebar-worktree", *index), "", p)
+                let name = self.worktree_name(&tree);
+                let menu_tree = tree.clone();
+                let owner = cx.weak_entity();
+                let index = *index;
+                label_button(("git-sidebar-worktree", index), "", p)
+                    .debug_selector(move || format!("git-sidebar-worktree-{index}"))
                     .h(px(32.0))
                     .w_full()
                     .rounded(px(0.0))
@@ -346,15 +355,48 @@ impl Tervia {
                             .items_center()
                             .gap(px(7.0))
                             .px(px(4.0))
-                            .child(icon(
-                                IconName::FolderGit2,
-                                if current { p.accent } else { p.muted },
-                            ))
-                            .child(div().flex_1().min_w_0().text_ellipsis().child(caption))
+                            .child(
+                                icon(
+                                    IconName::FolderGit2,
+                                    if current { p.accent } else { p.muted },
+                                )
+                                .flex_shrink_0(),
+                            )
+                            .child(
+                                div()
+                                    .debug_selector(move || format!("git-worktree-name-{index}"))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_ellipsis()
+                                    .child(name),
+                            )
+                            .when(tree.main, |row| {
+                                // Keep directory identity outside the branch's ellipsis, even in a narrow sidebar.
+                                row.child(
+                                    super::super::controls::badge(
+                                        self.t("worktree_main_badge"),
+                                        p.secondary,
+                                        p,
+                                    )
+                                    .debug_selector(move || format!("git-worktree-main-{index}"))
+                                    .flex_shrink_0()
+                                    .whitespace_nowrap()
+                                    .px(px(4.0)),
+                                )
+                            })
                             .when(tree.locked.is_some(), |row| {
                                 row.child(icon(IconName::Lock, p.muted))
                             })
-                            .when(current, |row| row.child(icon(IconName::Check, p.accent))),
+                            .when(current, |row| {
+                                row.child(
+                                    div()
+                                        .debug_selector(move || {
+                                            format!("git-worktree-current-{index}")
+                                        })
+                                        .flex_shrink_0()
+                                        .child(icon(IconName::Check, p.accent)),
+                                )
+                            }),
                     )
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if current {
@@ -363,6 +405,30 @@ impl Tervia {
                             this.open_worktree(project, tree.clone(), window, cx);
                         }
                     }))
+                    .context_menu(move |menu, _, cx| {
+                        let Some(view) = owner.upgrade() else {
+                            return menu;
+                        };
+                        let this = view.read(cx);
+                        let removable = this.worktree_removable(project, &menu_tree);
+                        let tree = menu_tree.clone();
+                        let owner = owner.clone();
+                        menu.label(this.worktree_caption(&tree)).item(
+                            PopupMenuItem::new(this.t("worktree_remove"))
+                                .icon(icon(IconName::Trash, p.red))
+                                .disabled(!removable)
+                                .on_click(move |_, window, cx| {
+                                    let _ = owner.update(cx, |this, cx| {
+                                        this.request_worktree_operation(
+                                            project,
+                                            WorktreeOperation::Remove(tree.clone()),
+                                            window,
+                                            cx,
+                                        );
+                                    });
+                                }),
+                        )
+                    })
                     .into_any_element()
             }
             SidebarRow::Tag(index) => {

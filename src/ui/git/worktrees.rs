@@ -81,6 +81,18 @@ impl GitUi {
 }
 
 impl Tervia {
+    pub(super) fn worktree_removable(&self, owner: usize, tree: &Worktree) -> bool {
+        // Every UI entry point shares these guards; Git still revalidates the target before removal.
+        !self.worktree_busy(owner)
+            && !tree.main
+            && !tree.bare
+            && !tree.missing
+            && tree.locked.is_none()
+            && tree.prunable.is_none()
+            && tree.path != self.state.projects[owner].root
+            && !self.state.project().root.starts_with(&tree.path)
+    }
+
     pub(super) fn git_worktrees(&self, snapshot: &Arc<Snapshot>, cx: &mut Context<Self>) -> Div {
         let owner = self.state.active_project;
         let ui = &self.git_states[owner].worktrees;
@@ -312,12 +324,7 @@ impl Tervia {
                     .child(
                         label_button("worktree-remove", self.t("worktree_remove"), p)
                             .text_color(p.red)
-                            .disabled(
-                                busy || current
-                                    || tree.locked.is_some()
-                                    || tree.missing
-                                    || tree.prunable.is_some(),
-                            )
+                            .disabled(!self.worktree_removable(owner, &tree))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.request_worktree_operation(
                                     owner,
@@ -464,8 +471,8 @@ impl Tervia {
             .into_any_element()
     }
 
-    pub(super) fn worktree_caption(&self, tree: &Worktree) -> String {
-        let name = tree.branch.clone().unwrap_or_else(|| {
+    pub(super) fn worktree_name(&self, tree: &Worktree) -> String {
+        tree.branch.clone().unwrap_or_else(|| {
             format!(
                 "{} · {}",
                 tree.path.file_name().unwrap_or_default().to_string_lossy(),
@@ -475,7 +482,11 @@ impl Tervia {
                     "worktree_detached"
                 })
             )
-        });
+        })
+    }
+
+    pub(super) fn worktree_caption(&self, tree: &Worktree) -> String {
+        let name = self.worktree_name(tree);
         let state = if tree.main {
             self.t("worktree_main")
         } else if tree.missing || tree.prunable.is_some() {
