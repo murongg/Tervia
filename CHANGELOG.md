@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.12.0 (2026-10-17)
+
+### Features
+
+- **terminal:** preserve sessions across app restarts and updates (e04b6c92)
+
+### Fixes
+
+- **git:** make navigation sidebar resizable (44a5cd75)
+- **files:** make ignored explorer entries visibly dimmer (3beb1056)
+
+### Other changes
+
+- **terminal:** handle replay events in Windows PTY checks (e130e51b)
+
 ## v0.11.0 (2026-10-17)
 
 ### Features
