@@ -9,7 +9,13 @@ pub fn language_for_path(path: &str) -> SharedString {
         "cmakelists.txt" => "cmake",
         "cargo.lock" => "toml",
         "gemfile" | "rakefile" => "ruby",
-        ".bashrc" | ".bash_profile" | ".bash_login" | ".profile" => "bash",
+        ".bashrc" | ".bash_profile" | ".bash_login" | ".bash_logout" | ".profile" | ".zshrc"
+        | ".zprofile" | ".zshenv" | ".zlogin" | ".zlogout" | ".env" => "bash",
+        ".prettierrc" | ".eslintrc" | ".babelrc" | ".swcrc" | ".stylelintrc" => "json",
+        ".editorconfig" | ".npmrc" | ".gitconfig" | ".gitmodules" => "ini",
+        "dockerfile" | "containerfile" => "dockerfile",
+        _ if name.starts_with("dockerfile.") || name.starts_with("containerfile.") => "dockerfile",
+        _ if name.starts_with(".env.") => "bash",
         _ => match name.rsplit_once('.').map(|(_, extension)| extension) {
             Some("jsx" | "mjs" | "cjs") => "javascript",
             Some("mts" | "cts") => "typescript",
@@ -21,13 +27,25 @@ pub fn language_for_path(path: &str) -> SharedString {
             Some("mk") => "make",
             Some("markdown") => "markdown",
             Some("rake") => "ruby",
+            Some("pyw") => "python",
+            Some("csx") => "csharp",
+            Some("zsh" | "env") => "bash",
+            Some("containerfile") => "dockerfile",
+            Some("cfg") => "ini",
+            Some(
+                "xsd" | "xsl" | "xslt" | "xhtml" | "csproj" | "fsproj" | "vbproj" | "props"
+                | "targets" | "resx" | "plist",
+            ) => "xml",
+            Some("ps1" | "psm1" | "psd1") => "powershell",
+            Some("tf" | "tfvars") => "hcl",
             Some(
                 extension @ ("astro" | "sh" | "bash" | "c" | "cmake" | "cs" | "cpp" | "css"
                 | "scss" | "diff" | "ejs" | "ex" | "erb" | "go" | "graphql" | "html"
                 | "java" | "js" | "json" | "jsonc" | "kt" | "kts" | "lua" | "md"
                 | "mdx" | "php" | "php3" | "php4" | "php5" | "phtml" | "proto" | "py"
                 | "pyi" | "rb" | "rs" | "scala" | "sql" | "svelte" | "swift" | "toml"
-                | "tsx" | "ts" | "yaml" | "yml" | "zig"),
+                | "tsx" | "ts" | "yaml" | "yml" | "zig" | "dart" | "dockerfile"
+                | "fish" | "hcl" | "ini" | "json5" | "less" | "nix" | "vue" | "xml"),
             ) => extension,
             _ => "text",
         },
@@ -46,9 +64,8 @@ pub(crate) fn language_name(name: &str) -> SharedString {
         "sh" => "bash".into(),
         "c++" => "cpp".into(),
         "cs" => "csharp".into(),
-        "scss" => "css".into(),
         "ex" => "elixir".into(),
-        "js" => "javascript".into(),
+        "js" | "jsx" => "javascript".into(),
         "kt" => "kotlin".into(),
         "kts" => "kotlin".into(),
         "ktm" => "kotlin".into(),

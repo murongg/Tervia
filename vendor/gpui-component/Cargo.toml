@@ -182,7 +182,31 @@ tree-sitter-languages = [
     "tree-sitter-typescript",
     "tree-sitter-yaml",
     "tree-sitter-zig",
+    "tree-sitter-dart",
+    "tree-sitter-dockerfile",
+    "tree-sitter-fish",
+    "tree-sitter-hcl",
+    "tree-sitter-ini",
+    "tree-sitter-json5",
+    "tree-sitter-less",
+    "tree-sitter-nix",
+    "tree-sitter-powershell",
+    "tree-sitter-scss",
+    "tree-sitter-vue",
+    "tree-sitter-xml",
 ]
+tree-sitter-dart = ["tree-sitter", "dep:tree-sitter-dart-orchard"]
+tree-sitter-dockerfile = ["tree-sitter", "dep:tree-sitter-containerfile"]
+tree-sitter-fish = ["tree-sitter", "dep:tree-sitter-fish"]
+tree-sitter-hcl = ["tree-sitter", "dep:tree-sitter-hcl"]
+tree-sitter-ini = ["tree-sitter", "dep:tree-sitter-ini"]
+tree-sitter-json5 = ["tree-sitter", "dep:tree-sitter-json5-orchard"]
+tree-sitter-less = ["tree-sitter-css", "dep:tree-sitter-less"]
+tree-sitter-nix = ["tree-sitter", "dep:tree-sitter-nix"]
+tree-sitter-powershell = ["tree-sitter", "dep:tree-sitter-powershell"]
+tree-sitter-scss = ["tree-sitter-css", "dep:tree-sitter-scss"]
+tree-sitter-vue = ["tree-sitter", "dep:tree-sitter-vue-next"]
+tree-sitter-xml = ["tree-sitter", "dep:tree-sitter-xml"]
 tree-sitter-lua = [
     "tree-sitter",
     "dep:tree-sitter-lua",
@@ -559,6 +583,54 @@ optional = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-zig]
 version = "1.1.2"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-dart-orchard]
+version = "0.7.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-containerfile]
+version = "0.9.2"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-fish]
+version = "3.6.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-hcl]
+version = "1.1.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-ini]
+version = "1.4.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-json5-orchard]
+version = "0.1.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-less]
+version = "1.0.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-nix]
+version = "0.3.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-powershell]
+version = "0.26.4"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-scss]
+version = "1.0.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-vue-next]
+version = "0.1.0"
+optional = true
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies.tree-sitter-xml]
+version = "0.7.0"
 optional = true
 
 [target.'cfg(target_os = "macos")'.dependencies.block2]
