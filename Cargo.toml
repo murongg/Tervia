@@ -5,10 +5,11 @@ edition = "2024"
 rust-version = "1.99"
 description = "A native terminal workspace with Git and lightweight editing"
 publish = false
+default-run = "tervia"
 
 [features]
 default = []
-pty = ["dep:portable-pty", "dep:async-channel"]
+pty = ["dep:portable-pty", "dep:async-channel", "dep:getrandom"]
 native = ["pty", "dep:gpui-kit", "dep:gpui-test"]
 ui-tests = ["native", "gpui-test/test-support"]
 
@@ -29,6 +30,7 @@ self_update = { version = "=1.3.0", default-features = false, features = ["ureq"
 alacritty_terminal = { version = "=0.26.0", default-features = false }
 portable-pty = { version = "=0.9.0", optional = true }
 async-channel = { version = "2", optional = true }
+getrandom = { version = "=0.3.4", optional = true }
 # Select application-owned Windows resources even when transitive dependencies enable GPUI defaults.
 gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, features = ["windows-manifest-provided-by-host"] }
 gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-languages"] }
@@ -44,6 +46,11 @@ libc = "0.2"
 name = "tervia"
 path = "src/main.rs"
 required-features = ["native"]
+
+[[bin]]
+name = "tervia-session"
+path = "src/session.rs"
+required-features = ["pty"]
 
 [profile.dev]
 debug = 1

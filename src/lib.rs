@@ -10,6 +10,8 @@ pub mod preferences;
 pub mod process;
 #[cfg(feature = "pty")]
 pub mod pty;
+#[cfg(feature = "pty")]
+pub mod sessions;
 pub mod state;
 pub mod suggestions;
 pub mod terminal;

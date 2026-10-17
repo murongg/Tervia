@@ -1,6 +1,13 @@
 use super::{Session, Tab, Workspace};
 
 impl Session {
+    pub fn valid_connection(id: &str) -> bool {
+        id.len() == 32
+            && id
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    }
+
     pub fn valid_custom_name(name: &str) -> bool {
         name.len() <= 1024 && !name.chars().any(char::is_control)
     }
@@ -28,6 +35,8 @@ impl Default for Terminals {
             sessions: vec![Session {
                 name: "shell".into(),
                 custom_name: None,
+                connection: None,
+                scroll_offset: 0,
             }],
             active_session: 0,
             focused_session: 0,
@@ -66,6 +75,8 @@ impl Terminals {
                 format!("shell {}", index + 1)
             },
             custom_name: None,
+            connection: None,
+            scroll_offset: 0,
         });
         self.active_session = index;
         self.focused_session = index;

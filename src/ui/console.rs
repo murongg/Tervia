@@ -16,7 +16,8 @@ use tervia::{
     locale::Language,
     platform::Platform,
     preferences::Preferences,
-    pty::{PtyEvent, PtySession},
+    pty::PtyEvent,
+    sessions::{Connection, Target},
     terminal::{FileLink, TerminalBuffer, key_bytes, mouse_bytes, paste_bytes},
 };
 
@@ -186,7 +187,11 @@ pub struct Console {
     search: Option<search::Search>,
     suggestions: suggestions::State,
     buffer: TerminalBuffer,
-    session: Option<PtySession>,
+    session: Option<Connection>,
+    target: Option<Target>,
+    replaying: bool,
+    restored_scroll: usize,
+    terminated: std::sync::Arc<std::sync::atomic::AtomicBool>,
     appearance: Preferences,
     bounds: Bounds<Pixels>,
     cell_width: Pixels,
@@ -208,6 +213,7 @@ pub struct Console {
 }
 
 enum Status {
+    Restoring,
     Exited(String),
     Connection(String),
     Spawn(String),
@@ -218,6 +224,7 @@ enum Status {
 impl Status {
     fn text(&self, language: Language) -> String {
         match self {
+            Self::Restoring => language.text("terminal_restoring").into(),
             Self::Exited(status) => format!(
                 "{} · {status} · ⌘T {}",
                 language.text("session_ended"),
@@ -244,6 +251,8 @@ impl Console {
         cwd: PathBuf,
         preferences: Entity<Preferences>,
         history: tervia::suggestions::Worker,
+        target: Result<(Target, bool), String>,
+        restored_scroll: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -257,6 +266,10 @@ impl Console {
             suggestions: suggestions::State::new(history),
             buffer: TerminalBuffer::new(80, 24),
             session: None,
+            target: target.as_ref().ok().map(|(target, _)| target.clone()),
+            replaying: !cfg!(test) && target.is_ok(),
+            restored_scroll,
+            terminated: std::sync::Arc::default(),
             appearance,
             bounds: Bounds::default(),
             cell_width: px(8.0),
@@ -284,7 +297,14 @@ impl Console {
                     this.invalidate_suggestion();
                     this.suggestions.new_session();
                 }
+                let theme_changed = this.appearance.light_theme != appearance.light_theme;
                 this.appearance = appearance;
+                if theme_changed
+                    && let Some(session) = &this.session
+                    && let Err(error) = session.colors(this.palette_colors())
+                {
+                    this.status = Some(Status::Connection(error));
+                }
                 cx.notify();
             }));
         console
@@ -312,7 +332,7 @@ impl Console {
                     .await;
                 if weak
                     .update(cx, |this, cx| {
-                        let agent = this.session.as_ref().and_then(PtySession::foreground_agent);
+                        let agent = this.session.as_ref().and_then(Connection::foreground_agent);
                         if this.agent != agent {
                             this.agent = agent;
                             cx.emit(IdentityChanged);
@@ -335,70 +355,165 @@ impl Console {
         // Native UI tests use an in-memory terminal: OS reader threads cannot wake
         // GPUI’s deterministic test scheduler. Real PTY transport has integration coverage.
         if !cfg!(test) {
-            match PtySession::spawn_shell(
-                &cwd,
-                PtySize {
-                    rows: 24,
-                    cols: 80,
-                    pixel_width: 0,
-                    pixel_height: 0,
-                },
-            ) {
-                Ok((session, receiver, tracker)) => {
-                    console.session = Some(session);
-                    console.suggestions.tracker = tracker;
-                    console._reader = Some(cx.spawn(async move |weak, cx| {
-                        while let Ok(event) = receiver.recv().await {
-                            let mut batch = vec![event];
-                            while batch.len() < 32 {
-                                match receiver.try_recv() {
-                                    Ok(event) => batch.push(event),
-                                    Err(_) => break,
+            let size = PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            };
+            let colors = console.palette_colors();
+            console.status = Some(Status::Restoring);
+            let terminated = console.terminated.clone();
+            console._reader = Some(cx.spawn(async move |weak, cx| {
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let (target, existing) = target?;
+                        let target = target.with_colors(colors);
+                        let result = if existing {
+                            target.reconnect()
+                        } else {
+                            target.open(&cwd, size)
+                        };
+                        // Explicit close may race a slow host launch; it must not leave a new orphan PTY.
+                        if terminated.load(std::sync::atomic::Ordering::Acquire) {
+                            if let Ok((session, _, _)) = &result {
+                                let _ = session.terminate();
+                            }
+                            return Err("Terminal was closed".into());
+                        }
+                        result
+                    })
+                    .await;
+                let receiver = match weak.update(cx, |this, cx| match result {
+                    Ok((session, receiver, tracker)) => {
+                        this.session = Some(session);
+                        this.suggestions.tracker = tracker;
+                        cx.notify();
+                        Some(receiver)
+                    }
+                    Err(error) => {
+                        this.replaying = false;
+                        this.status = Some(Status::Spawn(error));
+                        cx.notify();
+                        None
+                    }
+                }) {
+                    Ok(Some(receiver)) => receiver,
+                    _ => return,
+                };
+                while let Ok(event) = receiver.recv().await {
+                    let mut batch = vec![event];
+                    while batch.len() < 32 {
+                        match receiver.try_recv() {
+                            Ok(event) => batch.push(event),
+                            Err(_) => break,
+                        }
+                    }
+                    if weak
+                        .update(cx, |this, cx| {
+                            for event in batch {
+                                match event {
+                                    PtyEvent::Data(bytes) => {
+                                        this.receive_output(&bytes, cx);
+                                    }
+                                    PtyEvent::Resized { columns, rows } => {
+                                        this.buffer.resize(columns, rows);
+                                    }
+                                    PtyEvent::ReplayComplete => this.finish_replay(cx),
+                                    PtyEvent::Exited(status) => {
+                                        this.finish_replay(cx);
+                                        this.status = Some(Status::Exited(status));
+                                        this.session.take();
+                                        this.invalidate_suggestion();
+                                    }
+                                    PtyEvent::Error(error) => {
+                                        this.replaying = false;
+                                        this.status = Some(Status::Connection(error));
+                                        this.invalidate_suggestion();
+                                    }
                                 }
                             }
-                            if weak
-                                .update(cx, |this, cx| {
-                                    for event in batch {
-                                        match event {
-                                            PtyEvent::Data(bytes) => {
-                                                this.receive_output(&bytes, cx);
-                                            }
-                                            PtyEvent::Exited(status) => {
-                                                this.status = Some(Status::Exited(status));
-                                                this.session.take();
-                                                this.invalidate_suggestion();
-                                            }
-                                            PtyEvent::Error(error) => {
-                                                this.status = Some(Status::Connection(error));
-                                                this.invalidate_suggestion();
-                                            }
-                                        }
-                                    }
-                                    this.refresh_search(cx);
-                                    cx.notify();
-                                })
-                                .is_err()
-                            {
-                                break;
-                            }
-                            // Bound each update and yield so a noisy PTY cannot starve keyboard input or painting.
-                            cx.background_executor()
-                                .timer(Duration::from_millis(8))
-                                .await;
-                        }
-                    }));
+                            this.refresh_search(cx);
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                    // Bound each update and yield so a noisy PTY cannot starve keyboard input or painting.
+                    cx.background_executor()
+                        .timer(Duration::from_millis(8))
+                        .await;
                 }
-                Err(error) => console.status = Some(Status::Spawn(error)),
-            }
+            }));
         }
         console
     }
 
-    pub fn shutdown(&mut self) {
+    pub fn shutdown(&mut self) -> Result<(), String> {
+        self.terminated
+            .store(true, std::sync::atomic::Ordering::Release);
+        let result = if let Some(session) = &self.session {
+            session.terminate()
+        } else if let Some(target) = &self.target {
+            target.terminate()
+        } else {
+            Ok(())
+        };
+        self.detach();
+        result
+    }
+
+    pub fn detach(&mut self) {
         self.invalidate_suggestion();
         self.stop_selecting();
         self.session.take();
         self._reader.take();
+    }
+
+    pub fn flush(&self) -> Result<(), String> {
+        if let Some(session) = &self.session {
+            session.flush()
+        } else if self.replaying {
+            Err(self.appearance.language.text("terminal_restoring").into())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn scroll_offset(&self) -> usize {
+        if self.replaying {
+            self.restored_scroll
+        } else {
+            self.buffer.term.grid().display_offset()
+        }
+    }
+
+    fn finish_replay(&mut self, cx: &mut Context<Self>) {
+        if !self.replaying {
+            return;
+        }
+        self.replaying = false;
+        self.buffer.events();
+        // A restored shell may already contain partially edited input; wait for its next prompt before suggesting suffixes.
+        self.suggestions.input.started();
+        if self.buffer.term.mode().contains(TermMode::FOCUS_IN_OUT)
+            && let Some(session) = &self.session
+        {
+            let _ = session.write(if self.buffer.term.is_focused {
+                b"\x1b[I"
+            } else {
+                b"\x1b[O"
+            });
+        }
+        self.buffer
+            .term
+            .scroll_display(Scroll::Delta(self.restored_scroll.min(10000) as i32));
+        if matches!(self.status, Some(Status::Restoring)) {
+            self.status = None;
+        }
+        cx.notify();
     }
 
     fn focus_changed(&mut self, focused: bool, cx: &mut Context<Self>) {
@@ -415,6 +530,7 @@ impl Console {
             cx.emit(Focused);
         }
         if self.buffer.term.mode().contains(TermMode::FOCUS_IN_OUT)
+            && !self.replaying
             && let Some(session) = &self.session
         {
             let _ = session.write(if focused { b"\x1b[I" } else { b"\x1b[O" });
@@ -427,6 +543,12 @@ impl Console {
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
+        if self.replaying {
+            return;
+        }
+        if let Some(session) = &self.session {
+            let _ = session.clear();
+        }
         self.stop_selecting();
         // Clear the viewport first: Alacritty moves it into history on the main
         // screen, so clearing saved lines first would leave old output behind.
@@ -441,6 +563,9 @@ impl Console {
     }
 
     fn send(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
+        if self.replaying {
+            return;
+        }
         self.suggestions.input.send(bytes);
         self.invalidate_suggestion();
         #[cfg(test)]
@@ -458,9 +583,16 @@ impl Console {
     }
 
     fn handle_events(&mut self, cx: &mut Context<Self>) {
+        if self.replaying {
+            self.buffer.events();
+            return;
+        }
         for event in self.buffer.events() {
             match event {
                 Event::PtyWrite(reply) => {
+                    if self.target.is_some() {
+                        continue;
+                    }
                     if let Some(session) = &self.session {
                         let _ = session.write(reply.as_bytes());
                     }
@@ -476,12 +608,18 @@ impl Console {
                     cx.notify();
                 }
                 Event::ColorRequest(index, formatter) => {
+                    if self.target.is_some() {
+                        continue;
+                    }
                     let color = self.index_color(index);
                     if let Some(session) = &self.session {
                         let _ = session.write(formatter(color).as_bytes());
                     }
                 }
                 Event::TextAreaSizeRequest(formatter) => {
+                    if self.target.is_some() {
+                        continue;
+                    }
                     let (cols, rows) = self.buffer.size();
                     let size = WindowSize {
                         num_lines: rows as u16,
@@ -782,6 +920,15 @@ impl Console {
         cx.stop_propagation();
     }
 
+    fn palette_colors(&self) -> Vec<[u8; 3]> {
+        (0..269)
+            .map(|index| {
+                let color = self.index_color(index);
+                [color.r, color.g, color.b]
+            })
+            .collect()
+    }
+
     fn index_color(&self, index: usize) -> Rgb {
         if let Some(color) = self.buffer.term.colors()[index] {
             return color;
@@ -847,6 +994,30 @@ impl Console {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui_test::test]
+    fn replay_suppresses_historical_bells_clipboard_and_input(cx: &mut TestAppContext) {
+        let (console, cx) = scroll_fixture(cx);
+        console.update(cx, |this, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(
+                "synthetic-current-clipboard".into(),
+            ));
+            this.replaying = true;
+            this.buffer.term.is_focused = false;
+            this.receive_output(b"\x07\x1b]52;c;c3ludGhldGljLW9sZA==\x07mock replay", cx);
+            this.send(b"must-not-run", cx);
+            assert!(!this.attention);
+            assert!(this.transmitted.is_empty());
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().unwrap(),
+                "synthetic-current-clipboard"
+            );
+            assert!(this.output().contains("mock replay"));
+            this.finish_replay(cx);
+            this.send(b"mock-live", cx);
+            assert_eq!(this.transmitted, [b"mock-live".to_vec()]);
+        });
+    }
 
     struct ScrollFixture(Entity<Console>);
 
@@ -1949,6 +2120,10 @@ mod tests {
             suggestions: suggestions::State::new(tervia::suggestions::Worker::new(None)),
             buffer: TerminalBuffer::new(80, 24),
             session: None,
+            target: None,
+            replaying: false,
+            restored_scroll: 0,
+            terminated: std::sync::Arc::default(),
             appearance: Preferences {
                 language: Language::English,
                 ..Preferences::default()
@@ -2311,7 +2486,7 @@ impl Console {
         let rows = (f32::from(self.bounds.size.height) / f32::from(self.cell_height))
             .floor()
             .max(1.0) as usize;
-        if self.buffer.size() != (cols, rows) {
+        if !self.replaying && self.buffer.size() != (cols, rows) {
             self.buffer.resize(cols, rows);
             if let Some(session) = &self.session
                 && let Err(error) = session.resize(

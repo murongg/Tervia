@@ -295,6 +295,9 @@ fn a_clean_shell_round_trip_uses_a_real_tty() {
                 session.take();
             }
             Ok(PtyEvent::Error(error)) => panic!("{error}"),
+            Ok(PtyEvent::Resized { .. } | PtyEvent::ReplayComplete) => {
+                panic!("Direct PTYs must not emit session replay events")
+            }
             Err(async_channel::TryRecvError::Closed) => break,
             Err(async_channel::TryRecvError::Empty) => {
                 std::thread::sleep(std::time::Duration::from_millis(5))
@@ -407,6 +410,9 @@ fn a_synthetic_windows_command_round_trip_uses_conpty() {
             Ok(PtyEvent::Exited(_)) => {
                 exited = true;
                 session.take();
+            }
+            Ok(PtyEvent::Resized { .. } | PtyEvent::ReplayComplete) => {
+                panic!("Direct PTYs must not emit session replay events")
             }
             Err(async_channel::TryRecvError::Closed) => break,
             Err(async_channel::TryRecvError::Empty) => {

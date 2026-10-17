@@ -24,6 +24,8 @@ pub enum FileClose {
 pub struct Session {
     pub name: String,
     pub custom_name: Option<String>,
+    pub connection: Option<String>,
+    pub scroll_offset: usize,
 }
 
 #[derive(Clone, Debug)]

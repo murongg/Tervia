@@ -24,7 +24,20 @@ impl Tervia {
         }
         let terminals = members
             .iter()
-            .map(|index| self.terminals[*index].iter().flatten().count())
+            .map(|index| {
+                self.state.projects[*index]
+                    .terminal
+                    .sessions
+                    .iter()
+                    .enumerate()
+                    .filter(|(session, saved)| {
+                        saved.connection.is_some()
+                            || self.terminals[*index]
+                                .get(*session)
+                                .is_some_and(Option::is_some)
+                    })
+                    .count()
+            })
             .sum::<usize>();
         if terminals == 0 {
             self.finish_project_close(owner, window, cx);
@@ -53,7 +66,20 @@ impl Tervia {
                     let current = this.state.project_members(owner);
                     let count = current
                         .iter()
-                        .map(|index| this.terminals[*index].iter().flatten().count())
+                        .map(|index| {
+                            this.state.projects[*index]
+                                .terminal
+                                .sessions
+                                .iter()
+                                .enumerate()
+                                .filter(|(session, saved)| {
+                                    saved.connection.is_some()
+                                        || this.terminals[*index]
+                                            .get(*session)
+                                            .is_some_and(Option::is_some)
+                                })
+                                .count()
+                        })
                         .sum::<usize>();
                     if current != members || count != terminals {
                         this.request_project_close(owner, window, cx);
@@ -85,6 +111,21 @@ impl Tervia {
         let Some(members) = self.state.close_project(owner) else {
             return;
         };
+        let mut connections = Vec::new();
+        for index in &members {
+            for (slot, session) in self.state.projects[*index]
+                .terminal
+                .sessions
+                .iter_mut()
+                .enumerate()
+            {
+                session.scroll_offset = 0;
+                let connection = session.connection.take();
+                if self.terminals[*index].get(slot).is_none_or(Option::is_none) {
+                    connections.extend(connection);
+                }
+            }
+        }
         // Persist the closed catalog and drafts before terminating any owned process.
         if let Some(store) = &mut self.workspace
             && let Err(error) = store.save(&self.state)
@@ -98,15 +139,21 @@ impl Tervia {
             self.close_project_switcher(window, cx);
         }
         self.navigation.cancel();
+        for id in connections {
+            self.end_session(id, cx);
+        }
         for index in members {
             self.cancel_repository_scan(index);
             self.git_states[index].close_branch_picker();
             self.git_states[index].cancel_worktree_navigation();
             self.file_reads.select(index);
             self.stop_project_monitor(index, cx);
+            let connection_error = self.t("connection_error");
             for terminal in &mut self.terminals[index] {
-                if let Some(console) = terminal.take() {
-                    console.update(cx, |console, _| console.shutdown());
+                if let Some(console) = terminal.take()
+                    && let Err(error) = console.update(cx, |console, _| console.shutdown())
+                {
+                    self.state.notice = format!("{connection_error}: {error}");
                 }
             }
         }

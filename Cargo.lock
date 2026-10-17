@@ -7337,6 +7337,7 @@ dependencies = [
  "async-channel",
  "dirs 6.0.0",
  "embed-resource",
+ "getrandom 0.3.4",
  "gpui-kit",
  "gpui-pre",
  "ignore",
