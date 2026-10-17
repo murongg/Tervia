@@ -411,6 +411,9 @@ fn a_synthetic_windows_command_round_trip_uses_conpty() {
                 exited = true;
                 session.take();
             }
+            Ok(PtyEvent::Resized { .. } | PtyEvent::ReplayComplete) => {
+                panic!("Direct PTYs must not emit session replay events")
+            }
             Err(async_channel::TryRecvError::Closed) => break,
             Err(async_channel::TryRecvError::Empty) => {
                 std::thread::sleep(std::time::Duration::from_millis(10))
