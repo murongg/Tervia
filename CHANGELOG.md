@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.11.0 (2026-10-17)
+
+### Features
+
+- **terminal:** add persistent tab renaming (bc1ff8bf)
+- **terminal:** add local command completion and shell history (57789cc0)
+
+### Fixes
+
+- **terminal:** preserve typed commands when pressing Enter (22de6b07)
+- **terminal:** avoid selecting cells on a single click (3ee03190)
+- **build:** use MSVC-compatible SCSS dependency (d746a820)
+- **files:** highlight more languages and file types (536deb5e)
+
 ## v0.10.0 (2026-10-17)
 
 ### Features
