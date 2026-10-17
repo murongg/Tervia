@@ -31,8 +31,7 @@ pub(super) struct State {
     pub generation: u64,
     pub viewport: Bounds<Pixels>,
     history_file: Option<PathBuf>,
-    selected: usize,
-    navigated: bool,
+    selected: Option<usize>,
     worker: Worker,
     session: String,
     error: Option<String>,
@@ -48,8 +47,7 @@ impl State {
             generation: 0,
             viewport: Bounds::default(),
             history_file: None,
-            selected: 0,
-            navigated: false,
+            selected: None,
             worker,
             session: String::new(),
             error: None,
@@ -129,8 +127,7 @@ impl Console {
     pub(super) fn invalidate_suggestion(&mut self) {
         self.suggestions.generation = self.suggestions.generation.wrapping_add(1);
         self.suggestions.candidates.clear();
-        self.suggestions.selected = 0;
-        self.suggestions.navigated = false;
+        self.suggestions.selected = None;
         self.suggestions.request.take();
     }
 
@@ -183,9 +180,8 @@ impl Console {
         }
         // Once navigation starts, freeze the list until the prefix changes. A history
         // top-six result may omit the chosen command entirely, so retaining its index is unsafe.
-        if !self.suggestions.navigated {
+        if self.suggestions.selected.is_none() {
             self.suggestions.candidates = candidates;
-            self.suggestions.selected = 0;
         }
         if error.is_some() {
             self.suggestions.error = error;
@@ -288,14 +284,20 @@ impl Console {
         match key {
             "up" | "down" => {
                 let len = self.suggestions.candidates.len();
-                self.suggestions.selected = if key == "up" {
-                    (self.suggestions.selected + len - 1) % len
+                let selected = if key == "up" {
+                    self.suggestions
+                        .selected
+                        .map_or(len - 1, |index| (index + len - 1) % len)
                 } else {
-                    (self.suggestions.selected + 1) % len
+                    self.suggestions
+                        .selected
+                        .map_or(0, |index| (index + 1) % len)
                 };
-                self.suggestions.navigated = true;
+                self.suggestions.selected = Some(selected);
                 cx.notify();
             }
+            // A merely visible suggestion must never change what Enter executes.
+            "enter" if self.suggestions.selected.is_none() => return false,
             "enter" | "tab" => self.accept_suggestion(window, cx),
             _ => return false,
         }
@@ -306,7 +308,7 @@ impl Console {
         if !self.suggestion_visible() {
             return;
         }
-        let candidate = &self.suggestions.candidates[self.suggestions.selected];
+        let candidate = &self.suggestions.candidates[self.suggestions.selected.unwrap_or(0)];
         let Some(suffix) = candidate
             .command
             .strip_prefix(self.suggestions.input.prefix().unwrap())
@@ -326,7 +328,11 @@ impl Console {
         let p = Palette::new(self.appearance.light_theme);
         let language = self.appearance.language;
         let row_height = self.suggestion_row_height();
-        let first = self.suggestions.selected.saturating_sub(rows - 1);
+        let first = self
+            .suggestions
+            .selected
+            .unwrap_or(0)
+            .saturating_sub(rows - 1);
         let mut list = div()
             .id("command-completions")
             .role(Role::List)
@@ -361,7 +367,7 @@ impl Console {
             } else {
                 "suggestion_common"
             });
-            let selected = self.suggestions.selected == index;
+            let selected = self.suggestions.selected == Some(index);
             list = list.child(
                 div()
                     // Press state belongs to a command even if history reorders its row.
@@ -427,7 +433,7 @@ impl Console {
                                 else {
                                     return;
                                 };
-                                this.suggestions.selected = index;
+                                this.suggestions.selected = Some(index);
                                 this.accept_suggestion(window, cx);
                             })),
                     ),
@@ -450,7 +456,11 @@ impl Console {
                     .text_ellipsis()
                     .text_size(px(11.0))
                     .text_color(p.secondary)
-                    .child("↑↓ · Tab / Enter · Esc"),
+                    .child(if self.suggestions.selected.is_some() {
+                        "↑↓ · Tab / Enter · Esc"
+                    } else {
+                        "↑↓ · Tab · Esc"
+                    }),
             );
         if let Some(error) = self.suggestions.error.clone() {
             footer = footer.child(
