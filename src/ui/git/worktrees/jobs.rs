@@ -191,7 +191,7 @@ impl Tervia {
         self.worktree_job(owner, WorktreeOperation::Add { path, checkout }, window, cx);
     }
 
-    pub(super) fn request_worktree_operation(
+    pub(in crate::ui::git) fn request_worktree_operation(
         &mut self,
         owner: usize,
         operation: WorktreeOperation,
@@ -203,6 +203,9 @@ impl Tervia {
         }
         let (title, description) = match &operation {
             WorktreeOperation::Remove(tree) => {
+                if !self.worktree_removable(owner, tree) {
+                    return;
+                }
                 if !self.worktree_removal_safe(&tree.path) {
                     let message = self.t("worktree_unsaved");
                     self.git_states[owner].error.action(message);
