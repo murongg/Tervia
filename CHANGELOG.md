@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.13.1 (2026-10-18)
+
+### Fixes
+
+- **linux:** add client-side window controls (d7db2b68)
+- **windows:** add missing window controls (4029f142)
+- **windows:** prevent extra console windows on startup (d7be41db)
+
+### Other changes
+
+- **packaging:** add desktop distribution formats (9e086d35)
+
 ## v0.13.0 (2026-10-18)
 
 ### Features
