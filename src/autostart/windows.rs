@@ -51,9 +51,59 @@ fn remove_value(path: &str) -> io::Result<()> {
 }
 
 fn optional<T>(result: windows_registry::Result<T>) -> io::Result<Option<T>> {
-    match result.map_err(io::Error::from) {
+    match result {
         Ok(value) => Ok(Some(value)),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error),
+        // HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) loses its NotFound kind when converted to io::Error.
+        Err(error) if error.code().0 == 0x8007_0002_u32 as i32 => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_registry_entries_are_absent() {
+        let error = io::Error::from_raw_os_error(2).into();
+        assert_eq!(optional::<()>(Err(error)).unwrap(), None);
+    }
+
+    #[test]
+    fn present_registry_values_and_other_errors_are_preserved() {
+        assert_eq!(
+            optional(Ok("synthetic command")).unwrap(),
+            Some("synthetic command")
+        );
+        for code in [5, 13] {
+            let result: windows_registry::Result<()> =
+                Err(io::Error::from_raw_os_error(code).into());
+            let original = result.as_ref().unwrap_err().code().0;
+            assert_eq!(optional(result).unwrap_err().raw_os_error(), Some(original));
+        }
+    }
+
+    #[test]
+    fn missing_keys_and_values_are_absent_in_windows_registry() {
+        let root = tempfile::tempdir().unwrap();
+        let path = format!(
+            r"Software\Tervia-tests-{}",
+            root.path().file_name().unwrap().to_str().unwrap()
+        );
+        let key = CURRENT_USER.create(&path).unwrap();
+        let result = (|| -> io::Result<()> {
+            assert!(optional(key.open("missing-key"))?.is_none());
+            assert!(optional(key.get_string("missing-value"))?.is_none());
+            assert!(optional(key.remove_value("missing-value"))?.is_none());
+            key.set_string("synthetic-value", "synthetic command")?;
+            assert_eq!(
+                optional(key.get_string("synthetic-value"))?,
+                Some("synthetic command".into())
+            );
+            Ok(())
+        })();
+        drop(key);
+        CURRENT_USER.remove_tree(&path).unwrap();
+        result.unwrap();
     }
 }
