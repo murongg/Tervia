@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.13.0 (2026-10-18)
+
+### Features
+
+- **files:** add basic file management (257d40f0)
+- **settings:** organize preferences into focused categories (0c62077b)
+
+### Other changes
+
+- **files:** compare relocated paths across platforms (a96e6672)
+
 ## v0.12.2 (2026-10-17)
 
 ### Fixes
