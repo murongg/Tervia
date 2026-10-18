@@ -36,6 +36,7 @@ gpui-test = { package = "gpui-pre", version = "=0.3.8", optional = true, feature
 gpui-kit = { version = "=0.7.2", optional = true, features = ["tree-sitter-languages"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+dunce = "=1.0.5"
 windows-registry = "=0.6.1"
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Pipes"] }
 

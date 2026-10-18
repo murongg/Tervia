@@ -247,6 +247,24 @@ impl Status {
 }
 
 impl Console {
+    pub fn shell(&self) -> String {
+        self.session
+            .as_ref()
+            .map(|session| session.shell().to_owned())
+            .or_else(|| {
+                self.target
+                    .as_ref()
+                    .map(|target| target.shell().to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| {
+                self.appearance
+                    .shell
+                    .resolve()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+    }
+
     pub fn new(
         cwd: PathBuf,
         preferences: Entity<Preferences>,

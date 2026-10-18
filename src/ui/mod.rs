@@ -90,6 +90,7 @@ pub struct Tervia {
     monitors: Vec<monitor::Monitor>,
     terminals: Vec<Vec<Option<Entity<console::Console>>>>,
     local_terminals: Vec<Option<Entity<console::Console>>>,
+    shell_profiles: Vec<tervia::shell::Profile>,
     terminal_name: Entity<InputState>,
     terminal_rename: Option<(sessions::Owner, usize)>,
     command_history: tervia::suggestions::Worker,
@@ -210,6 +211,7 @@ impl Tervia {
             monitors: Vec::new(),
             terminals: Vec::new(),
             local_terminals,
+            shell_profiles: tervia::shell::Profile::available(),
             terminal_name: cx.new(|cx| {
                 InputState::new(window, cx)
                     .validate(|value, _| tervia::state::Session::valid_custom_name(value))

@@ -4,6 +4,75 @@ use gpui_kit::*;
 use gpui_test::TestAppContext;
 use tervia::state::{Screen, Tab};
 
+#[gpui_test::test]
+fn shell_selection_is_per_session_and_settings_only_affect_new_terminals(cx: &mut TestAppContext) {
+    use tervia::shell::Profile;
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.config = Some(tervia::config::Config::new(root.path().join("config.toml")));
+            this.preferences.update(cx, |prefs, cx| {
+                prefs.shell = Profile::Cmd;
+                cx.notify();
+            });
+            this.open_local_terminal(window, cx);
+        })
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.new_session_with_shell(Profile::WindowsPowerShell, window, cx);
+            assert!(
+                this.local_terminals[0]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .shell()
+                    .ends_with("cmd.exe")
+            );
+            assert!(
+                this.local_terminals[1]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .shell()
+                    .ends_with("powershell.exe")
+            );
+            assert_eq!(this.preferences.read(cx).shell, Profile::Cmd);
+            this.new_session(window, cx);
+            assert!(
+                this.local_terminals[2]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .shell()
+                    .ends_with("cmd.exe")
+            );
+            this.preferences.update(cx, |prefs, cx| {
+                prefs.shell = Profile::WindowsPowerShell;
+                cx.notify();
+            });
+            this.new_session(window, cx);
+            assert!(
+                this.local_terminals[3]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .shell()
+                    .ends_with("powershell.exe")
+            );
+            assert!(
+                this.local_terminals[0]
+                    .as_ref()
+                    .unwrap()
+                    .read(cx)
+                    .shell()
+                    .ends_with("cmd.exe")
+            );
+        })
+    });
+}
+
 fn window(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);

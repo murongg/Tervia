@@ -18,6 +18,7 @@ pub struct Connection {
     pid: Option<u32>,
     target: PathBuf,
     supports_colors: bool,
+    shell: String,
 }
 
 struct Command {
@@ -26,6 +27,9 @@ struct Command {
 }
 
 impl Connection {
+    pub fn shell(&self) -> &str {
+        &self.shell
+    }
     pub fn flush(&self) -> Result<(), String> {
         let Some(sender) = &self.sender else {
             return Ok(());
@@ -281,6 +285,7 @@ pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened
             identity,
             pid,
             target: directory.to_owned(),
+            shell: meta["shell"].as_str().unwrap_or("").to_owned(),
             supports_colors: response["capabilities"]
                 .as_array()
                 .is_some_and(|caps| caps.iter().any(|cap| cap == "colors")),

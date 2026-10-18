@@ -191,6 +191,12 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
             "terminal.suggestions",
             defaults.command_suggestions,
         )?,
+        shell: crate::shell::Profile::from_id(string(
+            terminal.get("shell"),
+            "terminal.shell",
+            "default",
+        )?)
+        .ok_or("terminal.shell must be default, pwsh, powershell or cmd")?,
         updates: Settings {
             auto_check: boolean(
                 updates.get("auto_check"),
@@ -270,6 +276,10 @@ fn language_code(language: Language) -> &'static str {
 }
 
 fn write(document: &mut DocumentMut, preferences: &Preferences) {
+    set(
+        &mut document["terminal"]["shell"],
+        Value::from(preferences.shell.id()),
+    );
     set(
         &mut document["terminal"]["suggestions"],
         Value::from(preferences.command_suggestions),

@@ -27,6 +27,8 @@ nesting = false
 # Disabling this also stops recording new commands. Existing history is retained.
 [terminal]
 suggestions = true
+# New terminals only: "default" (SHELL or platform default), "pwsh", "powershell", "cmd".
+shell = "default"
 
 # Check GitHub Releases at startup and periodically. Downloading/installing still requires confirmation.
 [updates]

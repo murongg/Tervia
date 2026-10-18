@@ -37,6 +37,39 @@ fn double_click(cx: &mut gpui_test::VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
 }
 
+#[cfg(windows)]
+#[gpui_test::test]
+fn new_terminal_shell_menu_supports_keyboard_selection_and_returns_focus(cx: &mut TestAppContext) {
+    use tervia::shell::Profile;
+    let (view, cx) = mount(cx);
+    let root = tempfile::tempdir().unwrap();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.config = Some(tervia::config::Config::new(root.path().join("config.toml")));
+            this.shell_profiles = vec![Profile::Default, Profile::Cmd];
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let arrow = cx
+        .debug_bounds("new-session-shell")
+        .expect("Shell menu beside New Terminal");
+    cx.simulate_click(arrow.center(), Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("down down enter");
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.local_terminal.sessions.len(), 2);
+            let console = this.local_terminals[1].as_ref().unwrap().read(cx);
+            assert!(console.shell().ends_with("cmd.exe"));
+            assert!(console.focus.is_focused(window));
+            assert_eq!(this.preferences.read(cx).shell, Profile::Default);
+            assert_eq!(this.terminal_shell(cx), "cmd.exe");
+        })
+    });
+}
+
 #[gpui_test::test]
 fn double_click_renames_a_terminal_and_keeps_custom_names_over_agent_titles(
     cx: &mut TestAppContext,

@@ -308,19 +308,12 @@ impl Tervia {
                         .text_color(p.accent)
                         .child(self.appearance.language.text(&self.state.notice).to_owned()),
                 )
-                .child(tervia::pty::default_shell().to_string_lossy().into_owned());
+                .child(self.terminal_shell(cx));
         }
         let project = self.state.project();
         let context = match project.tab {
             Tab::Terminal => {
-                let shell = tervia::pty::default_shell();
-                format!(
-                    "UTF-8  ·  {}",
-                    std::path::Path::new(&shell)
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                )
+                format!("UTF-8  ·  {}", self.terminal_shell(cx))
             }
             Tab::Git => self.f(
                 "changed_files",

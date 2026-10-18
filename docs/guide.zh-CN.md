@@ -18,6 +18,10 @@ Linux 需要 Vulkan 驱动以及 Fontconfig、ALSA、XKB、XCB、Wayland、PipeW
 
 Windows 使用 MSVC Rust 工具链和 Visual Studio C++ Build Tools，运行 `cargo run --features native`；安装 Inno Setup 6.3 或更新版本（`ISCC.exe` 位于 `PATH` 或默认安装目录）后，在 PowerShell 中执行 `./scripts/windows.ps1` 生成便携 ZIP 和安装 EXE。终端使用系统 ConPTY，默认打开 PowerShell 并保留 Profile。Linux 默认 Bash，macOS 默认 Zsh；设置了 `SHELL` 时优先使用该值。
 
+Windows 可在设置 → 工作区 → 终端选择默认 Shell，或点击新建终端按钮旁的下拉箭头，为单次新建选择 Shell。支持已安装的 PowerShell 7、Windows PowerShell 和命令提示符（CMD）；“默认”沿用 `SHELL` 环境变量或平台默认值。配置文件对应 `[terminal] shell = "default"`，也可填写 `"pwsh"`、`"powershell"`、`"cmd"`。修改仅影响新建终端，已有会话和重连保留原来的 Shell。
+
+![Windows 工作区设置中的 Shell 选择](screenshots/windows-shells.jpg)
+
 Windows 应用 manifest 由 Tervia 统一提供，通过[固定版本 GPUI 的局部补丁](../vendor/gpui-pre/PATCH.md) 避免重复资源，同时保留 DPI、Common Controls v6、长路径和 UTF-8 设置。Windows CI 会检查链接后的 EXE 是否包含这些设置。
 
 Git 接入在 macOS 上通过合成仓库测试、原生交互测试与深浅主题界面复查，实际验证了多仓库发现、折叠和滚动、区块暂存、提交、冲突编辑与继续合并。Git 核心通过 Windows GNU / Linux GNU 交叉编译检查；两个系统的图形界面仍需实机验证。CI 配置会在三个系统执行测试、构建及打包，尚未运行远程 CI。
