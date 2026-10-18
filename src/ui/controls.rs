@@ -12,7 +12,17 @@ use tervia::platform::Platform;
 
 use super::theme::Palette;
 
-pub(super) fn titlebar_mouse_down(event: &MouseDownEvent, window: &mut Window, _: &mut App) {
+pub(super) fn titlebar_drag_region(region: Div) -> Div {
+    if Platform::CURRENT == Platform::Windows {
+        // Windows needs a native caption hitbox: GPUI's move API is a no-op here,
+        // and its zoom API only maximizes. Leave both gestures to DefWindowProc.
+        region.window_control_area(WindowControlArea::Drag)
+    } else {
+        region.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
+    }
+}
+
+fn titlebar_mouse_down(event: &MouseDownEvent, window: &mut Window, _: &mut App) {
     if event.click_count == 2 {
         window.zoom_window();
     } else if event.click_count == 1 {
@@ -439,6 +449,50 @@ mod tests {
         assert_eq!(close.right(), px(width));
     }
 
+    #[cfg(target_os = "windows")]
+    fn assert_native_titlebar_gestures(cx: &mut VisualTestContext, width: f32) {
+        let position = point(px(width / 2.0), px(24.0));
+        cx.simulate_mouse_move(position, None, Modifiers::default());
+        assert_eq!(
+            cx.hit_test_window_control(),
+            Some(WindowControlArea::Drag),
+            "Windows must recognize the titlebar as a native caption"
+        );
+        for click_count in [1, 2] {
+            cx.update(|window, cx| {
+                assert!(
+                    window
+                        .dispatch_event(
+                            PlatformInput::MouseDown(MouseDownEvent {
+                                button: MouseButton::Left,
+                                position,
+                                click_count,
+                                ..Default::default()
+                            }),
+                            cx,
+                        )
+                        .propagate,
+                    "Native caption gestures must reach the Windows default handler"
+                );
+            });
+            cx.simulate_event(MouseUpEvent {
+                button: MouseButton::Left,
+                position,
+                click_count,
+                ..Default::default()
+            });
+        }
+        for (selector, area) in [
+            ("window-minimize", WindowControlArea::Min),
+            ("window-maximize", WindowControlArea::Max),
+            ("window-close", WindowControlArea::Close),
+        ] {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+            assert_eq!(cx.hit_test_window_control(), Some(area));
+        }
+    }
+
     #[gpui_test::test]
     #[cfg(target_os = "windows")]
     fn windows_caption_controls_cover_welcome_and_workspace(cx: &mut TestAppContext) {
@@ -470,6 +524,7 @@ mod tests {
                 for width in [880.0, 1220.0] {
                     cx.simulate_resize(size(px(width), px(560.0)));
                     assert_caption_controls(cx, width);
+                    assert_native_titlebar_gestures(cx, width);
                 }
             }
         }
@@ -498,6 +553,7 @@ mod tests {
         for width in [700.0, 760.0] {
             cx.simulate_resize(size(px(width), px(640.0)));
             assert_caption_controls(cx, width);
+            assert_native_titlebar_gestures(cx, width);
         }
     }
 }

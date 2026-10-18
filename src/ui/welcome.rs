@@ -1,6 +1,6 @@
 use super::{
     NewLocalTerminal, NewSession, OpenPreferences, OpenProject, Tervia, TogglePalette, ToggleTheme,
-    controls::{has_window_controls, icon, icon_button, label_button, titlebar_mouse_down},
+    controls::{has_window_controls, icon, icon_button, label_button, titlebar_drag_region},
     theme,
 };
 use gpui_kit::assets::IconName;
@@ -370,7 +370,7 @@ impl Tervia {
                             .items_center()
                             .justify_center()
                             .child("Tervia")
-                            .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
+                            .map(titlebar_drag_region),
                     )
                     .when_some(update, |bar, update| bar.child(update))
                     .child(

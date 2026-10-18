@@ -833,6 +833,11 @@ pub struct VisualTestContext {
 }
 
 impl VisualTestContext {
+    /// Queries the native window-control area at the simulated mouse position.
+    pub fn hit_test_window_control(&self) -> Option<crate::WindowControlArea> {
+        self.cx.test_window(self.window).hit_test_window_control()
+    }
+
     /// Provides a `Window` and `App` for the duration of the closure.
     pub fn update<R>(&mut self, f: impl FnOnce(&mut Window, &mut App) -> R) -> R {
         self.cx

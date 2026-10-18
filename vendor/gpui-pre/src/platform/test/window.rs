@@ -280,6 +280,14 @@ impl TestWindow {
         !result.propagate
     }
 
+    /// Queries the native window-control area at the simulated mouse position.
+    pub(crate) fn hit_test_window_control(&self) -> Option<WindowControlArea> {
+        let mut callback = self.0.lock().hit_test_window_control_callback.take()?;
+        let area = callback();
+        self.0.lock().hit_test_window_control_callback = Some(callback);
+        area
+    }
+
     pub fn external_drag_files(&self) -> Vec<(PathBuf, bool)> {
         self.0.lock().external_drag_files.clone()
     }
