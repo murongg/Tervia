@@ -14,9 +14,9 @@ The project pins Rust 1.99.0 in `rust-toolchain.toml`; the first run downloads t
 
 The script builds a release executable by default; you can also open `build/Tervia.app` directly after building. This build supports online updates. For a development build, run `cargo run --features native`.
 
-Linux requires Vulkan drivers and development libraries for Fontconfig, ALSA, XKB, XCB, Wayland, PipeWire, and related components. See `.github/workflows/native.yml` for Ubuntu / Debian installation commands. Run `cargo run --features native`, or use `./scripts/linux.sh` to create an archive.
+Linux requires Vulkan drivers and development libraries for Fontconfig, ALSA, XKB, XCB, Wayland, PipeWire, and related components. See `.github/workflows/native.yml` for Ubuntu / Debian installation commands. Run `cargo run --features native`, or install `dpkg-dev` and `rpm` on Ubuntu / Debian and use `./scripts/linux.sh` to create tar.gz, DEB, and RPM packages.
 
-On Windows, use the MSVC Rust toolchain and Visual Studio C++ Build Tools, then run `cargo run --features native`. Run `./scripts/windows.ps1` in PowerShell to create a ZIP. The terminal uses system ConPTY and opens PowerShell by default with its Profile enabled. Linux defaults to Bash and macOS to Zsh; when `SHELL` is set, its value takes precedence.
+On Windows, use the MSVC Rust toolchain and Visual Studio C++ Build Tools, then run `cargo run --features native`. Install Inno Setup 6.3 or later (`ISCC.exe` on `PATH` or in its standard installation directory), then run `./scripts/windows.ps1` in PowerShell to create a portable ZIP and a setup EXE. The terminal uses system ConPTY and opens PowerShell by default with its Profile enabled. Linux defaults to Bash and macOS to Zsh; when `SHELL` is set, its value takes precedence.
 
 Tervia owns the Windows application manifest. A [scoped patch to the pinned GPUI dependency](../vendor/gpui-pre/PATCH.md) prevents duplicate manifest resources while preserving DPI awareness, Common Controls v6, long-path and UTF-8 settings. Windows CI checks these settings in the linked executable.
 
@@ -36,7 +36,15 @@ Running without flags creates a local release and prints the push command. The s
 
 Releases require a clean working tree, a branch checkout, full history, a matching lockfile, and a new tag. `--push` fetches origin tags first and pushes the current branch and tag atomically. If a hook or push fails, generated files, commits, and tags are retained for inspection; a failed push prints the command to retry. The script respects Git hooks and signing settings.
 
-Pushing the tag triggers the [release workflow](../.github/workflows/release.yml), which reuses native CI checks and release builds on macOS, Linux, and Windows. After all three succeed, it publishes a GitHub Release using the annotated tag's changelog, with versioned platform archives and `SHA256SUMS`. Manually pushed lightweight tags fall back to GitHub-generated release notes. Tags such as `v0.2.0-beta.1` publish a prerelease and require the same version in `Cargo.toml`. GitHub publishing uses the built-in `GITHUB_TOKEN`; macOS releases also require the Apple secrets below. Existing releases are not overwritten.
+Pushing the tag triggers the [release workflow](../.github/workflows/release.yml), which reuses native CI checks and release builds on macOS, Linux, and Windows. After all three succeed, it publishes a GitHub Release using the annotated tag's changelog, with seven versioned distribution files and `SHA256SUMS`. Publishing requires one of each format and matching architectures within each platform; every distribution file is checksummed. Manually pushed lightweight tags fall back to GitHub-generated release notes. Tags such as `v0.2.0-beta.1` publish a prerelease and require the same version in `Cargo.toml`. GitHub publishing uses the built-in `GITHUB_TOKEN`; macOS releases also require the Apple secrets below. Existing releases are not overwritten.
+
+| Platform | Release formats | Installation |
+| --- | --- | --- |
+| macOS | `.zip`, `.dmg` | Open the DMG and drag Tervia to Applications, or extract the ZIP. |
+| Linux | `.tar.gz`, `.deb`, `.rpm` | Extract the archive, or install the DEB/RPM with your distribution's package manager. |
+| Windows x64 | `.zip`, `-setup.exe` | Extract the portable ZIP, or use the installer for a per-user installation and shortcuts. |
+
+For local macOS distributions, run `./scripts/package.sh` followed by `bash scripts/macos.sh`. When notarizing locally, run `sh scripts/sign.sh build/Tervia.app` between those commands. The ZIP and DMG contain the same app bundle; the DMG also includes an Applications shortcut. Linux DEB/RPM packages install the executable, desktop entry, icon, and third-party notices under `/usr`; shared-library requirements are detected during packaging. Windows setup installs under `%LOCALAPPDATA%\Programs\Tervia` without administrator privileges and offers an optional desktop shortcut. Reuse an existing release build with `--no-build` for macOS app packaging and Linux, or `-NoBuild` for Windows.
 
 ### macOS signing and notarization
 
@@ -52,11 +60,11 @@ Configure these repository secrets under **Settings â†’ Secrets and variables â†
 
 An Apple Developer Program membership is required. Export the certificate together with its private key from Keychain Access, then copy its Base64 representation with `base64 -i DeveloperID.p12 | pbcopy` and paste it into the secret. The certificate must match `APPLE_TEAM_ID`; Apple Development and Mac App Store distribution certificates are not accepted. See [Apple's Developer ID guidance](https://developer.apple.com/developer-id/) and [notarization documentation](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow).
 
-[sign.sh](../scripts/sign.sh) imports the certificate into a temporary keychain, signs with Hardened Runtime and a secure timestamp, submits a ZIP to Apple's notary service, waits up to 30 minutes for `Accepted`, staples the ticket, and checks Gatekeeper before the workflow creates the final macOS ZIP. Missing secrets, invalid signatures, rejected or timed-out notarization, and failed ticket checks stop the release. Notarization failures include Apple's diagnostic log when available. Temporary certificates, credentials, and the keychain are removed on success or failure. No extra keychain-password secret is needed.
+[sign.sh](../scripts/sign.sh) imports the certificate into a temporary keychain, signs with Hardened Runtime and a secure timestamp, submits a ZIP to Apple's notary service, waits up to 30 minutes for `Accepted`, staples the ticket, and checks Gatekeeper before the workflow creates the final macOS ZIP and DMG. Missing secrets, invalid signatures, rejected or timed-out notarization, and failed ticket checks stop the release. Notarization failures include Apple's diagnostic log when available. Temporary certificates, credentials, and the keychain are removed on success or failure. No extra keychain-password secret is needed.
 
 Pull requests targeting `main` run formatting checks, tests, and Clippy on macOS, Linux, and Windows through the [CI workflow](../.github/workflows/ci.yml). Pushes to `main` run [native builds](../.github/workflows/native.yml); these and local development builds use ad-hoc signing. For local notarization, export the same five environment variables and run `sh scripts/sign.sh build/Tervia.app` after packaging on a Mac with Xcode. `sh scripts/sign.sh --check` only checks that the required values are present and the team ID has the expected format; it does not contact Apple or verify the certificate.
 
-Linux packages require the runtime libraries described above. Each archive targets the architecture of its CI runner; macOS archives include that architecture in the filename.
+Linux packages require the runtime libraries described above and a compatible system C library; binaries built on the CI Ubuntu runner may require a newer distribution. Each distribution targets its CI runner's architecture, included in the filename. The original ZIP/tar.gz filenames remain available for online updates. System-installed DEB/RPM executables are normally owned by root, so upgrade those through the package manager.
 
 ## Launch at login
 

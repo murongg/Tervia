@@ -78,18 +78,7 @@ jobs:
         working-directory: release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          shopt -s nullglob
-          archives=(Tervia-*.tar.gz Tervia-*.zip)
-          # Publish only after all three platform archives have been collected.
-          if [[ ${#archives[@]} -ne 3 ]]; then
-            echo 'Expected exactly three platform archives.' >&2
-            exit 1
-          fi
-          for archive in "${archives[@]}"; do
-            mv "$archive" "Tervia-$RELEASE_TAG-${archive#Tervia-}"
-          done
-          sha256sum Tervia-*.tar.gz Tervia-*.zip > SHA256SUMS
+        run: bash "$GITHUB_WORKSPACE/scripts/assets.sh" "$RELEASE_TAG"
       - name: Publish GitHub Release
         working-directory: release
         env:
