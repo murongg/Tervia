@@ -14,9 +14,9 @@
 
 脚本默认编译 release 构建，编译后也可以直接打开 `build/Tervia.app`；该构建支持在线更新。需要开发构建时运行 `cargo run --features native`。
 
-Linux 需要 Vulkan 驱动以及 Fontconfig、ALSA、XKB、XCB、Wayland、PipeWire 等开发库；Ubuntu / Debian 安装命令见 `.github/workflows/native.yml`。运行 `cargo run --features native`，或用 `./scripts/linux.sh` 生成压缩包。
+Linux 需要 Vulkan 驱动以及 Fontconfig、ALSA、XKB、XCB、Wayland、PipeWire 等开发库；Ubuntu / Debian 安装命令见 `.github/workflows/native.yml`。运行 `cargo run --features native`，或在 Ubuntu / Debian 上安装 `dpkg-dev` 和 `rpm` 后，用 `./scripts/linux.sh` 生成 tar.gz、DEB 和 RPM。
 
-Windows 使用 MSVC Rust 工具链和 Visual Studio C++ Build Tools，运行 `cargo run --features native`；PowerShell 中执行 `./scripts/windows.ps1` 生成 ZIP。终端使用系统 ConPTY，默认打开 PowerShell 并保留 Profile。Linux 默认 Bash，macOS 默认 Zsh；设置了 `SHELL` 时优先使用该值。
+Windows 使用 MSVC Rust 工具链和 Visual Studio C++ Build Tools，运行 `cargo run --features native`；安装 Inno Setup 6.3 或更新版本（`ISCC.exe` 位于 `PATH` 或默认安装目录）后，在 PowerShell 中执行 `./scripts/windows.ps1` 生成便携 ZIP 和安装 EXE。终端使用系统 ConPTY，默认打开 PowerShell 并保留 Profile。Linux 默认 Bash，macOS 默认 Zsh；设置了 `SHELL` 时优先使用该值。
 
 Windows 应用 manifest 由 Tervia 统一提供，通过[固定版本 GPUI 的局部补丁](../vendor/gpui-pre/PATCH.md) 避免重复资源，同时保留 DPI、Common Controls v6、长路径和 UTF-8 设置。Windows CI 会检查链接后的 EXE 是否包含这些设置。
 
@@ -36,7 +36,15 @@ sh scripts/release.sh --push     # 生成、提交、打标签并推送到 origi
 
 脚本要求工作区干净、位于分支上、历史完整、lockfile 版本一致，且目标标签尚不存在。`--push` 会先同步 origin 标签，再原子推送当前分支和版本标签。Hook 或推送失败时保留生成的文件、提交与标签供检查；推送失败会打印重试命令。保留现有 Git hooks 与签名设置。
 
-推送标签后触发[发布工作流](../.github/workflows/release.yml)，复用 macOS、Linux、Windows 的原生 CI 检查与 release 构建；三平台全部成功后，用附注标签中的 changelog 创建 GitHub Release，并上传带版本号的平台压缩包与 `SHA256SUMS`。手动推送轻量标签时仍使用 GitHub 自动生成的发布说明。`v0.2.0-beta.1` 等标签会标记为预发布，`Cargo.toml` 也需使用相同版本。GitHub 发布使用内置 `GITHUB_TOKEN`，macOS 发版还需下方的 Apple Secrets；已有 Release 不会被覆盖。
+推送标签后触发[发布工作流](../.github/workflows/release.yml)，复用 macOS、Linux、Windows 的原生 CI 检查与 release 构建；三平台全部成功后，用附注标签中的 changelog 创建 GitHub Release，并上传 7 个带版本号的产物与 `SHA256SUMS`。发布前要求每种格式恰好一个、同平台架构一致，所有产物均写入校验和清单。手动推送轻量标签时仍使用 GitHub 自动生成的发布说明。`v0.2.0-beta.1` 等标签会标记为预发布，`Cargo.toml` 也需使用相同版本。GitHub 发布使用内置 `GITHUB_TOKEN`，macOS 发版还需下方的 Apple Secrets；已有 Release 不会被覆盖。
+
+| 平台 | 发布格式 | 安装方式 |
+| --- | --- | --- |
+| macOS | `.zip`、`.dmg` | 打开 DMG，将 Tervia 拖到 Applications，或解压 ZIP。 |
+| Linux | `.tar.gz`、`.deb`、`.rpm` | 解压压缩包，或使用系统包管理器安装 DEB/RPM。 |
+| Windows x64 | `.zip`、`-setup.exe` | 解压便携 ZIP，或通过安装程序安装到当前用户并创建快捷方式。 |
+
+本地生成 macOS 分发文件时，先执行 `./scripts/package.sh`，再执行 `bash scripts/macos.sh`；需要公证时，在两步之间运行 `sh scripts/sign.sh build/Tervia.app`。ZIP 和 DMG 使用同一份应用包，DMG 额外包含 Applications 快捷入口。Linux DEB/RPM 将程序、桌面入口、图标和第三方声明安装到 `/usr` 下，打包时自动检测动态库依赖。Windows 安装程序无需管理员权限，默认安装到 `%LOCALAPPDATA%\Programs\Tervia`，可选创建桌面快捷方式。复用已编译的 release 程序时，macOS 应用打包及 Linux 使用 `--no-build`，Windows 使用 `-NoBuild`。
 
 ### macOS 正式签名与公证
 
@@ -52,11 +60,11 @@ sh scripts/release.sh --push     # 生成、提交、打标签并推送到 origi
 
 需要 Apple Developer Program 会员。从钥匙串访问中将证书与对应私钥一起导出，再执行 `base64 -i DeveloperID.p12 | pbcopy`，将结果粘贴到 Secret。证书必须属于 `APPLE_TEAM_ID` 指定团队；不接受 Apple Development 或 Mac App Store 分发证书。参考 [Apple Developer ID 说明](https://developer.apple.com/developer-id/)与[公证文档](https://developer.apple.com/documentation/security/customizing-the-notarization-workflow)。
 
-[sign.sh](../scripts/sign.sh) 将证书导入临时钥匙串，启用 Hardened Runtime 和安全时间戳签名，提交 ZIP 给 Apple 公证，最多等待 30 分钟，只有状态为 `Accepted` 才附加票据并执行 Gatekeeper 检查，随后工作流生成最终 macOS ZIP。缺少凭据、签名无效、公证拒绝或超时、票据检查失败都会终止发版；公证失败时尽可能输出 Apple 诊断日志。成功或失败后都会清理临时证书、凭据与钥匙串，无需额外配置钥匙串密码 Secret。
+[sign.sh](../scripts/sign.sh) 将证书导入临时钥匙串，启用 Hardened Runtime 和安全时间戳签名，提交 ZIP 给 Apple 公证，最多等待 30 分钟，只有状态为 `Accepted` 才附加票据并执行 Gatekeeper 检查，随后工作流生成最终 macOS ZIP 和 DMG。缺少凭据、签名无效、公证拒绝或超时、票据检查失败都会终止发版；公证失败时尽可能输出 Apple 诊断日志。成功或失败后都会清理临时证书、凭据与钥匙串，无需额外配置钥匙串密码 Secret。
 
 目标为 `main` 的 PR 通过 [CI 工作流](../.github/workflows/ci.yml) 在 macOS、Linux、Windows 上运行格式检查、测试和 Clippy。推送到 `main` 后运行[原生构建](../.github/workflows/native.yml)，这些构建和本地开发构建使用 ad-hoc 签名。本地公证时，在装有 Xcode 的 Mac 上导出同名的五个环境变量，打包后执行 `sh scripts/sign.sh build/Tervia.app`。`sh scripts/sign.sh --check` 只检查必需值是否存在、团队 ID 格式是否正确，不连接 Apple 或验证证书有效性。
 
-Linux 仍需安装上文所述运行库。每个压缩包只对应其 CI runner 的架构，macOS 文件名会注明架构。
+Linux 仍需安装上文所述运行库及兼容的系统 C 库；CI 使用 Ubuntu runner 构建，生成的二进制可能需要较新的发行版。每个产物对应其 CI runner 的架构，文件名会注明架构。在线更新继续使用原有命名的 ZIP/tar.gz。DEB/RPM 安装的程序通常由 root 持有，应使用包管理器升级。
 
 ## 开机自启
 

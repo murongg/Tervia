@@ -40,16 +40,24 @@ jobs:
           # Keep the key shared with the reusable release workflow.
           shared-key: native-${{ matrix.os }}
           save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-      - name: Release and signing script tests
+      - name: Release, signing, and packaging script tests
         if: runner.os == 'Linux'
         env:
           RUSTUP_TOOLCHAIN: 1.99.0
         run: python3 -B -m unittest discover -s tests -p 'test_*.py'
+      - name: Windows packaging script tests
+        if: runner.os == 'Windows'
+        run: python -B -m unittest discover -s tests -p 'test_windows.py'
+      - name: macOS packaging script tests
+        if: runner.os == 'macOS'
+        run: |
+          python3 -B -m unittest discover -s tests -p 'test_package.py'
+          python3 -B -m unittest discover -s tests -p 'test_distributions.py'
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libfontconfig1-dev libasound2-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libwayland-dev libvulkan-dev libpipewire-0.3-dev clang cmake fonts-dejavu-core
+          sudo apt-get install -y pkg-config libssl-dev libfontconfig1-dev libasound2-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libwayland-dev libvulkan-dev libpipewire-0.3-dev clang cmake fonts-dejavu-core dpkg-dev rpm
       - run: cargo fmt --all -- --check
       - name: Windows core and PTY tests
         if: runner.os == 'Windows'
@@ -70,20 +78,27 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
         run: sh scripts/sign.sh build/Tervia.app
-      - name: macOS archive
+      - name: macOS ZIP and DMG
         if: runner.os == 'macOS'
-        run: ditto -c -k --sequesterRsrc --keepParent build/Tervia.app "build/Tervia-macos-$(uname -m).zip"
+        run: bash scripts/macos.sh
       - name: Linux package
         if: runner.os == 'Linux'
         run: bash scripts/linux.sh --no-build
       - name: Windows package
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/windows.ps1 -NoBuild
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup installation failed" }
+          ./scripts/windows.ps1 -NoBuild
       - uses: actions/upload-artifact@v7
         with:
           name: Tervia-${{ runner.os }}
           path: |
             build/Tervia-*.tar.gz
             build/Tervia-*.zip
+            build/Tervia-*.dmg
+            build/Tervia-*.deb
+            build/Tervia-*.rpm
+            build/Tervia-*-setup.exe
           if-no-files-found: error

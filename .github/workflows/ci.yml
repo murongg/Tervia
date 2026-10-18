@@ -29,11 +29,19 @@ jobs:
         with:
           shared-key: native-${{ matrix.os }}
           save-if: false
-      - name: Release and signing script tests
+      - name: Release, signing, and packaging script tests
         if: runner.os == 'Linux'
         env:
           RUSTUP_TOOLCHAIN: 1.99.0
         run: python3 -B -m unittest discover -s tests -p 'test_*.py'
+      - name: Windows packaging script tests
+        if: runner.os == 'Windows'
+        run: python -B -m unittest discover -s tests -p 'test_windows.py'
+      - name: macOS packaging script tests
+        if: runner.os == 'macOS'
+        run: |
+          python3 -B -m unittest discover -s tests -p 'test_package.py'
+          python3 -B -m unittest discover -s tests -p 'test_distributions.py'
       - name: Linux libraries
         if: runner.os == 'Linux'
         run: |
