@@ -7,6 +7,40 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 
 use super::super::Tervia;
 
+#[cfg(windows)]
+#[gpui_test::test]
+fn default_shell_is_selectable_in_terminal_settings(cx: &mut TestAppContext) {
+    use tervia::shell::Profile;
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| {
+            this.category = super::Category::Workspace;
+            this.scroll.set_offset(point(px(0.0), px(-2000.0)));
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("shell-control").is_some());
+    cx.update(|_, cx| {
+        let select = settings.read(cx).shell_select.clone();
+        select.update(cx, |_, cx| {
+            cx.emit(super::SelectEvent::Confirm(Some(Profile::Cmd)))
+        });
+    });
+    cx.update(|_, cx| assert_eq!(settings.read(cx).preferences.read(cx).shell, Profile::Cmd));
+}
+
 #[gpui_test::test]
 fn autostart_reads_system_state_and_toggles_without_changing_interface_preferences(
     cx: &mut TestAppContext,
@@ -285,6 +319,7 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
         code_size: 19,
         file_nesting: true,
         command_suggestions: false,
+        shell: tervia::shell::Profile::Default,
         updates: tervia::updates::Settings {
             auto_check: false,
             interval_minutes: 37,

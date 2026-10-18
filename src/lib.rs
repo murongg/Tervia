@@ -12,6 +12,7 @@ pub mod process;
 pub mod pty;
 #[cfg(feature = "pty")]
 pub mod sessions;
+pub mod shell;
 pub mod state;
 pub mod suggestions;
 pub mod terminal;

@@ -1,5 +1,10 @@
 {
   "zh-CN": {
+    "default_shell": "默认 Shell",
+    "default_shell_hint": "仅用于新建终端。已有会话继续使用原来的 Shell。",
+    "shell_default": "默认（环境变量或系统 Shell）",
+    "shell_cmd": "命令提示符（CMD）",
+    "select_shell": "选择 Shell 新建终端",
     "window_minimize": "最小化",
     "window_maximize": "最大化",
     "window_restore": "还原",
@@ -426,6 +431,11 @@
     "files_manage_done": "文件操作已完成"
   },
   "en": {
+    "default_shell": "Default shell",
+    "default_shell_hint": "Applies to new terminals. Existing sessions keep their shell.",
+    "shell_default": "Default (environment or system shell)",
+    "shell_cmd": "Command Prompt (CMD)",
+    "select_shell": "New terminal with shell",
     "window_minimize": "Minimize",
     "window_maximize": "Maximize",
     "window_restore": "Restore",
@@ -852,6 +862,11 @@
     "files_manage_done": "File operation completed"
   },
   "ja": {
+    "default_shell": "既定のシェル",
+    "default_shell_hint": "新しいターミナルに適用されます。既存のセッションのシェルは変わりません。",
+    "shell_default": "既定（環境変数またはシステム）",
+    "shell_cmd": "コマンドプロンプト（CMD）",
+    "select_shell": "シェルを選んでターミナルを作成",
     "window_minimize": "最小化",
     "window_maximize": "最大化",
     "window_restore": "元に戻す",
@@ -1278,6 +1293,11 @@
     "files_manage_done": "ファイル操作が完了しました"
   },
   "ko": {
+    "default_shell": "기본 셸",
+    "default_shell_hint": "새 터미널에 적용됩니다. 기존 세션은 현재 셸을 유지합니다.",
+    "shell_default": "기본값 (환경 변수 또는 시스템 셸)",
+    "shell_cmd": "명령 프롬프트 (CMD)",
+    "select_shell": "셸을 선택하여 새 터미널 열기",
     "window_minimize": "최소화",
     "window_maximize": "최대화",
     "window_restore": "이전 크기로",
@@ -1704,6 +1724,11 @@
     "files_manage_done": "파일 작업 완료"
   },
   "fr": {
+    "default_shell": "Shell par défaut",
+    "default_shell_hint": "S’applique aux nouveaux terminaux. Les sessions existantes conservent leur shell.",
+    "shell_default": "Par défaut (environnement ou système)",
+    "shell_cmd": "Invite de commandes (CMD)",
+    "select_shell": "Nouveau terminal avec un shell",
     "window_minimize": "Réduire",
     "window_maximize": "Agrandir",
     "window_restore": "Restaurer",
@@ -2130,6 +2155,11 @@
     "files_manage_done": "Opération terminée"
   },
   "de": {
+    "default_shell": "Standard-Shell",
+    "default_shell_hint": "Gilt für neue Terminals. Bestehende Sitzungen behalten ihre Shell.",
+    "shell_default": "Standard (Umgebung oder System)",
+    "shell_cmd": "Eingabeaufforderung (CMD)",
+    "select_shell": "Neues Terminal mit Shell",
     "window_minimize": "Minimieren",
     "window_maximize": "Maximieren",
     "window_restore": "Wiederherstellen",
@@ -2556,6 +2586,11 @@
     "files_manage_done": "Dateiaktion abgeschlossen"
   },
   "es": {
+    "default_shell": "Shell predeterminado",
+    "default_shell_hint": "Se aplica a terminales nuevos. Las sesiones existentes conservan su shell.",
+    "shell_default": "Predeterminado (entorno o sistema)",
+    "shell_cmd": "Símbolo del sistema (CMD)",
+    "select_shell": "Nuevo terminal con shell",
     "window_minimize": "Minimizar",
     "window_maximize": "Maximizar",
     "window_restore": "Restaurar",
@@ -2982,6 +3017,11 @@
     "files_manage_done": "Operación de archivos completada"
   },
   "pt": {
+    "default_shell": "Shell padrão",
+    "default_shell_hint": "Aplica-se a novos terminais. As sessões existentes mantêm seu shell.",
+    "shell_default": "Padrão (ambiente ou sistema)",
+    "shell_cmd": "Prompt de Comando (CMD)",
+    "select_shell": "Novo terminal com shell",
     "window_minimize": "Minimizar",
     "window_maximize": "Maximizar",
     "window_restore": "Restaurar",
@@ -3408,6 +3448,11 @@
     "files_manage_done": "Operação de arquivos concluída"
   },
   "ru": {
+    "default_shell": "Оболочка по умолчанию",
+    "default_shell_hint": "Для новых терминалов. Существующие сеансы сохраняют свою оболочку.",
+    "shell_default": "По умолчанию (окружение или система)",
+    "shell_cmd": "Командная строка (CMD)",
+    "select_shell": "Новый терминал с выбранной оболочкой",
     "window_minimize": "Свернуть",
     "window_maximize": "Развернуть",
     "window_restore": "Восстановить",
@@ -3834,6 +3879,11 @@
     "files_manage_done": "Операция с файлами завершена"
   },
   "zh-TW": {
+    "default_shell": "預設 Shell",
+    "default_shell_hint": "僅用於新建終端機。現有工作階段繼續使用原來的 Shell。",
+    "shell_default": "預設（環境變數或系統 Shell）",
+    "shell_cmd": "命令提示字元（CMD）",
+    "select_shell": "選擇 Shell 新建終端機",
     "window_minimize": "最小化",
     "window_maximize": "最大化",
     "window_restore": "還原",

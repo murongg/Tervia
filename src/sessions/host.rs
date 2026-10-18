@@ -64,7 +64,13 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
         pixel_width: 0,
         pixel_height: 0,
     };
-    let (pty, events, tracker) = PtySession::spawn_shell(&cwd, size).map_err(io::Error::other)?;
+    // Old launch files omit shell; reconnect always uses the existing host's own metadata.
+    let shell = match launch.get("shell").filter(|shell| !shell.is_null()) {
+        Some(shell) => serde_json::from_value::<PathBuf>(shell.clone())?.into_os_string(),
+        None => default_shell(),
+    };
+    let (pty, events, tracker) =
+        PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?;
     let mut journal = Journal::create(&directory.join("output"))?;
     journal.resize(size)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
@@ -72,7 +78,7 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
     let metadata = json!({
         "version": VERSION, "port": listener.local_addr()?.port(), "token": token,
         "capabilities": ["colors"],
-        "pid": pty.process_id(), "shell": default_shell().to_string_lossy(),
+        "pid": pty.process_id(), "shell": shell.to_string_lossy(),
         "integration": tracker.as_ref().map(Tracker::token),
     });
     let state = Arc::new(Mutex::new(State {

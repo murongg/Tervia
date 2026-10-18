@@ -39,17 +39,22 @@ pub fn initial_directory(project: &Path, home: &Path) -> std::path::PathBuf {
 }
 
 pub fn default_shell() -> std::ffi::OsString {
-    std::env::var_os("SHELL")
-        .filter(|shell| !shell.is_empty())
-        .unwrap_or_else(|| crate::platform::Platform::CURRENT.default_shell().into())
+    crate::shell::Profile::Default.resolve()
 }
 
 pub fn shell_command(cwd: &Path) -> CommandBuilder {
-    let shell = default_shell();
-    let mut command = CommandBuilder::new(&shell);
+    shell_command_for(&default_shell(), cwd)
+}
+
+pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder {
+    let mut command = CommandBuilder::new(shell);
     command.args(crate::platform::Platform::shell_args(
         &shell.to_string_lossy(),
     ));
+    // CMD rejects the verbatim prefix added by canonicalize. Only simplify paths
+    // with an equivalent Win32 spelling, preserving long paths and special names.
+    #[cfg(windows)]
+    let cwd = dunce::simplified(cwd);
     command.cwd(cwd);
     configure_terminal_environment(&mut command);
     command
@@ -77,12 +82,27 @@ impl PtySession {
         ),
         String,
     > {
-        let mut command = shell_command(cwd);
+        Self::spawn_shell_with(&default_shell(), cwd, size)
+    }
+
+    pub fn spawn_shell_with(
+        shell: &std::ffi::OsStr,
+        cwd: &Path,
+        size: PtySize,
+    ) -> Result<
+        (
+            Self,
+            Receiver<PtyEvent>,
+            Option<crate::terminal::shell::Tracker>,
+        ),
+        String,
+    > {
+        let mut command = shell_command_for(shell, cwd);
         let integration = ShellIntegration::configure(&mut command)?;
         let tracker = integration.as_ref().map(|integration| {
             crate::terminal::shell::Tracker::new(
                 integration.token().into(),
-                &default_shell().to_string_lossy(),
+                &shell.to_string_lossy(),
             )
         });
         let (mut session, receiver) = Self::spawn(command, size)?;

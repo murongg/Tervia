@@ -75,6 +75,16 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<console::Console> {
+        self.ensure_console_with_shell(session, self.preferences.read(cx).shell, window, cx)
+    }
+
+    fn ensure_console_with_shell(
+        &mut self,
+        session: usize,
+        profile: tervia::shell::Profile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<console::Console> {
         if let Some(console) = self.consoles().get(session).and_then(Option::as_ref) {
             return console.clone();
         }
@@ -98,7 +108,9 @@ impl Tervia {
                 Some(id) => id,
                 None => tervia::sessions::Target::identifier()?,
             };
-            let target = self.session_target(id.clone())?;
+            let target = self
+                .session_target(id.clone())?
+                .with_shell(profile.resolve());
             self.state.terminals_mut().sessions[session].connection = Some(id);
             // Record ownership before starting a host; a fast exit/update must not orphan a live shell.
             if let Some(store) = &mut self.workspace {
@@ -166,6 +178,15 @@ impl Tervia {
     }
 
     pub(super) fn new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.new_session_with_shell(self.preferences.read(cx).shell, window, cx);
+    }
+
+    pub(super) fn new_session_with_shell(
+        &mut self,
+        profile: tervia::shell::Profile,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.terminal_rename = None;
         if self.state.screen == Screen::Welcome {
             self.open_local_terminal(window, cx);
@@ -175,7 +196,7 @@ impl Tervia {
         let count = self.state.terminals().sessions.len();
         self.consoles_mut().resize_with(count, || None);
         let session = self.state.terminals().active_session;
-        self.ensure_console(session, window, cx)
+        self.ensure_console_with_shell(session, profile, window, cx)
             .read(cx)
             .focus
             .clone()

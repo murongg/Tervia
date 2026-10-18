@@ -10,6 +10,42 @@ fn fixture(source: &str) -> (TempDir, Config) {
 }
 
 #[test]
+fn terminal_shell_rejects_unknown_profiles_and_non_string_values() {
+    for value in ["'mock-shell'", "false", "7", "[]"] {
+        let (_root, mut config) = fixture(&format!("[terminal]\nshell = {value}\n"));
+        assert!(config.load().is_err(), "Invalid terminal.shell: {value}");
+    }
+}
+
+#[test]
+fn terminal_shell_defaults_and_explicit_profiles_round_trip_with_comments() {
+    use tervia::shell::Profile;
+    let (_root, mut config) = fixture("");
+    assert_eq!(config.load().unwrap().shell, Profile::Default);
+    for (id, profile) in [
+        ("default", Profile::Default),
+        ("pwsh", Profile::PowerShell),
+        ("powershell", Profile::WindowsPowerShell),
+        ("cmd", Profile::Cmd),
+    ] {
+        let (_root, mut config) = fixture(&format!(
+            "[terminal]\nshell = '{id}' # synthetic choice\nfuture = 'mock'\n"
+        ));
+        let mut preferences = config.load().unwrap();
+        assert_eq!(preferences.shell, profile);
+        preferences.shell = Profile::Cmd;
+        config.save(&preferences).unwrap();
+        assert_eq!(
+            Config::new(config.path().into()).load().unwrap().shell,
+            Profile::Cmd
+        );
+        let source = fs::read_to_string(config.path()).unwrap();
+        assert!(source.contains("# synthetic choice"));
+        assert!(source.contains("future = 'mock'"));
+    }
+}
+
+#[test]
 fn first_launch_creates_a_commented_config_and_round_trips_defaults() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("tervia/config.toml");

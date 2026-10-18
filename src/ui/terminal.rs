@@ -4,7 +4,7 @@ use gpui_kit::component::{
     Disableable, Sizable,
     button::{Button, ButtonCustomVariant, ButtonVariants},
     input::Input,
-    menu::{ContextMenuExt as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -19,6 +19,57 @@ use super::{
 mod tests;
 
 impl Tervia {
+    pub(super) fn terminal_shell(&self, cx: &App) -> String {
+        let shell = self
+            .consoles()
+            .get(self.state.command_session())
+            .and_then(Option::as_ref)
+            .map(|console| console.read(cx).shell())
+            .unwrap_or_else(|| {
+                self.appearance
+                    .shell
+                    .resolve()
+                    .to_string_lossy()
+                    .into_owned()
+            });
+        shell
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or(&shell)
+            .to_owned()
+    }
+
+    fn shell_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let weak = cx.weak_entity();
+        let profiles = self.shell_profiles.clone();
+        let language = self.appearance.language;
+        icon_button(
+            "new-session-shell",
+            IconName::ChevronDown,
+            self.t("select_shell"),
+            self.p(),
+            cx,
+        )
+        .debug_selector(|| "new-session-shell".into())
+        .accessibility_label(self.t("select_shell"))
+        .dropdown_menu(move |mut menu, _, _| {
+            for &profile in &profiles {
+                let weak = weak.clone();
+                menu = menu.item(PopupMenuItem::new(profile.label(language)).on_click(
+                    move |_, window, cx| {
+                        let _ = weak.update(cx, |_, cx| {
+                            // Restore menu focus before focusing the newly created terminal.
+                            cx.defer_in(window, move |this, window, cx| {
+                                this.new_session_with_shell(profile, window, cx)
+                            });
+                        });
+                    },
+                ));
+            }
+            menu
+        })
+    }
+
     fn terminal_session_name(&self, index: usize, cx: &App) -> String {
         let session = &self.state.terminals().sessions[index];
         if let Some(name) = &session.custom_name {
@@ -333,6 +384,7 @@ impl Tervia {
                 .accessibility_label(self.t("new_terminal"))
                 .on_click(cx.listener(|this, _, window, cx| this.new_session(window, cx))),
             )
+            .when(cfg!(windows), |tabs| tabs.child(self.shell_menu(cx)))
             .child(div().flex_1())
             .child(
                 icon_button(

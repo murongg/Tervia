@@ -15,6 +15,7 @@ use gpui_kit::*;
 use tervia::locale::Language;
 use tervia::platform::Platform;
 use tervia::preferences::Preferences;
+use tervia::shell::Profile;
 
 use super::{
     controls::{
@@ -79,6 +80,7 @@ pub struct PreferencesWindow {
     category: Category,
     font_select: Entity<SelectState<Vec<SharedString>>>,
     language_select: Entity<SelectState<Vec<LanguageChoice>>>,
+    shell_select: Entity<SelectState<Vec<ShellChoice>>>,
     startup_action: startup::Action,
     startup_enabled: Option<bool>,
     startup_busy: bool,
@@ -90,6 +92,36 @@ pub struct PreferencesWindow {
 struct LanguageChoice {
     language: Language,
     label: SharedString,
+}
+
+#[derive(Clone)]
+struct ShellChoice {
+    profile: Profile,
+    label: SharedString,
+}
+
+impl SearchableListItem for ShellChoice {
+    type Value = Profile;
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+    fn value(&self) -> &Profile {
+        &self.profile
+    }
+}
+
+fn shell_choices(language: Language, current: Profile) -> Vec<ShellChoice> {
+    let mut profiles = Profile::available();
+    if !profiles.contains(&current) {
+        profiles.push(current);
+    }
+    profiles
+        .into_iter()
+        .map(|profile| ShellChoice {
+            profile,
+            label: profile.label(language).into(),
+        })
+        .collect()
 }
 
 impl SearchableListItem for LanguageChoice {
@@ -191,6 +223,25 @@ impl PreferencesWindow {
                 }
             }
         });
+        let shell_select = cx.new(|cx| {
+            let choices = shell_choices(current.language, current.shell);
+            let selected = choices
+                .iter()
+                .position(|choice| choice.profile == current.shell)
+                .unwrap_or(0);
+            SelectState::new(choices, Some(IndexPath::new(selected)), window, cx)
+        });
+        let shell_subscription = cx.subscribe_in(&shell_select, window, {
+            let preferences = preferences.clone();
+            move |_, _, event, _, cx| {
+                if let SelectEvent::Confirm(Some(profile)) = event {
+                    preferences.update(cx, |prefs, cx| {
+                        prefs.shell = *profile;
+                        cx.notify();
+                    });
+                }
+            }
+        });
         let observer = cx.observe_in(&preferences, window, |this, preferences, window, cx| {
             this.current = preferences.read(cx).clone();
             window.set_window_title(&format!("Tervia {}", this.t("settings")));
@@ -198,6 +249,10 @@ impl PreferencesWindow {
             this.language_select.update(cx, |select, cx| {
                 select.set_items(language_choices(language), window, cx);
                 select.set_selected_value(&language, window, cx);
+            });
+            this.shell_select.update(cx, |select, cx| {
+                select.set_items(shell_choices(language, this.current.shell), window, cx);
+                select.set_selected_value(&this.current.shell, window, cx);
             });
             cx.notify();
         });
@@ -217,6 +272,7 @@ impl PreferencesWindow {
             category: Category::General,
             font_select,
             language_select,
+            shell_select,
             startup_action: std::sync::Arc::new(tervia::autostart::configure),
             startup_enabled: None,
             startup_busy: false,
@@ -224,6 +280,7 @@ impl PreferencesWindow {
             _subscriptions: vec![
                 subscription,
                 language_subscription,
+                shell_subscription,
                 observer,
                 config_observer,
             ],

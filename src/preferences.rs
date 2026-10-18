@@ -7,6 +7,7 @@ pub struct Preferences {
     pub language: Language,
     pub file_nesting: bool,
     pub command_suggestions: bool,
+    pub shell: crate::shell::Profile,
     pub updates: crate::updates::Settings,
 }
 
@@ -20,6 +21,7 @@ impl Default for Preferences {
             language: Language::System,
             file_nesting: false,
             command_suggestions: true,
+            shell: crate::shell::Profile::Default,
             updates: crate::updates::Settings::default(),
         }
     }
@@ -51,6 +53,7 @@ impl Preferences {
         self.font_family = defaults.font_family;
         self.code_size = defaults.code_size;
         self.file_nesting = defaults.file_nesting;
+        self.shell = defaults.shell;
     }
 }
 use crate::{locale::Language, platform::Platform};

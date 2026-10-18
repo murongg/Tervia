@@ -3,6 +3,70 @@
 use portable_pty::{CommandBuilder, PtySize};
 use tervia::pty::{PtyEvent, PtySession, initial_directory};
 
+#[cfg(windows)]
+#[test]
+fn shell_working_directories_use_compatible_paths_without_changing_their_meaning() {
+    use std::{ffi::OsStr, path::Path};
+    let long = format!(r"\\?\C:\synthetic\{}", "mock-folder\\".repeat(30));
+    for (source, expected) in [
+        (
+            r"\\?\C:\synthetic project\项目 & mock",
+            r"C:\synthetic project\项目 & mock",
+        ),
+        (
+            r"C:\synthetic project\项目 & mock",
+            r"C:\synthetic project\项目 & mock",
+        ),
+        (
+            r"\\mock-server\mock-share\project",
+            r"\\mock-server\mock-share\project",
+        ),
+        (
+            r"\\?\UNC\mock-server\mock-share\project",
+            r"\\?\UNC\mock-server\mock-share\project",
+        ),
+        (r"\\?\C:\synthetic\trailing.", r"\\?\C:\synthetic\trailing."),
+        (r"\\?\C:\synthetic\CON", r"\\?\C:\synthetic\CON"),
+        (long.as_str(), long.as_str()),
+    ] {
+        for shell in ["cmd.exe", "powershell.exe", "pwsh.exe"] {
+            let command = tervia::pty::shell_command_for(OsStr::new(shell), Path::new(source));
+            assert_eq!(
+                command.get_cwd().map(|cwd| cwd.as_os_str()),
+                Some(OsStr::new(expected)),
+                "{shell}: {source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_shell_commands_keep_paths_arguments_and_working_directories_separate() {
+    use std::{ffi::OsStr, path::Path};
+    for (shell, args) in [
+        (r"C:\synthetic tools\pwsh.exe", vec!["-NoLogo", "-NoExit"]),
+        (
+            r"C:\synthetic tools\powershell.exe",
+            vec!["-NoLogo", "-NoExit"],
+        ),
+        (r"C:\synthetic tools\cmd.exe", vec!["/K"]),
+    ] {
+        let cwd = Path::new("synthetic-project");
+        let command = tervia::pty::shell_command_for(OsStr::new(shell), cwd);
+        let actual: Vec<_> = command
+            .get_argv()
+            .iter()
+            .map(|arg| arg.to_string_lossy())
+            .collect();
+        assert_eq!(actual[0], shell);
+        assert_eq!(&actual[1..], args);
+        assert_eq!(
+            command.get_cwd().map(|path| path.as_os_str()),
+            Some(cwd.as_os_str())
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn shell_integration_preserves_startup_files_and_reports_command_boundaries() {

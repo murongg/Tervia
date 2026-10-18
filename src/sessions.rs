@@ -33,6 +33,7 @@ pub struct Target {
     executable: PathBuf,
     environment: Vec<(OsString, OsString)>,
     colors: Vec<[u8; 3]>,
+    shell: Option<PathBuf>,
 }
 
 impl Target {
@@ -43,6 +44,7 @@ impl Target {
             executable,
             environment: Vec::new(),
             colors: Vec::new(),
+            shell: None,
         }
     }
 
@@ -54,6 +56,17 @@ impl Target {
     pub fn with_colors(mut self, colors: Vec<[u8; 3]>) -> Self {
         self.colors = colors;
         self
+    }
+
+    pub fn with_shell(mut self, shell: impl Into<PathBuf>) -> Self {
+        self.shell = Some(shell.into());
+        self
+    }
+
+    pub fn shell(&self) -> PathBuf {
+        self.shell
+            .clone()
+            .unwrap_or_else(|| crate::pty::default_shell().into())
     }
 
     pub fn directory(&self) -> PathBuf {
@@ -83,6 +96,7 @@ impl Target {
                 &json!({
                     "version": VERSION, "cwd": cwd, "cols": size.cols, "rows": size.rows,
                     "token": random_id()?, "colors": self.colors,
+                    "shell": self.shell,
                 }),
             )?;
             runtime::spawn(

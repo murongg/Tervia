@@ -129,6 +129,24 @@ impl PreferencesWindow {
             .flex()
             .flex_col()
             .child(self.heading("terminal"))
+            .when(cfg!(windows), |settings| {
+                settings
+                    .child(
+                        self.row(
+                            "default_shell",
+                            "shell-control",
+                            Select::new(&self.shell_select)
+                                .w_full()
+                                .accessibility_label(self.t("default_shell")),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(11.0))
+                            .text_color(p.secondary)
+                            .child(self.t("default_shell_hint")),
+                    )
+            })
             .child(
                 self.row(
                     "command_suggestions",
