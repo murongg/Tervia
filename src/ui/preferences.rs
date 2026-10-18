@@ -19,7 +19,7 @@ use tervia::shell::Profile;
 
 use super::{
     controls::{
-        has_window_controls, icon, icon_button, label_button, titlebar_mouse_down, window_controls,
+        has_window_controls, icon, icon_button, label_button, titlebar_drag_region, window_controls,
     },
     theme::Palette,
 };
@@ -654,7 +654,7 @@ impl Render for PreferencesWindow {
                     .text_size(px(16.0))
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(!has_window_controls(window), |bar| {
-                        bar.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
+                        titlebar_drag_region(bar)
                     })
                     .child(
                         div()
@@ -663,7 +663,7 @@ impl Render for PreferencesWindow {
                             .flex()
                             .items_center()
                             .when(has_window_controls(window), |title| {
-                                title.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
+                                titlebar_drag_region(title)
                             })
                             .child(self.t(self.category.key())),
                     )

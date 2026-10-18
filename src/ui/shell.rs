@@ -11,7 +11,8 @@ use tervia::state::Tab;
 use super::{
     Tervia,
     controls::{
-        badge, has_window_controls, icon, icon_button, label_button, separator, titlebar_mouse_down,
+        badge, has_window_controls, icon, icon_button, label_button, separator,
+        titlebar_drag_region,
     },
 };
 
@@ -142,12 +143,7 @@ impl Tervia {
                             .into_any_element()
                     }),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .on_mouse_down(MouseButton::Left, titlebar_mouse_down),
-            )
+            .child(div().flex_1().h_full().map(titlebar_drag_region))
             // Keep transient actions before the fixed controls so their click targets never move.
             .when(!self.state.has_project(), |bar| {
                 bar.child(
