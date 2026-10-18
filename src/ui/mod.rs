@@ -664,7 +664,7 @@ impl Render for Tervia {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.p();
         if self.state.screen == Screen::Welcome {
-            return self.welcome(cx).into_any_element();
+            return self.welcome(window, cx).into_any_element();
         }
         div()
             .id("tervia-workspace")
@@ -836,7 +836,7 @@ impl Render for Tervia {
             .on_action(cx.listener(|this, _: &CloseSession, window, cx| {
                 this.close_terminal_session(this.state.command_session(), window, cx)
             }))
-            .child(self.titlebar(cx))
+            .child(self.titlebar(window, cx))
             .child(
                 div()
                     .flex()

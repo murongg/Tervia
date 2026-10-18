@@ -1,5 +1,9 @@
 {
   "zh-CN": {
+    "window_minimize": "最小化",
+    "window_maximize": "最大化",
+    "window_restore": "还原",
+    "window_close": "关闭",
     "menu_file": "文件",
     "menu_view": "视图",
     "settings": "设置",
@@ -422,6 +426,10 @@
     "files_manage_done": "文件操作已完成"
   },
   "en": {
+    "window_minimize": "Minimize",
+    "window_maximize": "Maximize",
+    "window_restore": "Restore",
+    "window_close": "Close",
     "menu_file": "File",
     "menu_view": "View",
     "settings": "Settings",
@@ -844,6 +852,10 @@
     "files_manage_done": "File operation completed"
   },
   "ja": {
+    "window_minimize": "最小化",
+    "window_maximize": "最大化",
+    "window_restore": "元に戻す",
+    "window_close": "閉じる",
     "menu_file": "ファイル",
     "menu_view": "表示",
     "settings": "設定",
@@ -1266,6 +1278,10 @@
     "files_manage_done": "ファイル操作が完了しました"
   },
   "ko": {
+    "window_minimize": "최소화",
+    "window_maximize": "최대화",
+    "window_restore": "이전 크기로",
+    "window_close": "닫기",
     "menu_file": "파일",
     "menu_view": "보기",
     "settings": "설정",
@@ -1688,6 +1704,10 @@
     "files_manage_done": "파일 작업 완료"
   },
   "fr": {
+    "window_minimize": "Réduire",
+    "window_maximize": "Agrandir",
+    "window_restore": "Restaurer",
+    "window_close": "Fermer",
     "menu_file": "Fichier",
     "menu_view": "Affichage",
     "settings": "Paramètres",
@@ -2110,6 +2130,10 @@
     "files_manage_done": "Opération terminée"
   },
   "de": {
+    "window_minimize": "Minimieren",
+    "window_maximize": "Maximieren",
+    "window_restore": "Wiederherstellen",
+    "window_close": "Schließen",
     "menu_file": "Datei",
     "menu_view": "Ansicht",
     "settings": "Einstellungen",
@@ -2532,6 +2556,10 @@
     "files_manage_done": "Dateiaktion abgeschlossen"
   },
   "es": {
+    "window_minimize": "Minimizar",
+    "window_maximize": "Maximizar",
+    "window_restore": "Restaurar",
+    "window_close": "Cerrar",
     "menu_file": "Archivo",
     "menu_view": "Ver",
     "settings": "Ajustes",
@@ -2954,6 +2982,10 @@
     "files_manage_done": "Operación de archivos completada"
   },
   "pt": {
+    "window_minimize": "Minimizar",
+    "window_maximize": "Maximizar",
+    "window_restore": "Restaurar",
+    "window_close": "Fechar",
     "menu_file": "Arquivo",
     "menu_view": "Exibir",
     "settings": "Configurações",
@@ -3376,6 +3408,10 @@
     "files_manage_done": "Operação de arquivos concluída"
   },
   "ru": {
+    "window_minimize": "Свернуть",
+    "window_maximize": "Развернуть",
+    "window_restore": "Восстановить",
+    "window_close": "Закрыть",
     "menu_file": "Файл",
     "menu_view": "Вид",
     "settings": "Настройки",
@@ -3798,6 +3834,10 @@
     "files_manage_done": "Операция с файлами завершена"
   },
   "zh-TW": {
+    "window_minimize": "最小化",
+    "window_maximize": "最大化",
+    "window_restore": "還原",
+    "window_close": "關閉",
     "menu_file": "檔案",
     "menu_view": "檢視",
     "settings": "設置",

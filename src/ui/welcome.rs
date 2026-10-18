@@ -1,6 +1,6 @@
 use super::{
     NewLocalTerminal, NewSession, OpenPreferences, OpenProject, Tervia, TogglePalette, ToggleTheme,
-    controls::{icon, icon_button, label_button, titlebar_mouse_down},
+    controls::{icon, icon_button, label_button, titlebar_mouse_down, window_controls},
     theme,
 };
 use gpui_kit::assets::IconName;
@@ -129,7 +129,7 @@ impl Tervia {
         }))
     }
 
-    pub(super) fn welcome(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn welcome(&self, window: &Window, cx: &mut Context<Self>) -> Stateful<Div> {
         let p = theme::Palette::workbench(self.appearance.light_theme);
         let update = self.workspace_update(cx);
         let recent = self
@@ -359,6 +359,7 @@ impl Tervia {
                     .flex()
                     .items_center()
                     .px(px(16.0))
+                    .when(Platform::CURRENT == Platform::Windows, |bar| bar.pr_0())
                     .text_size(px(12.0))
                     .child(div().w(px(72.0)))
                     .child(
@@ -396,7 +397,8 @@ impl Tervia {
                         )
                         .accessibility_label(self.t("settings"))
                         .on_click(cx.listener(|this, _, _, cx| this.open_preferences(cx))),
-                    ),
+                    )
+                    .child(window_controls(window, p, self.appearance.language)),
             )
             .child(
                 div()

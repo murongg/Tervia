@@ -17,7 +17,7 @@ use tervia::platform::Platform;
 use tervia::preferences::Preferences;
 
 use super::{
-    controls::{icon, icon_button, label_button},
+    controls::{icon, icon_button, label_button, titlebar_mouse_down, window_controls},
     theme::Palette,
 };
 
@@ -469,7 +469,7 @@ impl PreferencesWindow {
 }
 
 impl Render for PreferencesWindow {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = Palette::new(self.current.light_theme);
         let error = self.config_error.read(cx).clone();
         let show_footer = self.category != Category::Updates || error.is_some();
@@ -588,13 +588,27 @@ impl Render for PreferencesWindow {
                     .h(px(48.0))
                     .pl(px(NAVIGATION_WIDTH + 24.0))
                     .pr(px(24.0))
+                    .when(Platform::CURRENT == Platform::Windows, |bar| bar.pr_0())
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .text_size(px(16.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .on_mouse_down(MouseButton::Left, super::controls::titlebar_mouse_down)
-                    .child(self.t(self.category.key())),
+                    .when(Platform::CURRENT != Platform::Windows, |bar| {
+                        bar.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
+                    })
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .when(Platform::CURRENT == Platform::Windows, |title| {
+                                title.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
+                            })
+                            .child(self.t(self.category.key())),
+                    )
+                    .child(window_controls(window, p, self.current.language)),
             )
             .child(
                 div()
