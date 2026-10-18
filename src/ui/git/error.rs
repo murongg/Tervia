@@ -185,6 +185,15 @@ impl Tervia {
                                 ));
                             }
                         })),
+                    )
+                    .child(
+                        icon_button("git-dismiss-error", IconName::X, self.t("close"), p, cx)
+                            .debug_selector(|| "git-dismiss-error".into())
+                            .accessibility_label(self.t("close"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.git_states[project].error.clear();
+                                cx.notify();
+                            })),
                     ),
             )
             .when(state.expanded, |body| {

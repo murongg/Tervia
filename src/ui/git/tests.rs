@@ -967,7 +967,7 @@ fn git_probe_failure_offers_retry_and_recovers_after_metadata_repair(cx: &mut Te
 }
 
 #[gpui_test::test]
-fn git_error_controls_disclose_and_copy_full_diagnostics_in_both_states(cx: &mut TestAppContext) {
+fn git_error_controls_disclose_copy_and_dismiss_diagnostics(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     for loaded in [false, true] {
         let root = tempfile::tempdir().unwrap();
@@ -1054,6 +1054,38 @@ fn git_error_controls_disclose_and_copy_full_diagnostics_in_both_states(cx: &mut
             cx.debug_bounds("git-error-details").is_none(),
             "Hide removes the diagnostic"
         );
+        for expanded in [false, true] {
+            if expanded {
+                let toggle = cx.debug_bounds("git-toggle-error-details").unwrap();
+                cx.simulate_click(toggle.center(), gpui_kit::Modifiers::default());
+                cx.run_until_parked();
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                assert!(cx.debug_bounds("git-error-details").is_some());
+            }
+            let dismiss = cx
+                .debug_bounds("git-dismiss-error")
+                .expect("Errors can be dismissed with details collapsed or expanded");
+            cx.simulate_click(dismiss.center(), gpui_kit::Modifiers::default());
+            cx.run_until_parked();
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.debug_bounds("git-error").is_none());
+            assert!(cx.debug_bounds("git-error-details").is_none());
+            view.update(cx, |this, _| {
+                assert!(this.git_states[0].error.is_empty());
+                assert_eq!(this.git_states[0].error.details(), None);
+            });
+
+            view.update(cx, |this, cx| {
+                this.git_states[0].error.action(failure.clone());
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(cx.debug_bounds("git-error").is_some());
+            assert!(
+                cx.debug_bounds("git-error-details").is_none(),
+                "A later failure is shown with its details collapsed"
+            );
+        }
         view.update(cx, |_, _| {});
     }
 }
