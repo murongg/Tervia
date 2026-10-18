@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.13.2 (2026-10-18)
+
+### Fixes
+
+- **packaging:** size macOS images from apparent file sizes (5f5806c5)
+
 ## v0.13.1 (2026-10-18)
 
 ### Fixes
