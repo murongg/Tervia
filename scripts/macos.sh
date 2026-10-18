@@ -12,5 +12,10 @@ trap 'rm -rf -- "$TERVIA_STAGE"' EXIT
 ditto -c -k --sequesterRsrc --keepParent build/Tervia.app "build/Tervia-macos-$TERVIA_ARCH.zip"
 ditto build/Tervia.app "$TERVIA_STAGE/Tervia.app"
 ln -s /Applications "$TERVIA_STAGE/Applications"
-hdiutil create -volname Tervia -srcfolder "$TERVIA_STAGE" -ov -format UDZO "build/Tervia-macos-$TERVIA_ARCH.dmg"
+# hdiutil can underestimate sparse executables by their allocated blocks. Size the
+# image from apparent bytes, with 20% plus 32 MiB for filesystem overhead.
+TERVIA_SIZE_KIB="$(du -skA "$TERVIA_STAGE" | awk '{print $1}')"
+TERVIA_SIZE_MIB=$(( (TERVIA_SIZE_KIB + 1023) / 1024 * 6 / 5 + 32 ))
+hdiutil create -volname Tervia -fs HFS+ -size "${TERVIA_SIZE_MIB}m" \
+  -srcfolder "$TERVIA_STAGE" -ov -format UDZO "build/Tervia-macos-$TERVIA_ARCH.dmg"
 printf '%s\n' "$TERVIA_ROOT/build/Tervia-macos-$TERVIA_ARCH.zip" "$TERVIA_ROOT/build/Tervia-macos-$TERVIA_ARCH.dmg"

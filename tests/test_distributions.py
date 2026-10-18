@@ -1,5 +1,6 @@
 """Exercise distribution staging with synthetic executables and mocked OS tools."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -34,6 +35,10 @@ elif tool == "dpkg-shlibdeps":
     print("shlibs:Depends=libc6 (>= 2.38), libfontconfig1 (>= 2.13)")
 elif tool == "dpkg-deb":
     Path(args[-1]).write_bytes(b"synthetic deb")
+elif tool == "du":
+    root = Path(args[-1])
+    size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file() and not p.is_symlink())
+    print(f"{(size + 1023) // 1024}\t{root}")
 elif tool == "rpmbuild":
     definitions = [args[i + 1] for i, arg in enumerate(args) if arg == "--define"]
     top = Path(next(value.split(" ", 1)[1] for value in definitions if value.startswith("_topdir ")))
@@ -72,7 +77,7 @@ class DistributionTests(unittest.TestCase):
         binary.chmod(0o755)
         self.tools = self.root / "tools"
         self.tools.mkdir()
-        for name in ("uname", "cargo", "dpkg-shlibdeps", "dpkg-deb", "rpmbuild", "ditto", "hdiutil"):
+        for name in ("uname", "cargo", "dpkg-shlibdeps", "dpkg-deb", "rpmbuild", "ditto", "hdiutil", "du"):
             path = self.tools / name
             path.write_text(f"#!{sys.executable}\n" + TOOL)
             path.chmod(0o755)
@@ -146,13 +151,15 @@ class DistributionTests(unittest.TestCase):
         self.assertFalse(any(call[0] == "cargo" for call in self.recorded()))
 
     @unittest.skipUnless(sys.platform == "darwin", "DMG integration requires macOS")
-    def test_real_dmg_can_be_mounted_and_contains_the_original_app(self):
+    def test_real_dmg_fits_a_large_sparse_app_and_preserves_its_contents(self):
         self.env.update(PACKAGE_OS="Darwin", PACKAGE_ARCH="arm64")
-        for name in ("ditto", "hdiutil"):
+        for name in ("ditto", "hdiutil", "du"):
             (self.tools / name).unlink()
         binary = self.root / "build/Tervia.app/Contents/MacOS/Tervia"
         binary.parent.mkdir(parents=True)
-        binary.write_bytes(b"synthetic signed executable")
+        with binary.open("wb") as output:
+            output.write(b"synthetic signed executable")
+            output.truncate(128 * 1024 * 1024)
         result = self.package("macos.sh")
         self.assertEqual(result.returncode, 0, result.stderr)
         mount = Path(self.temporary.name) / "mounted"
@@ -162,7 +169,10 @@ class DistributionTests(unittest.TestCase):
             check=True, capture_output=True,
         )
         try:
-            self.assertEqual((mount / "Tervia.app/Contents/MacOS/Tervia").read_bytes(), binary.read_bytes())
+            mounted_binary = mount / "Tervia.app/Contents/MacOS/Tervia"
+            self.assertEqual(mounted_binary.stat().st_size, binary.stat().st_size)
+            with binary.open("rb") as original, mounted_binary.open("rb") as mounted:
+                self.assertEqual(hashlib.file_digest(original, "sha256").digest(), hashlib.file_digest(mounted, "sha256").digest())
             self.assertEqual(os.readlink(mount / "Applications"), "/Applications")
         finally:
             subprocess.run(["hdiutil", "detach", str(mount)], check=True, capture_output=True)
