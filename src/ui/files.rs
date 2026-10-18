@@ -15,6 +15,7 @@ use super::{
     controls::{icon, icon_button, label_button},
     icons::file_icon,
 };
+pub(in crate::ui) mod management;
 mod preview;
 pub(in crate::ui) mod search;
 #[cfg(all(test, feature = "ui-tests"))]

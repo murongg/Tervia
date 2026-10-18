@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 mod projects;
 mod terminal;
 pub use projects::ProjectMatch;
@@ -65,7 +65,58 @@ pub struct Project {
     pub closed_files: Vec<usize>,
 }
 
+fn rebased(path: &Path, from: &Path, to: &Path) -> Option<PathBuf> {
+    let suffix = path.strip_prefix(from).ok()?;
+    // Joining an empty suffix adds a slash, which makes a renamed regular file unreadable.
+    Some(if suffix.as_os_str().is_empty() {
+        to.to_path_buf()
+    } else {
+        to.join(suffix)
+    })
+}
+
 impl Project {
+    pub fn relocate_files(&mut self, from: &Path, to: &Path) {
+        self.forget_files(to);
+        for file in &mut self.files {
+            if let Some(path) = rebased(&file.disk_path, from, to) {
+                file.disk_path = path;
+                file.path = file.disk_path.to_string_lossy().into_owned();
+            } else if let Some(path) = rebased(&file.disk_path, to, from) {
+                // Retired destination slots must not shadow the moved document on its next open.
+                file.disk_path = path;
+                file.path = file.disk_path.to_string_lossy().into_owned();
+            }
+        }
+        self.positions = std::mem::take(&mut self.positions)
+            .into_iter()
+            .map(|(path, position)| {
+                let path = rebased(&path, from, to).unwrap_or(path);
+                (path, position)
+            })
+            .collect();
+        self.restoring = std::mem::take(&mut self.restoring)
+            .into_iter()
+            .map(|path| rebased(&path, from, to).unwrap_or(path))
+            .collect();
+    }
+
+    pub fn forget_files(&mut self, path: &Path) {
+        let targets: Vec<_> = self
+            .files
+            .iter()
+            .enumerate()
+            .filter_map(|(index, file)| {
+                (file.disk_path.starts_with(path) && !file.dirty()).then_some(index)
+            })
+            .collect();
+        self.close_files(&targets);
+        // Indices belong to live editor subscriptions. Retire tab/history membership, not slots.
+        self.closed_files.retain(|index| !targets.contains(index));
+        self.positions.retain(|key, _| !key.starts_with(path));
+        self.restoring.retain(|key| !key.starts_with(path));
+    }
+
     pub fn current_file(&self) -> Option<&File> {
         self.open_files
             .contains(&self.active_file)

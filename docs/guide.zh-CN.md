@@ -91,6 +91,7 @@ macOS 使用用户 LaunchAgent，Windows 使用当前用户的 Run 启动项，L
 - 命令边界通过临时 Shell 启动脚本采集，不修改用户的启动文件。Zsh、Bash 已通过真实 PTY 验证；Fish 使用原生事件，PowerShell 使用 PSReadLine。Bash 保留登录 Shell，通过首次提示符加载集成；启动配置完全替换 `PROMPT_COMMAND`，或单独占用 DEBUG trap 时会停用建议。其他 Shell 及未集成的 SSH / 嵌套 Shell 中保持常规终端行为。
 - 真实 Git 管理：变更 / 历史 / 分支 / 远程 / Stash，原生行内 / 并排 Diff 和区块暂存。
 - 文件页显示所选项目的目录树：按需读取、虚拟化长列表、展开 / 折叠，状态按项目保留。原生文件监控在后台暂停，回到前台立即刷新并继续自动同步目录和未修改的编辑内容；磁盘变化时保留未保存草稿。可从文件树、Git 或系统文件选择器打开文件；支持多个标签、语法高亮、查找、保存和右上角刷新。
+- 文件树顶部可新建文件或文件夹；右键文件夹可在其中新建。文件与文件夹的右键菜单提供重命名、复制到、移动到、移到系统废纸篓、复制路径和在文件管理器中显示。复制或移动时输入相对于项目根目录的完整目标路径（包含名称）；父目录需已存在，同名目标不会被覆盖。Enter 确认、Esc 取消。重命名与移动保留打开文件的草稿，删除前需先保存或关闭受影响的未保存修改。已登记的项目/工作目录受到保护；符号链接的复制请使用系统文件管理器。
 - 文件编辑器与 Git Diff 共用语言识别，支持 Rust、JavaScript / JSX、TypeScript / TSX、Python、Go、C / C++、C#、Java、Kotlin、Swift、HTML / CSS、JSON / YAML / TOML、Shell、SQL、Markdown、Vue、Dart、PowerShell、Fish、Dockerfile / Containerfile、INI、XML、JSON5、SCSS / Less、HCL / Terraform、Nix 等内置语法。可识别 Makefile、CMakeLists.txt、Cargo.lock、.env 系列、.editorconfig、.npmrc 等常见文件名；Markdown 代码块及网页、模板中的内嵌代码使用各自的语法高亮。
 - 文件树单击使用临时预览标签，双击或编辑后固定；⌘P（Windows / Linux 文件页 Ctrl+P）快速查找文件，⌘⇧F / Ctrl+Shift+F 搜索项目文本。方向键选择、Enter 打开、Esc 返回目录树；搜索结果定位到对应行列。Markdown 支持阅读 / 源码切换，常见图片格式使用原生只读预览（沿用 4 MiB 读取上限）。搜索遵循忽略规则，跳过依赖目录、图片和二进制文件，并提示未完整或超限的结果。
 - 文件标签支持关闭按钮、中键关闭、右键关闭其他 / 右侧 / 全部、拖动排序、Ctrl+Tab 切换和重新打开关闭的标签；关闭未保存文件前确认。

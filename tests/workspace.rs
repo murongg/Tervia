@@ -1,6 +1,90 @@
 use tervia::state::{File, FileClose, Tab, Workspace};
 
 #[test]
+fn moving_a_folder_rebases_documents_and_reading_positions_without_losing_drafts() {
+    let mut state = Workspace::new("/synthetic/mock-project".into());
+    let project = state.project_mut();
+    project.files = vec![File {
+        path: "mock/example.rs".into(),
+        disk_path: "mock/example.rs".into(),
+        language: "rust".into(),
+        saved: "synthetic saved".into(),
+        draft: "synthetic draft".into(),
+    }];
+    project.open_file(0);
+    project
+        .positions
+        .insert("mock/example.rs".into(), Default::default());
+    project.relocate_files("mock".as_ref(), "renamed".as_ref());
+    assert_eq!(
+        project.files[0].disk_path,
+        std::path::Path::new("renamed/example.rs")
+    );
+    assert_eq!(project.files[0].path, "renamed/example.rs");
+    assert_eq!(project.files[0].draft, "synthetic draft");
+    assert_eq!(project.open_files, [0]);
+    assert!(
+        project
+            .positions
+            .contains_key(std::path::Path::new("renamed/example.rs"))
+    );
+    assert!(
+        !project
+            .positions
+            .contains_key(std::path::Path::new("mock/example.rs"))
+    );
+}
+
+#[test]
+fn moving_into_a_previously_cached_destination_keeps_document_paths_unique() {
+    let mut state = Workspace::new("/synthetic/mock-project".into());
+    let project = state.project_mut();
+    for (name, draft) in [
+        ("renamed/example.rs", "synthetic old"),
+        ("mock/example.rs", "synthetic draft"),
+    ] {
+        project.files.push(File {
+            path: name.into(),
+            disk_path: name.into(),
+            language: "rust".into(),
+            saved: "synthetic old".into(),
+            draft: draft.into(),
+        });
+    }
+    project.open_file(1);
+    project.relocate_files("mock".as_ref(), "renamed".as_ref());
+    assert_ne!(project.files[0].disk_path, project.files[1].disk_path);
+    assert_eq!(
+        project.files[1].disk_path,
+        std::path::Path::new("renamed/example.rs")
+    );
+    assert_eq!(project.current_file().unwrap().draft, "synthetic draft");
+}
+
+#[test]
+fn trash_closes_clean_tabs_but_preserves_any_draft_typed_during_the_operation() {
+    let mut state = Workspace::new("/synthetic/mock-project".into());
+    let project = state.project_mut();
+    for (name, draft) in [
+        ("clean.rs", "synthetic saved"),
+        ("dirty.rs", "synthetic draft"),
+    ] {
+        project.files.push(File {
+            path: format!("mock/{name}"),
+            disk_path: format!("mock/{name}").into(),
+            language: "rust".into(),
+            saved: "synthetic saved".into(),
+            draft: draft.into(),
+        });
+        project.open_file(project.files.len() - 1);
+    }
+    project.forget_files("mock".as_ref());
+    assert_eq!(project.open_files, [1]);
+    assert!(project.closed_files.is_empty());
+    assert_eq!(project.files[1].draft, "synthetic draft");
+}
+
+#[test]
 fn terminal_custom_names_are_trimmed_resettable_and_scoped_to_their_session() {
     let mut state = Workspace::new("/synthetic/mock-terminal-names".into());
     state.new_session();
