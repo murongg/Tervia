@@ -89,6 +89,65 @@ fn global_project_search_accepts_keyboard_selection_and_escape_restores_focus(
 }
 
 #[gpui_test::test]
+fn project_favorite_shares_the_row_hover_surface(cx: &mut TestAppContext) {
+    let (_root, view, cx) = project_window(cx);
+    for light in [false, true] {
+        for selected in [false, true] {
+            view.update(cx, |this, cx| {
+                this.appearance.light_theme = light;
+                super::super::theme::apply_palette(light, cx);
+                this.state.switch_project(usize::from(selected));
+                cx.notify();
+            });
+            cx.update(|window, cx| {
+                window.draw(cx).clear(cx);
+                window.draw(cx).clear(cx);
+            });
+            let bounds = cx.debug_bounds("project-row-1").unwrap();
+            let favorite = cx.debug_bounds("favorite-project-1").unwrap();
+            let content = point(bounds.left() + px(20.0), bounds.center().y);
+            let p = view.read_with(cx, |this, _| this.p());
+            for (position, hovered) in [
+                (content, true),
+                (favorite.center(), true),
+                (point(bounds.right() - px(1.0), bounds.center().y), true),
+                (point(px(0.0), px(0.0)), false),
+            ] {
+                cx.simulate_mouse_move(position, None, Modifiers::default());
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.draw(cx).clear(cx);
+                });
+                let expected = if hovered {
+                    p.text.opacity(0.12)
+                } else if selected {
+                    p.selected
+                } else {
+                    p.sidebar.opacity(0.0)
+                };
+                cx.update(|window, _| {
+                    let scale = window.scale_factor();
+                    let bounds = bounds.scale(scale);
+                    let sample = content.scale(scale);
+                    let surfaces: Vec<_> = window.painted_quads().into_iter().filter(|quad| {
+                        !quad.background.is_transparent()
+                            && quad.bounds.contains(&sample)
+                            && quad.content_mask.bounds.contains(&sample)
+                            && quad.bounds.top() >= bounds.top()
+                            && quad.bounds.bottom() <= bounds.bottom()
+                    }).collect();
+                    assert_eq!(surfaces.len(), usize::from(!expected.is_transparent()), "Project hover spans its favorite control: light={light}, selected={selected}, hovered={hovered}, pointer={position:?}");
+                    if let Some(surface) = surfaces.first() {
+                        assert_eq!(surface.bounds, bounds);
+                        assert_eq!(surface.background, expected.into());
+                    }
+                });
+            }
+        }
+    }
+}
+
+#[gpui_test::test]
 fn favorite_controls_and_drag_reorder_keep_project_identity(cx: &mut TestAppContext) {
     let (_root, view, cx) = project_window(cx);
     let favorite = cx.debug_bounds("favorite-project-1").unwrap();

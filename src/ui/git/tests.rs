@@ -1751,6 +1751,129 @@ fn untracked_changes_have_their_own_group() {
 }
 
 #[gpui_test::test]
+fn composite_rows_share_hover_across_content_actions_and_padding(cx: &mut TestAppContext) {
+    use gpui_kit::{Modifiers, point, px, size};
+    cx.update(gpui_kit::init);
+    let file = FileStatus {
+        path: "src/mock.rs".into(),
+        original: None,
+        index: 'M',
+        worktree: 'M',
+        conflicted: false,
+    };
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| {
+            let mut this = Tervia::new(window, cx);
+            let project = this.state.open_directory("/synthetic/row-hover".into());
+            this.init_project(project, window, cx);
+            this.state.set_tab(tervia::state::Tab::Git);
+            let snapshot = Snapshot {
+                status: tervia::git::Status {
+                    files: vec![file.clone()],
+                    ..Default::default()
+                },
+                stashes: vec![tervia::git::Stash {
+                    reference: "stash@{0}".into(),
+                    hash: "synthetic-stash".into(),
+                    message: "Synthetic changes".into(),
+                }],
+                ..Default::default()
+            };
+            this.git_states[project].reconcile_snapshot(&snapshot, cx);
+            this.git_states[project].snapshot = Some(std::sync::Arc::new(snapshot));
+            this
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.simulate_resize(size(px(1220.0), px(790.0)));
+    for light in [false, true] {
+        for (mode, row, content, action, detail) in [
+            (
+                Mode::Changes,
+                "git-file-row-1",
+                "git-file-1",
+                "git-stage-1",
+                Detail::File(file.clone(), Side::Worktree),
+            ),
+            (
+                Mode::Changes,
+                "git-file-row-2",
+                "git-file-2",
+                "git-stage-2",
+                Detail::File(file.clone(), Side::Index),
+            ),
+            (
+                Mode::Stash,
+                "git-stash-item-0",
+                "git-stash-row-0",
+                "git-stash-apply-0",
+                Detail::Stash("synthetic-stash".into()),
+            ),
+        ] {
+            for selected in [false, true] {
+                view.update(cx, |this, cx| {
+                    this.appearance.light_theme = light;
+                    super::super::theme::apply_palette(light, cx);
+                    this.git_states[0].mode = mode;
+                    this.git_states[0].selected = selected.then(|| detail.clone());
+                    cx.notify();
+                });
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.draw(cx).clear(cx);
+                });
+                let bounds = cx.debug_bounds(row).unwrap();
+                let content = cx.debug_bounds(content).unwrap();
+                let action = cx.debug_bounds(action).unwrap();
+                let p = view.read_with(cx, |this, _| this.git_p());
+                for (position, hovered) in [
+                    (content.center(), true),
+                    (action.center(), true),
+                    (point(bounds.left() + px(12.0), bounds.center().y), true),
+                    (point(px(0.0), px(0.0)), false),
+                ] {
+                    cx.simulate_mouse_move(position, None, Modifiers::default());
+                    cx.update(|window, cx| {
+                        window.draw(cx).clear(cx);
+                        window.draw(cx).clear(cx);
+                    });
+                    let expected = if hovered {
+                        p.raised
+                    } else if selected {
+                        p.selected
+                    } else {
+                        p.background
+                    };
+                    cx.update(|window, _| {
+                        let scale = window.scale_factor();
+                        let bounds = bounds.scale(scale);
+                        let sample = content.center().scale(scale);
+                        let surfaces: Vec<_> = window.painted_quads().into_iter().filter(|quad| {
+                            !quad.background.is_transparent()
+                                && quad.bounds.contains(&sample)
+                                && quad.content_mask.bounds.contains(&sample)
+                                && quad.bounds.top() >= bounds.top()
+                                && quad.bounds.bottom() <= bounds.bottom()
+                        }).collect();
+                        assert_eq!(surfaces.len(), usize::from(!expected.is_transparent()), "One row surface: {row}, light={light}, selected={selected}, hovered={hovered}, pointer={position:?}, surfaces={surfaces:?}");
+                        if let Some(surface) = surfaces.first() {
+                            assert_eq!(surface.bounds, bounds, "Hover must cover the entire row: {row}");
+                            assert_eq!(surface.background, expected.into(), "Selection and hover use the shared palette: {row}");
+                        }
+                        if position == action.center() {
+                            assert!(window.painted_quads().iter().any(|quad| quad.bounds == action.scale(scale) && quad.background == p.text.opacity(0.12).into()), "Actions retain their own hover feedback: {row}");
+                        }
+                    });
+                }
+            }
+        }
+    }
+}
+
+#[gpui_test::test]
 fn sections_commit_separator_is_painted_once_in_both_themes(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut view = None;

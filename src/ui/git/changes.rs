@@ -2,7 +2,7 @@ use super::super::controls::icon;
 use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
-use gpui_kit::component::button::ButtonVariants as _;
+use gpui_kit::component::button::{ButtonCustomVariant, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -692,6 +692,8 @@ impl Tervia {
                 };
                 let path = file.path.to_string_lossy().into_owned();
                 div()
+                    .id(("git-file-row", row_id))
+                    .debug_selector(move || format!("git-file-row-{row_id}"))
                     .w_full()
                     .h(px(34.0))
                     .flex()
@@ -699,6 +701,7 @@ impl Tervia {
                     .gap(px(2.0))
                     .pr(px(5.0))
                     .bg(if selected { p.selected } else { p.background })
+                    .hover(|style| style.bg(p.raised))
                     .when(reviewed, |row| {
                         row.child(
                             div()
@@ -709,6 +712,9 @@ impl Tervia {
                     })
                     .child(
                         label_button(("git-file", row_id), "", p)
+                            .debug_selector(move || format!("git-file-{row_id}"))
+                            // The row owns hover; its content must not paint a second surface.
+                            .custom(ButtonCustomVariant::new(cx).foreground(p.secondary))
                             .h_full()
                             .rounded(px(0.0))
                             .flex_1()
@@ -786,6 +792,7 @@ impl Tervia {
                     })
                     .child(
                         self.git_action_for(project, ("git-stage", row_id), action_key, action, cx)
+                            .debug_selector(move || format!("git-stage-{row_id}"))
                             .label("")
                             .icon(icon(glyph, p.secondary))
                             .w(px(26.0))
