@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.14.1 (2026-10-18)
+
+### Fixes
+
+- **git:** unify hover across composite rows (40eb31fa)
+- **autostart:** handle missing Windows registry entries (f8084bd7)
+- **windows:** restore titlebar dragging and double-click restore (d2190bf6)
+
 ## v0.14.0 (2026-10-18)
 
 ### Features
