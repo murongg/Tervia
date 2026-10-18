@@ -1,7 +1,9 @@
 use std::{fs, path::Path};
 mod context;
 mod nesting;
+mod operations;
 pub use context::{code_context, selection_context};
+pub use operations::{Operation, apply};
 mod reads;
 pub mod search;
 mod tree;

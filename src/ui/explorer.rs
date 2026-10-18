@@ -2,7 +2,11 @@ use crate::ui::scroll::ListScrollbars as _;
 use std::path::PathBuf;
 
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
-use gpui_kit::{assets::IconName, component::button::ButtonVariants as _, *};
+use gpui_kit::{
+    assets::IconName,
+    component::{Disableable as _, button::ButtonVariants as _},
+    *,
+};
 use tervia::files::{EntryKind, Row, Tree};
 
 use super::{
@@ -18,6 +22,7 @@ pub(super) struct Explorer {
     pub tabs_scroll: ScrollHandle,
     pub previews: super::files::Previews,
     pub finder: super::files::Finder,
+    pub management: super::files::management::Management,
     #[cfg(all(test, feature = "ui-tests"))]
     pub rendered_rows: std::cell::Cell<usize>,
 }
@@ -30,6 +35,7 @@ impl Explorer {
             tabs_scroll: ScrollHandle::new(),
             previews: Default::default(),
             finder: super::files::Finder::new(window, cx),
+            management: super::files::management::Management::new(window, cx),
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),
         }
@@ -146,7 +152,7 @@ impl Tervia {
                     .px(px(12.0))
                     .flex()
                     .items_center()
-                    .gap(px(4.0))
+                    .gap(px(2.0))
                     .child(
                         div()
                             .flex_1()
@@ -185,12 +191,43 @@ impl Tervia {
                         icon_button(
                             "explorer-open",
                             IconName::FilePlus,
-                            self.t("git_open_file"),
+                            self.t("files_new_file"),
                             p,
                             cx,
                         )
-                        .accessibility_label(self.t("git_open_file"))
-                        .on_click(cx.listener(|this, _, window, cx| this.choose_file(window, cx))),
+                        .accessibility_label(self.t("files_new_file"))
+                        .disabled(!self.can_manage_files())
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.edit_entry(
+                                    project,
+                                    super::files::management::Edit::File(PathBuf::new()),
+                                    window,
+                                    cx,
+                                )
+                            },
+                        )),
+                    )
+                    .child(
+                        icon_button(
+                            "explorer-new-folder",
+                            IconName::FolderPlus,
+                            self.t("files_new_folder"),
+                            p,
+                            cx,
+                        )
+                        .accessibility_label(self.t("files_new_folder"))
+                        .disabled(!self.can_manage_files())
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.edit_entry(
+                                    project,
+                                    super::files::management::Edit::Directory(PathBuf::new()),
+                                    window,
+                                    cx,
+                                )
+                            },
+                        )),
                     )
                     .child(
                         icon_button(
@@ -206,6 +243,7 @@ impl Tervia {
                         )),
                     ),
             )
+            .child(self.entry_form(project, cx))
             .child(
                 uniform_list(
                     ("explorer-rows", project),
@@ -372,6 +410,7 @@ impl Tervia {
                     .strip_prefix(&self.state.projects[parent].root)
                     .ok()
                     .map(PathBuf::from);
+                let menu_path = path.clone();
                 let row = div()
                     .id(("explorer-row", index))
                     .h(px(30.0))
@@ -431,22 +470,81 @@ impl Tervia {
                                     )),
                             ),
                     );
-                if folder && let Some(path) = relative {
-                    let view = cx.weak_entity();
-                    let label = self.t("working_directory_set");
-                    row.context_menu(move |menu, _, _| {
-                        let view = view.clone();
-                        let path = path.clone();
-                        menu.item(PopupMenuItem::new(label).on_click(move |_, window, cx| {
-                            let _ = view.update(cx, |this, cx| {
-                                this.activate_directory(parent, path.clone(), window, cx)
-                            });
-                        }))
-                    })
-                    .into_any_element()
-                } else {
-                    row.into_any_element()
+                use super::files::management::Edit;
+                let mut edits = Vec::new();
+                if folder {
+                    edits.push((self.t("files_new_file"), Edit::File(menu_path.clone())));
+                    edits.push((
+                        self.t("files_new_folder"),
+                        Edit::Directory(menu_path.clone()),
+                    ));
                 }
+                edits.extend([
+                    (self.t("files_rename"), Edit::Rename(menu_path.clone())),
+                    (self.t("files_copy"), Edit::Copy(menu_path.clone())),
+                    (self.t("files_move"), Edit::Move(menu_path.clone())),
+                ]);
+                let view = cx.weak_entity();
+                let enabled = self.can_manage_files();
+                let trash = self.t("files_trash");
+                let copy_path = self.t("worktree_copy_path");
+                let reveal = self.t("project_reveal");
+                let working_directory = self.t("working_directory_set");
+                row.context_menu(move |mut menu, _, _| {
+                    for (label, edit) in edits.iter().cloned() {
+                        let view = view.clone();
+                        menu = menu.item(PopupMenuItem::new(label).disabled(!enabled).on_click(
+                            move |_, window, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.edit_entry(project, edit.clone(), window, cx)
+                                });
+                            },
+                        ));
+                    }
+                    let deleting = view.clone();
+                    let path = menu_path.clone();
+                    menu = menu.separator().item(
+                        PopupMenuItem::new(trash).disabled(!enabled).on_click(
+                            move |_, window, cx| {
+                                let _ = deleting.update(cx, |this, cx| {
+                                    this.trash_entry(project, path.clone(), window, cx)
+                                });
+                            },
+                        ),
+                    );
+                    let copied = directory.clone();
+                    let revealed = directory.clone();
+                    menu = menu
+                        .separator()
+                        .item(PopupMenuItem::new(copy_path).on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                copied.to_string_lossy().into_owned(),
+                            ))
+                        }))
+                        .item(
+                            PopupMenuItem::new(reveal)
+                                .on_click(move |_, _, cx| cx.reveal_path(&revealed)),
+                        );
+                    if folder && let Some(path) = relative.clone() {
+                        let view = view.clone();
+                        menu =
+                            menu.separator()
+                                .item(PopupMenuItem::new(working_directory).on_click(
+                                    move |_, window, cx| {
+                                        let _ = view.update(cx, |this, cx| {
+                                            this.activate_directory(
+                                                parent,
+                                                path.clone(),
+                                                window,
+                                                cx,
+                                            )
+                                        });
+                                    },
+                                ));
+                    }
+                    menu
+                })
+                .into_any_element()
             }
             Row::Loading { depth, .. } | Row::Empty { depth, .. } => div()
                 .h(px(30.0))
