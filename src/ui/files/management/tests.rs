@@ -234,7 +234,10 @@ fn moving_files_updates_each_open_directory_and_the_editor_language(cx: &mut Tes
             (0, "scope/renamed.py", "synthetic root draft"),
             (1, "renamed.py", "synthetic directory draft"),
         ] {
-            assert_eq!(this.state.projects[owner].files[0].path, path);
+            assert_eq!(
+                Path::new(&this.state.projects[owner].files[0].path),
+                Path::new(path)
+            );
             assert_eq!(this.state.projects[owner].files[0].draft, draft);
             assert_eq!(this.editors[owner][0].read(cx).language_name(), "python");
         }

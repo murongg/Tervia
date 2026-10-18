@@ -20,7 +20,10 @@ fn moving_a_folder_rebases_documents_and_reading_positions_without_losing_drafts
         project.files[0].disk_path,
         std::path::Path::new("renamed/example.rs")
     );
-    assert_eq!(project.files[0].path, "renamed/example.rs");
+    assert_eq!(
+        std::path::Path::new(&project.files[0].path),
+        std::path::Path::new("renamed/example.rs")
+    );
     assert_eq!(project.files[0].draft, "synthetic draft");
     assert_eq!(project.open_files, [0]);
     assert!(
