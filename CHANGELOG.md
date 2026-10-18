@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.14.0 (2026-10-18)
+
+### Features
+
+- **terminal:** add Windows shell selection (005220de)
+
+### Fixes
+
+- **git:** add a close button to error banners (5ddf5c81)
+
 ## v0.13.2 (2026-10-18)
 
 ### Fixes
