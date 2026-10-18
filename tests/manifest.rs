@@ -9,6 +9,21 @@ use windows_sys::Win32::{
     },
 };
 
+#[test]
+fn native_executable_uses_the_gui_subsystem() {
+    let image = std::fs::read(env!("CARGO_BIN_EXE_tervia")).unwrap();
+    assert_eq!(&image[..2], b"MZ");
+    let pe = u32::from_le_bytes(image[0x3c..0x40].try_into().unwrap()) as usize;
+    assert_eq!(&image[pe..pe + 4], b"PE\0\0");
+    // Both PE32 and PE32+ place Subsystem 68 bytes into the optional header.
+    let offset = pe + 24 + 68;
+    let subsystem = u16::from_le_bytes(image[offset..offset + 2].try_into().unwrap());
+    assert_eq!(
+        subsystem, 2,
+        "The desktop executable must not create a console window on launch"
+    );
+}
+
 struct ResourceModule(HMODULE);
 
 impl ResourceModule {

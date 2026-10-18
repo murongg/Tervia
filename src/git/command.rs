@@ -103,6 +103,12 @@ fn execute(
     input: Option<Vec<u8>>,
     timeout: Duration,
 ) -> Result<Vec<u8>, Error> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // A GUI has no console to inherit; background Git must not allocate one.
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -215,17 +221,59 @@ fn terminate(child: &mut std::process::Child) {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
         let program = std::env::var_os("SystemRoot")
             .map(std::path::PathBuf::from)
             .map(|path| path.join("System32/taskkill.exe"))
             .unwrap_or_else(|| "taskkill.exe".into());
         let _ = Command::new(program)
+            .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
     }
     let _ = child.kill();
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::{Console::GetConsoleWindow, Threading::CREATE_NEW_CONSOLE};
+
+    #[test]
+    fn console_probe() {
+        if std::env::var_os("TERVIA_MOCK_CONSOLE_PROBE").is_none() {
+            return;
+        }
+        let console = unsafe { GetConsoleWindow() };
+        println!("mock-console-absent={}", console.is_null());
+    }
+
+    #[test]
+    fn background_commands_do_not_open_a_console_window() {
+        let root = tempfile::tempdir().unwrap();
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "git::command::windows_tests::console_probe",
+                "--nocapture",
+            ])
+            .env("TERVIA_MOCK_CONSOLE_PROBE", "1")
+            .creation_flags(CREATE_NEW_CONSOLE);
+        let output = execute(
+            command,
+            root.path(),
+            &["mock-command".into()],
+            None,
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("mock-console-absent=true"), "{output}");
+    }
 }
 
 #[cfg(all(test, unix))]
