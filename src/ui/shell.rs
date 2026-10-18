@@ -11,7 +11,7 @@ use tervia::state::Tab;
 use super::{
     Tervia,
     controls::{
-        badge, icon, icon_button, label_button, separator, titlebar_mouse_down, window_controls,
+        badge, has_window_controls, icon, icon_button, label_button, separator, titlebar_mouse_down,
     },
 };
 
@@ -105,7 +105,7 @@ impl Tervia {
             .flex()
             .items_center()
             .px(px(16.0))
-            .when(Platform::CURRENT == Platform::Windows, |bar| bar.pr_0())
+            .when(has_window_controls(window), |bar| bar.pr_0())
             .pl(px(if Platform::CURRENT == Platform::Mac {
                 88.0
             } else {
@@ -190,7 +190,7 @@ impl Tervia {
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_theme(window, cx))),
                 ),
             )
-            .child(window_controls(window, p, self.appearance.language))
+            .child(self.window_controls(window, p, cx))
     }
 
     pub(super) fn navigation(&self, cx: &mut Context<Self>) -> Div {

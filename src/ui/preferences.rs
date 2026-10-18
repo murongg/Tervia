@@ -17,7 +17,9 @@ use tervia::platform::Platform;
 use tervia::preferences::Preferences;
 
 use super::{
-    controls::{icon, icon_button, label_button, titlebar_mouse_down, window_controls},
+    controls::{
+        has_window_controls, icon, icon_button, label_button, titlebar_mouse_down, window_controls,
+    },
     theme::Palette,
 };
 
@@ -588,13 +590,13 @@ impl Render for PreferencesWindow {
                     .h(px(48.0))
                     .pl(px(NAVIGATION_WIDTH + 24.0))
                     .pr(px(24.0))
-                    .when(Platform::CURRENT == Platform::Windows, |bar| bar.pr_0())
+                    .when(has_window_controls(window), |bar| bar.pr_0())
                     .flex_shrink_0()
                     .flex()
                     .items_center()
                     .text_size(px(16.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .when(Platform::CURRENT != Platform::Windows, |bar| {
+                    .when(!has_window_controls(window), |bar| {
                         bar.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
                     })
                     .child(
@@ -603,12 +605,17 @@ impl Render for PreferencesWindow {
                             .h_full()
                             .flex()
                             .items_center()
-                            .when(Platform::CURRENT == Platform::Windows, |title| {
+                            .when(has_window_controls(window), |title| {
                                 title.on_mouse_down(MouseButton::Left, titlebar_mouse_down)
                             })
                             .child(self.t(self.category.key())),
                     )
-                    .child(window_controls(window, p, self.current.language)),
+                    .child(window_controls(
+                        window,
+                        p,
+                        self.current.language,
+                        |_, window, _| window.remove_window(),
+                    )),
             )
             .child(
                 div()
