@@ -390,9 +390,22 @@ impl Tervia {
                 div()
                     .ml(px(10.0))
                     .flex_1()
+                    .min_w_0()
                     .text_ellipsis()
                     .text_color(p.accent)
-                    .child(self.appearance.language.text(&self.state.notice).to_owned()),
+                    .child(
+                        if project.tab == Tab::Files
+                            && let Some(setup) =
+                                self.definition_setup(self.state.active_project, cx)
+                        {
+                            setup.into_any_element()
+                        } else {
+                            div()
+                                .text_ellipsis()
+                                .child(self.appearance.language.text(&self.state.notice).to_owned())
+                                .into_any_element()
+                        },
+                    ),
             )
             .child(div().text_color(p.muted).child(self.t("git_live")))
             .child(separator(p))

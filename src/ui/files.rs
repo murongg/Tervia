@@ -15,6 +15,7 @@ use super::{
     controls::{icon, icon_button, label_button},
     icons::file_icon,
 };
+mod definitions;
 pub(in crate::ui) mod management;
 mod preview;
 pub(in crate::ui) mod search;
@@ -600,6 +601,7 @@ impl Tervia {
                                     .line_number(true)
                                     .default_value(contents)
                             });
+                            this.install_definitions(project, index, &editor, cx);
                             this.subscriptions.push(cx.observe(&editor, |this, _, cx| {
                                 if this.state.project().tab == Tab::Files {
                                     cx.notify();

@@ -113,6 +113,27 @@ Save all edited files across projects and worktrees and wait for pending writes/
 
 On startup, Tervia restores the last project, local terminal, or welcome screen, together with the project list, its order and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. First launch opens the welcome page with project and terminal entry points. An unavailable last project returns to the welcome page with an explanation. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Quitting disconnects the UI while terminal hosts keep running. Reopening or updating reconnects to the same shells, running programs and AI conversations, with output, terminal modes and scroll positions restored. New project shells start in their working directory and new local shells start in the home directory.
 
+## Code navigation
+
+In source files, press **F12**, use File → Go to Definition or the editor context menu, or hold **Cmd** (Windows / Linux: **Ctrl**) while hovering a symbol and click its underline. On keyboards that assign a system action to F12, use Fn+F12.
+
+On the first definition request, Tervia reuses a working installed language service. If it is missing, Tervia prepares only that service in the background and continues the original jump when ready. Preparation, download and installation status appear in the existing status bar without moving the code.
+
+| Source language | Automatically prepared service | Existing runtime |
+| --- | --- | --- |
+| Rust | Platform-specific rust-analyzer binary | The project's Rust toolchain |
+| JavaScript / JSX, TypeScript / TSX | TypeScript Language Server and TypeScript 6 | Node.js 22.22.2+ |
+| Python | Pyright | Node.js 14+ |
+| Go | gopls, installed using the local Go toolchain | Go 1.27+ |
+
+The default strategy keeps preparation on demand: launching Tervia or opening a file does not prefetch services. Node, Go and project dependencies continue to come from the existing development environment. When a runtime is missing or too old, the status bar offers its official download page and a Retry button; Tervia does not automatically download a runtime or toolchain.
+
+Services live in `tervia/language-services` under the user data directory, without administrator privileges or changes to project configuration and global tools. On macOS this is `~/Library/Application Support/tervia/language-services`; Windows uses `%LOCALAPPDATA%`, and Linux uses `$XDG_DATA_HOME` (default `~/.local/share`). Direct binary and npm package downloads use pinned versions and SHA-256 / SHA-512 verification, then publish a complete shared installation. Other projects and later launches reuse the cache. Private Go build caches are discarded when preparation finishes. Failed or canceled preparations leave no ready marker and can be retried.
+
+Each project shares services by language family. Idle services exit after five minutes; the next jump restarts them using the cached installation. Closing a project or the app stops its services. Open buffers, including drafts, are synchronized before each request. The first Rust lookup waits for workspace indexing. Tervia also searches common tool installation directories; custom locations should be available on Tervia's inherited `PATH`.
+
+The first definition returned by the language service opens at its source position. Open target files keep their drafts. This first version opens local files inside the selected project directory; external dependencies, standard-library sources outside that directory, and virtual documents report a message. It does not enable completion, diagnostics, or workspace edits.
+
 ## Local terminal
 
 The permanent Local Terminal entry at the top of the project sidebar needs no project or directory selection. It starts in your home directory using your existing shell configuration and has independent tabs, split panes, search and output copying. It never scans your home directory or registers it as a project. Switching projects preserves running local sessions.
@@ -255,6 +276,7 @@ The native menu bar includes File, View and Terminal menus for opening folders/f
 | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab | Next / previous file tab |
 | ⌘Shift+T | Ctrl+Shift+T | Reopen the last closed file tab |
 | ⌘F | Ctrl+F | Find in the editor |
+| F12 / ⌘click | F12 / Ctrl+click | Go to the symbol's definition in the editor |
 | ⌘⇧P | Ctrl+Shift+P | Quick actions |
 | ⌘⌥B | Ctrl+Alt+B | Search and switch Git branches |
 | ⌘⌥P | Ctrl+Alt+P | Search projects and working directories |

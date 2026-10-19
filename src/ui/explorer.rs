@@ -22,6 +22,8 @@ pub(super) struct Explorer {
     pub tabs_scroll: ScrollHandle,
     pub previews: super::files::Previews,
     pub finder: super::files::Finder,
+    pub definitions: tervia::lsp::Client,
+    pub definition_status: Option<tervia::lsp::tools::Status>,
     pub management: super::files::management::Management,
     #[cfg(all(test, feature = "ui-tests"))]
     pub rendered_rows: std::cell::Cell<usize>,
@@ -35,6 +37,8 @@ impl Explorer {
             tabs_scroll: ScrollHandle::new(),
             previews: Default::default(),
             finder: super::files::Finder::new(window, cx),
+            definitions: Default::default(),
+            definition_status: None,
             management: super::files::management::Management::new(window, cx),
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),

@@ -448,15 +448,17 @@ impl Tervia {
                         root.join(to).strip_prefix(&owner_root),
                     ) {
                         self.state.projects[owner].relocate_files(from, to);
-                        for (index, file) in self.state.projects[owner].files.iter_mut().enumerate()
-                        {
+                        for index in 0..self.state.projects[owner].files.len() {
+                            let file = &mut self.state.projects[owner].files[index];
                             if file.disk_path.starts_with(to) && !file.is_image() {
                                 let language =
                                     gpui_kit::component::highlighter::language_for_path(&file.path)
                                         .to_string();
                                 file.language = language.clone();
-                                self.editors[owner][index]
+                                let editor = self.editors[owner][index].clone();
+                                editor
                                     .update(cx, |editor, cx| editor.set_highlighter(language, cx));
+                                self.install_definitions(owner, index, &editor, cx);
                             }
                         }
                     }

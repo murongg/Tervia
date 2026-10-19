@@ -152,6 +152,7 @@ impl Tervia {
             self.end_session(id, cx);
         }
         for index in members {
+            self.explorers[index].definitions.shutdown();
             self.cancel_repository_scan(index);
             self.git_states[index].close_branch_picker();
             self.git_states[index].cancel_worktree_navigation();

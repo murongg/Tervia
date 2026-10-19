@@ -11,6 +11,11 @@ use super::{
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new(
+            "f12",
+            gpui_kit::component::input::GoToDefinition,
+            Some("FileTabs > Input"),
+        ),
         KeyBinding::new("secondary-shift-r", RunProjectTask, Some("Tervia")),
         KeyBinding::new("secondary-shift-n", NewLocalTerminal, Some("Tervia")),
         // Keep Ctrl+W available to shell line editing outside macOS.
@@ -94,6 +99,10 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action(language.text("files_find_name"), QuickOpenFile),
             MenuItem::action(language.text("files_search_text"), SearchProjectText),
+            MenuItem::action(
+                language.text("go_to_definition"),
+                gpui_kit::component::input::GoToDefinition,
+            ),
             MenuItem::separator(),
             MenuItem::action(language.text("save"), SaveFile),
             MenuItem::action(language.text("copy_code_context"), CopyCodeContext),

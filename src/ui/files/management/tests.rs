@@ -86,6 +86,53 @@ fn file_context_menu_supports_keyboard_rename_and_escape(cx: &mut TestAppContext
 }
 
 #[gpui_test::test]
+fn renaming_a_file_updates_its_definition_provider_with_the_language(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("mock.txt"), "function mock() {}\n").unwrap();
+    let (view, cx) = mount(cx, root.path());
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.open_real_file(0, "mock.txt".into(), window, cx)
+        });
+    });
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        assert!(
+            this.editors[0][0]
+                .read(cx)
+                .lsp()
+                .definition_provider
+                .is_none()
+        )
+    });
+    for (from, to, supported) in [
+        ("mock.txt", "mock.ts", true),
+        ("mock.ts", "mock.txt", false),
+    ] {
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.run_file_operation(
+                    0,
+                    Operation::Move {
+                        from: from.into(),
+                        to: to.into(),
+                    },
+                    window,
+                    cx,
+                )
+            });
+        });
+        cx.run_until_parked();
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.project().files[0].disk_path, PathBuf::from(to));
+            let lsp = this.editors[0][0].read(cx).lsp();
+            assert_eq!(lsp.definition_provider.is_some(), supported);
+            assert_eq!(lsp.show_document.is_some(), supported);
+        });
+    }
+}
+
+#[gpui_test::test]
 fn case_only_rename_keeps_the_open_editor_and_unsaved_draft(cx: &mut TestAppContext) {
     let root = tempfile::tempdir().unwrap();
     fs::write(root.path().join("Mock.rs"), "synthetic source").unwrap();

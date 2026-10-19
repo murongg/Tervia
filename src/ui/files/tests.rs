@@ -3,6 +3,68 @@ use core::prelude::v1::test;
 use gpui_test::TestAppContext;
 use std::{fs, sync::Arc};
 
+#[gpui_test::test]
+fn definition_providers_are_installed_for_loaded_and_restored_sources(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("mock.ts"), "export function mock() {}\n").unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        entity.update(cx, |this, cx| {
+            let owner = this.state.open_directory(root.path().into());
+            this.state.projects[owner].files.push(File {
+                path: "restored.rs".into(),
+                disk_path: "restored.rs".into(),
+                language: "rust".into(),
+                saved: "fn mock() {}".into(),
+                draft: "fn mock() {}".into(),
+            });
+            this.init_project(owner, window, cx);
+            assert!(
+                this.editors[owner][0]
+                    .read(cx)
+                    .lsp()
+                    .definition_provider
+                    .is_some(),
+                "Restored code must have definition navigation"
+            );
+            assert!(
+                this.editors[owner][0]
+                    .read(cx)
+                    .lsp()
+                    .show_document
+                    .is_some()
+            );
+            this.open_real_file(owner, "mock.ts".into(), window, cx);
+        });
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.run_until_parked();
+    view.unwrap().update(cx, |this, cx| {
+        let index = this.state.project().active_file;
+        assert_eq!(
+            this.state.project().files[index].disk_path,
+            PathBuf::from("mock.ts")
+        );
+        assert!(
+            this.editors[0][index]
+                .read(cx)
+                .lsp()
+                .definition_provider
+                .is_some()
+        );
+        assert!(
+            this.editors[0][index]
+                .read(cx)
+                .lsp()
+                .show_document
+                .is_some()
+        );
+    });
+}
+
 struct IconSurface {
     view: Entity<Tervia>,
     tabs: bool,

@@ -4,6 +4,7 @@ pub mod config;
 pub mod files;
 pub mod git;
 pub mod locale;
+pub mod lsp;
 pub mod platform;
 pub mod preferences;
 #[cfg(feature = "pty")]

@@ -72,6 +72,7 @@ impl Tervia {
                 continue;
             }
             self.stop_project_monitor(index, cx);
+            self.explorers[index].definitions.shutdown();
             let connections: Vec<_> = self.state.projects[index]
                 .terminal
                 .sessions

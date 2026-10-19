@@ -224,6 +224,11 @@ impl Tervia {
             return;
         }
         for project in 0..self.monitors.len() {
+            let status = self.explorers[project].definitions.status();
+            if self.explorers[project].definition_status != status {
+                self.explorers[project].definition_status = status;
+                cx.notify();
+            }
             let changes = self.monitors[project].watch.as_ref().map(Watch::drain);
             let monitor = &mut self.monitors[project];
             let mut full = monitor.fallback && fallback_tick;

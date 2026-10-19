@@ -441,6 +441,7 @@ impl Tervia {
                     })
                     .default_value(file.draft.clone())
             });
+            self.install_definitions(project_index, file_index, &editor, cx);
             self.subscriptions.push(cx.observe(&editor, |this, _, cx| {
                 if this.state.project().tab == Tab::Files {
                     cx.notify();
@@ -487,6 +488,9 @@ impl Tervia {
     }
 
     pub(crate) fn shutdown_terminals(&mut self, cx: &mut Context<Self>) {
+        for explorer in &self.explorers {
+            explorer.definitions.shutdown();
+        }
         self.workspace_save.take();
         self.persist_workspace(cx);
         self.detach_terminals(cx);
