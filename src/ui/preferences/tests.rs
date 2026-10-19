@@ -497,7 +497,10 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut shared = None;
     let (_, cx) = cx.add_window_view(|window, cx| {
-        let preferences = cx.new(|_| Preferences::default());
+        let preferences = cx.new(|_| Preferences {
+            language: Language::English,
+            ..Preferences::default()
+        });
         shared = Some(preferences.clone());
         let error = cx.new(|_| None);
         let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
@@ -513,7 +516,7 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
     cx.simulate_click(workspace.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let footer = cx.debug_bounds("settings-footer").unwrap();
-    // Large font metrics can put this row below the fixed footer in the workspace form.
+    // Start at the form's end so revealing an earlier control is independent of form length.
     cx.simulate_event(ScrollWheelEvent {
         position: point(footer.center().x, footer.top() - px(24.0)),
         delta: ScrollDelta::Pixels(point(px(0.0), px(-1000.0))),
@@ -525,8 +528,27 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
             .debug_bounds("file-nesting-switch")
             .expect("File nesting is discoverable in Workspace settings");
         let footer = cx.debug_bounds("settings-footer").unwrap();
+        let navigation = cx.debug_bounds("settings-navigation").unwrap();
+        let top = navigation.top() + px(8.0);
+        let bottom = footer.top() - px(8.0);
+        let delta = if control.top() < top {
+            top - control.top()
+        } else if control.bottom() > bottom {
+            bottom - control.bottom()
+        } else {
+            px(0.0)
+        };
+        if delta != px(0.0) {
+            cx.simulate_event(ScrollWheelEvent {
+                position: point(footer.center().x, footer.top() - px(24.0)),
+                delta: ScrollDelta::Pixels(point(px(0.0), delta)),
+                ..Default::default()
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let control = cx.debug_bounds("file-nesting-switch").unwrap();
         assert!(
-            control.bottom() <= footer.top(),
+            control.top() >= navigation.top() && control.bottom() <= footer.top(),
             "The switch must be visible before clicking: {control:?}, footer: {footer:?}"
         );
         cx.simulate_click(control.center(), Modifiers::default());
