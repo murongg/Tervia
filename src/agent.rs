@@ -1,3 +1,6 @@
+pub mod activity;
+pub mod hooks;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agent {
     Claude,

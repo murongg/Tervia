@@ -14,6 +14,9 @@ use ui::{
 };
 
 fn main() {
+    if tervia::agent::hooks::dispatch() {
+        return;
+    }
     if std::env::args_os()
         .nth(1)
         .as_deref()
@@ -26,6 +29,7 @@ fn main() {
         return;
     }
     application().with_assets(assets::AllAssets).run(|cx| {
+        cx.set_app_identity("dev.tervia.prototype", "Tervia");
         gpui_kit::init(cx);
         ui::console::init(cx);
         ui::bind_menu_keys(cx);

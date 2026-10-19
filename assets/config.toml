@@ -30,6 +30,10 @@ suggestions = true
 # New terminals only: "default" (SHELL or platform default), "pwsh", "powershell", "cmd".
 shell = "default"
 
+# Opt in to desktop alerts for agent turn completion, failures and requests for input/approval.
+[agents]
+notifications = false
+
 # Check GitHub Releases at startup and periodically. Downloading/installing still requires confirmation.
 [updates]
 auto_check = true

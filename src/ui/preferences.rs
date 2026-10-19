@@ -24,6 +24,7 @@ use super::{
     theme::Palette,
 };
 
+mod agents;
 mod sections;
 mod startup;
 #[cfg(all(test, feature = "ui-tests"))]
@@ -85,6 +86,9 @@ pub struct PreferencesWindow {
     startup_enabled: Option<bool>,
     startup_busy: bool,
     startup_error: Option<String>,
+    agent_action: agents::Action,
+    agent_busy: Option<tervia::agent::Agent>,
+    agent_result: Option<Result<(tervia::agent::Agent, bool, PathBuf), String>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -277,6 +281,15 @@ impl PreferencesWindow {
             startup_enabled: None,
             startup_busy: false,
             startup_error: None,
+            agent_action: std::sync::Arc::new(|agent, enabled| {
+                let path = tervia::agent::hooks::path(agent).map_err(|error| error.to_string())?;
+                let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+                tervia::agent::hooks::configure(&path, &executable, agent, enabled)
+                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                Ok(path)
+            }),
+            agent_busy: None,
+            agent_result: None,
             _subscriptions: vec![
                 subscription,
                 language_subscription,

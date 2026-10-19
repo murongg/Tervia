@@ -261,6 +261,10 @@ impl Tervia {
                 .as_ref()
                 .and_then(|console| console.read(cx).agent);
             let session_name = self.terminal_session_name(index, cx);
+            let agent_status = self.consoles()[index]
+                .as_ref()
+                .and_then(|console| console.read(cx).agent_status())
+                .map(|(_, key)| self.t(key));
             let owner = self.console_owner();
             let weak = cx.weak_entity();
             let rename = self.t("rename_terminal");
@@ -279,14 +283,17 @@ impl Tervia {
                     .overflow_hidden()
                     .text_ellipsis()
                     .tooltip(format!(
-                        "{}\n{}",
+                        "{}{}\n{}",
                         session_name,
+                        agent_status
+                            .map(|status| format!(" · {status}"))
+                            .unwrap_or_default(),
                         self.t("terminal_rename_hint")
                     ))
                     .when(
                         self.consoles()[index]
                             .as_ref()
-                            .is_some_and(|console| console.read(cx).attention),
+                            .is_some_and(|console| console.read(cx).needs_attention()),
                         |button| {
                             button
                                 .child(icon(IconName::Bell, p.accent).size(px(11.0)))

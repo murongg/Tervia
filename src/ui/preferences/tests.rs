@@ -7,6 +7,61 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 
 use super::super::Tervia;
 
+#[gpui_test::test]
+fn agent_settings_apply_only_explicit_actions_and_surface_failures(cx: &mut TestAppContext) {
+    use std::sync::{Arc, Mutex};
+    use tervia::agent::Agent;
+    cx.update(gpui_kit::init);
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx.new(|cx| {
+            let mut settings =
+                super::PreferencesWindow::new(preferences, None, error, updater, window, cx);
+            let calls = calls.clone();
+            settings.agent_action = Arc::new(move |agent, enabled| {
+                calls.lock().unwrap().push((agent, enabled));
+                if agent == Agent::Codex {
+                    Err("mock configuration conflict; retry".into())
+                } else {
+                    Ok("/mock-user/.claude/settings.json".into())
+                }
+            });
+            settings.category = super::Category::Workspace;
+            settings
+        });
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.run_until_parked();
+    assert!(calls.lock().unwrap().is_empty());
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| this.configure_agent(Agent::Claude, true, cx))
+    });
+    cx.run_until_parked();
+    assert_eq!(*calls.lock().unwrap(), [(Agent::Claude, true)]);
+    cx.update(|_, cx| assert!(settings.read(cx).agent_result.as_ref().unwrap().is_ok()));
+    cx.update(|_, cx| settings.update(cx, |this, cx| this.configure_agent(Agent::Codex, true, cx)));
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert!(settings.read(cx).agent_busy.is_none());
+        assert!(settings.read(cx).agent_result.as_ref().unwrap().is_err());
+    });
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| {
+            this.scroll.set_offset(point(px(0.0), px(-3000.0)));
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("agent-notifications-control").is_some());
+    assert!(cx.debug_bounds("agent-integration-result").is_some());
+}
+
 #[cfg(windows)]
 #[gpui_test::test]
 fn default_shell_is_selectable_in_terminal_settings(cx: &mut TestAppContext) {
@@ -312,6 +367,7 @@ fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
 fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let initial = Preferences {
+        agent_notifications: true,
         language: Language::German,
         light_theme: true,
         ui_size: 15,
@@ -427,6 +483,7 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
                 code_size: initial.code_size,
                 file_nesting: initial.file_nesting,
                 command_suggestions: false,
+                agent_notifications: initial.agent_notifications,
                 updates: initial.updates,
                 ..Preferences::default()
             }
@@ -440,7 +497,10 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut shared = None;
     let (_, cx) = cx.add_window_view(|window, cx| {
-        let preferences = cx.new(|_| Preferences::default());
+        let preferences = cx.new(|_| Preferences {
+            language: Language::English,
+            ..Preferences::default()
+        });
         shared = Some(preferences.clone());
         let error = cx.new(|_| None);
         let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
@@ -456,7 +516,7 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
     cx.simulate_click(workspace.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let footer = cx.debug_bounds("settings-footer").unwrap();
-    // Large font metrics can put this row below the fixed footer in the workspace form.
+    // Start at the form's end so revealing an earlier control is independent of form length.
     cx.simulate_event(ScrollWheelEvent {
         position: point(footer.center().x, footer.top() - px(24.0)),
         delta: ScrollDelta::Pixels(point(px(0.0), px(-1000.0))),
@@ -468,8 +528,27 @@ fn file_nesting_switch_updates_the_shared_preference(cx: &mut TestAppContext) {
             .debug_bounds("file-nesting-switch")
             .expect("File nesting is discoverable in Workspace settings");
         let footer = cx.debug_bounds("settings-footer").unwrap();
+        let navigation = cx.debug_bounds("settings-navigation").unwrap();
+        let top = navigation.top() + px(8.0);
+        let bottom = footer.top() - px(8.0);
+        let delta = if control.top() < top {
+            top - control.top()
+        } else if control.bottom() > bottom {
+            bottom - control.bottom()
+        } else {
+            px(0.0)
+        };
+        if delta != px(0.0) {
+            cx.simulate_event(ScrollWheelEvent {
+                position: point(footer.center().x, footer.top() - px(24.0)),
+                delta: ScrollDelta::Pixels(point(px(0.0), delta)),
+                ..Default::default()
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let control = cx.debug_bounds("file-nesting-switch").unwrap();
         assert!(
-            control.bottom() <= footer.top(),
+            control.top() >= navigation.top() && control.bottom() <= footer.top(),
             "The switch must be visible before clicking: {control:?}, footer: {footer:?}"
         );
         cx.simulate_click(control.center(), Modifiers::default());
