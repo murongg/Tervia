@@ -297,15 +297,20 @@ impl Tervia {
         let projects = self.state.project_rows();
         let height = projects.len() as f32 * 40.0 + if expanded { 40.0 } else { 32.0 };
         let search = div()
-            .relative()
             .h(px(32.0))
             .flex_shrink_0()
+            .flex()
+            .items_center()
+            .gap(px(4.0))
             .child(
                 Button::new("search-projects")
                     .custom(icon_style(p, cx))
                     .compact()
                     .w_full()
+                    // Separate hitboxes keep pinning from also invoking project search.
+                    .when(expanded, |button| button.w_auto().flex_1().min_w_0())
                     .h(px(32.0))
+                    .debug_selector(|| "project-search".into())
                     .px_0()
                     .accessibility_label(self.t("project_quick_switch"))
                     .tooltip(self.t("project_quick_switch"))
@@ -314,7 +319,6 @@ impl Tervia {
                             .w_full()
                             .flex()
                             .items_center()
-                            .pr(px(36.0))
                             .text_color(p.secondary)
                             .child(
                                 div()
@@ -360,9 +364,7 @@ impl Tervia {
                     Button::new("pin-project-sidebar")
                         .custom(icon_style(p, cx))
                         .compact()
-                        .absolute()
-                        .right(px(4.0))
-                        .top(px(4.0))
+                        .mr(px(4.0))
                         .size(px(24.0))
                         .rounded(px(6.0))
                         .bg(if pinned {

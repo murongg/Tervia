@@ -320,9 +320,20 @@ fn sidebar_pin_and_keyboard_toggle_keep_content_bounds_and_persist_only_pinning(
     let pin = cx
         .debug_bounds("pin-project-sidebar")
         .expect("The expanded sidebar exposes a pin control");
+    let search = cx.debug_bounds("project-search").unwrap();
+    assert!(
+        search.right() <= pin.left(),
+        "Search and pin controls have separate click targets"
+    );
     cx.simulate_click(pin.center(), Modifiers::default());
     cx.run_until_parked();
-    view.update(cx, |view, _| assert!(view.state.sidebar_expanded));
+    view.update(cx, |view, _| {
+        assert!(view.state.sidebar_expanded);
+        assert!(
+            !view.navigation.switcher.open,
+            "Pinning must not invoke project search underneath the control"
+        );
+    });
     assert!(
         tervia::workspace::Store::new(path.clone())
             .load()
