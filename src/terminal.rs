@@ -1,5 +1,7 @@
 use std::sync::{Arc, Mutex};
 mod links;
+mod search;
+pub use search::Search;
 pub mod shell;
 pub use links::{FileLink, file_link};
 
@@ -118,29 +120,7 @@ impl TerminalBuffer {
     }
 
     pub fn find(&self, query: &str) -> Vec<alacritty_terminal::term::search::Match> {
-        use alacritty_terminal::term::search::RegexSearch;
-        if query.is_empty() || query.len() > 4096 {
-            return Vec::new();
-        }
-        let Ok(mut regex) = RegexSearch::new(&regex::escape(query)) else {
-            return Vec::new();
-        };
-        let mut origin = Point::new(self.term.topmost_line(), Column(0));
-        let end = Point::new(self.term.bottommost_line(), self.term.last_column());
-        let mut matches = Vec::new();
-        while let Some(found) = self.term.regex_search_right(&mut regex, origin, end) {
-            let last = *found.end();
-            matches.push(found);
-            if last >= end || matches.len() == 5000 {
-                break;
-            }
-            origin = if last.column.0 + 1 == self.term.columns() {
-                Point::new(last.line + 1, Column(0))
-            } else {
-                Point::new(last.line, last.column + 1)
-            };
-        }
-        matches
+        Search::new(query).find(self)
     }
 
     pub fn reveal_match(&mut self, found: &alacritty_terminal::term::search::Match) {

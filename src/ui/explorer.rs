@@ -642,6 +642,18 @@ impl Tervia {
         cx.notify();
     }
 
+    pub(super) fn refresh_explorer_paths(
+        &mut self,
+        project: usize,
+        paths: &std::collections::BTreeSet<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        for (path, token) in self.explorers[project].tree.refresh_paths(paths) {
+            self.request_directory(project, path, token, window, cx);
+        }
+    }
+
     pub(super) fn refresh_explorer(
         &mut self,
         project: usize,

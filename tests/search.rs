@@ -82,3 +82,61 @@ fn search_cancels_and_does_not_follow_symlinks_outside_the_project() {
         );
     }
 }
+
+#[test]
+fn prepared_file_names_preserve_ranking_unicode_and_the_first_500_results() {
+    use std::path::PathBuf;
+    let mut paths: Vec<PathBuf> = (0..1200)
+        .rev()
+        .map(|index| PathBuf::from(format!("src/mock_{index:04}.rs")))
+        .collect();
+    paths.extend(["z/mock.rs", "mock.rs", "a-MOCK.rs", "合成/测试.rs"].map(PathBuf::from));
+    let names = search::Names::new(search::Index {
+        paths: paths.clone(),
+        limited: false,
+    });
+    let found = names.find("mock");
+    assert_eq!(found.len(), 500);
+    assert_eq!(
+        &found[..3],
+        &[
+            PathBuf::from("mock.rs"),
+            PathBuf::from("z/mock.rs"),
+            PathBuf::from("src/mock_0000.rs")
+        ]
+    );
+    assert_eq!(found[499], PathBuf::from("src/mock_0497.rs"));
+    assert_eq!(names.find("测试"), vec![PathBuf::from("合成/测试.rs")]);
+    assert_eq!(
+        names.find("s/m_0000"),
+        vec![PathBuf::from("src/mock_0000.rs")]
+    );
+    for query in ["", "mock", "MOCK", "src\\mock", "测试", "missing"] {
+        assert_eq!(names.find(query), search::find(&paths, query));
+    }
+}
+
+#[test]
+fn text_search_prefilter_keeps_literal_multiline_utf16_and_long_line_behavior() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("mock.txt"),
+        "irrelevant\n😀 synthetic needle needle\r\nlast\n",
+    )
+    .unwrap();
+    let results = search::text(root.path(), "needle", &AtomicBool::new(false)).unwrap();
+    assert_eq!(
+        results
+            .hits
+            .iter()
+            .map(|hit| (hit.line, hit.column))
+            .collect::<Vec<_>>(),
+        [(2, 13), (2, 20)]
+    );
+    assert!(
+        search::text(root.path(), "needle\nlast", &AtomicBool::new(false))
+            .unwrap()
+            .hits
+            .is_empty()
+    );
+}

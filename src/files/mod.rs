@@ -43,11 +43,17 @@ pub fn read(root: &Path, path: &Path) -> Result<Vec<u8>, String> {
         return Err("Path is outside the project".into());
     }
     let root = root.canonicalize().map_err(|error| error.to_string())?;
+    read_at(&root, path)
+}
+
+// Search reuses its canonical project root. Every child is still resolved here,
+// so a file replaced by a symlink cannot escape the captured project boundary.
+pub(super) fn read_at(root: &Path, path: &Path) -> Result<Vec<u8>, String> {
     let absolute = root
         .join(path)
         .canonicalize()
         .map_err(|error| error.to_string())?;
-    if !absolute.starts_with(&root) {
+    if !absolute.starts_with(root) {
         return Err("File points outside the project".into());
     }
     if fs::metadata(&absolute)

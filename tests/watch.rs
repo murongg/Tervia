@@ -102,3 +102,41 @@ fn native_watcher_detects_real_synthetic_file_changes() {
     fs::remove_dir_all(root).unwrap();
     assert!(seen, "The platform watcher must deliver the external write");
 }
+
+#[test]
+fn precise_changes_include_directory_descendants_and_force_a_rescan_on_errors() {
+    let mut changes = Changes::default();
+    changes.paths.insert("src/mock.rs".into());
+    assert!(changes.affects("src/mock.rs".as_ref()));
+    assert!(!changes.affects("src/other.rs".as_ref()));
+    changes.paths.insert("renamed".into());
+    assert!(changes.affects("renamed/nested/mock.rs".as_ref()));
+    assert!(!changes.affects("renamed-other/mock.rs".as_ref()));
+    changes.error = Some("Synthetic overflow".into());
+    assert!(changes.affects("unrelated/mock.rs".as_ref()));
+}
+
+#[test]
+fn precise_changes_resolve_internal_aliases_and_recheck_unavailable_paths() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    fs::create_dir(root.join("src")).unwrap();
+    fs::write(root.join("src/mock.txt"), "synthetic source").unwrap();
+    fs::write(root.join("unrelated.txt"), "synthetic other").unwrap();
+    let changes = Changes {
+        paths: [PathBuf::from("src/mock.txt")].into(),
+        ..Default::default()
+    };
+    assert!(changes.affects_file(&root, "src/mock.txt".as_ref()));
+    assert!(!changes.affects_file(&root, "unrelated.txt".as_ref()));
+    assert!(changes.affects_file(&root, "missing.txt".as_ref()));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(root.join("src"), root.join("alias")).unwrap();
+        std::os::unix::fs::symlink(root.join("src/mock.txt"), root.join("alias.txt")).unwrap();
+        assert!(changes.affects_file(&root, "alias/mock.txt".as_ref()));
+        assert!(changes.affects_file(&root, "alias.txt".as_ref()));
+        fs::remove_file(root.join("src/mock.txt")).unwrap();
+        assert!(changes.affects_file(&root, "alias.txt".as_ref()));
+    }
+}

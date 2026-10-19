@@ -12,11 +12,27 @@ mod catalog;
 mod recovery;
 mod startup;
 
-/// App-owned project history, stored separately from the user-editable configuration.
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
+
+/// Shared persistence state serializes background writes and explicit durable saves.
+#[derive(Clone)]
 pub struct Store {
-    path: PathBuf,
-    source: Option<String>,
-    saved: Option<Value>,
+    storage: Arc<Mutex<Storage>>,
+    revision: Arc<AtomicU64>,
+    metadata: Arc<Mutex<Arc<Metadata>>>,
+}
+
+pub struct PreparedSave {
+    owner: Store,
+    snapshot: Result<Value, String>,
+    revision: u64,
+}
+
+#[derive(Default)]
+struct Metadata {
     fallbacks: BTreeMap<PathBuf, PathBuf>,
     orphans: Vec<Value>,
 }
@@ -24,19 +40,78 @@ pub struct Store {
 impl Store {
     pub fn new(path: PathBuf) -> Self {
         Self {
+            storage: Arc::new(Mutex::new(Storage::new(path))),
+            revision: Arc::default(),
+            metadata: Arc::default(),
+        }
+    }
+
+    pub fn load(&mut self) -> Result<Workspace, String> {
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        let mut storage = self.storage.lock().unwrap();
+        let result = storage.load();
+        *self.metadata.lock().unwrap() = storage.metadata.clone();
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        result
+    }
+
+    pub fn save(&mut self, workspace: &Workspace) -> Result<(), String> {
+        self.revision.fetch_add(1, Ordering::AcqRel);
+        self.storage.lock().unwrap().save(workspace)
+    }
+
+    /// Capture on the UI thread; JSON text encoding and disk IO run when the request is saved.
+    pub fn prepare(&self, workspace: &Workspace) -> PreparedSave {
+        let revision = self.revision.fetch_add(1, Ordering::AcqRel) + 1;
+        // Metadata has its own short-lived lock: capture must never wait for disk IO.
+        let metadata = self.metadata.lock().unwrap().clone();
+        PreparedSave {
+            owner: self.clone(),
+            snapshot: snapshot(workspace, &metadata.fallbacks, &metadata.orphans)
+                .map_err(|error| error.to_string()),
+            revision,
+        }
+    }
+}
+
+impl PreparedSave {
+    pub fn save(self) -> Result<(), String> {
+        if self.owner.revision.load(Ordering::Acquire) != self.revision {
+            return Ok(());
+        }
+        let mut storage = self.owner.storage.lock().unwrap();
+        // Check after acquiring the writer too: an explicit close/save may have
+        // superseded this request while it waited, and must remain durable.
+        if self.owner.revision.load(Ordering::Acquire) != self.revision {
+            return Ok(());
+        }
+        storage.write(self.snapshot)
+    }
+}
+
+/// App-owned project history, stored separately from the user-editable configuration.
+struct Storage {
+    path: PathBuf,
+    source: Option<String>,
+    saved: Option<Value>,
+    metadata: Arc<Metadata>,
+}
+
+impl Storage {
+    pub fn new(path: PathBuf) -> Self {
+        Self {
             path,
             source: None,
             saved: None,
-            fallbacks: BTreeMap::new(),
-            orphans: Vec::new(),
+            metadata: Arc::default(),
         }
     }
 
     pub fn load(&mut self) -> Result<Workspace, String> {
         self.saved = None;
         self.source = None;
-        self.fallbacks.clear();
-        self.orphans.clear();
+        self.metadata = Arc::default();
+        let mut orphans = Vec::new();
         if fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() > 256 * 1024 * 1024) {
             return Err(self.error("Recovery file exceeds 256 MiB"));
         }
@@ -51,16 +126,15 @@ impl Store {
         };
         if let Some(source) = &source {
             let value = serde_json::from_str(source).map_err(|error| self.error(error))?;
-            self.orphans =
+            orphans =
                 recovery::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
             catalog::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
             // Restore the screen last: project/catalog restoration temporarily changes selection.
             startup::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
         }
-        self.saved = Some(
-            snapshot(&workspace, &fallbacks, &self.orphans).map_err(|error| self.error(error))?,
-        );
-        self.fallbacks = fallbacks;
+        self.saved =
+            Some(snapshot(&workspace, &fallbacks, &orphans).map_err(|error| self.error(error))?);
+        self.metadata = Arc::new(Metadata { fallbacks, orphans });
         self.source = source;
         Ok(workspace)
     }
@@ -69,8 +143,17 @@ impl Store {
         if self.saved.is_none() {
             return Err(self.error("Workspace was not loaded; fix the file and restart Tervia"));
         }
-        let snapshot = snapshot(workspace, &self.fallbacks, &self.orphans)
-            .map_err(|error| self.error(error))?;
+        self.write(
+            snapshot(workspace, &self.metadata.fallbacks, &self.metadata.orphans)
+                .map_err(|error| error.to_string()),
+        )
+    }
+
+    fn write(&mut self, snapshot: Result<Value, String>) -> Result<(), String> {
+        if self.saved.is_none() {
+            return Err(self.error("Workspace was not loaded; fix the file and restart Tervia"));
+        }
+        let snapshot = snapshot.map_err(|error| self.error(error))?;
         // UI notifications also cover terminal output and Git polling; unchanged history needs no IO.
         if self.saved.as_ref() == Some(&snapshot) {
             return Ok(());
@@ -324,4 +407,27 @@ fn directory(value: &Value) -> Result<PathBuf, String> {
         return Err("Project directory must be an absolute path".into());
     }
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preparing_an_autosave_does_not_wait_for_the_disk_writer() {
+        let temporary = tempfile::tempdir().unwrap();
+        let mut store = Store::new(temporary.path().join("workspace.json"));
+        let state = store.load().unwrap();
+        let writer_guard = store.storage.lock().unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let capturing = store.clone();
+        let thread = std::thread::spawn(move || sender.send(capturing.prepare(&state)));
+        let result = receiver.recv_timeout(std::time::Duration::from_secs(2));
+        drop(writer_guard);
+        thread.join().unwrap().unwrap();
+        result
+            .expect("UI capture must not acquire the writer's IO lock")
+            .save()
+            .unwrap();
+    }
 }

@@ -121,3 +121,52 @@ fn a_first_directory_subscription_reconciles_its_gap_and_rejects_an_old_activati
         })
     });
 }
+
+#[gpui_test::test]
+fn precise_disk_sync_ignores_unrelated_files_and_merges_events_during_a_read(
+    cx: &mut TestAppContext,
+) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("first.txt"), "synthetic first new").unwrap();
+    std::fs::write(root.path().join("second.txt"), "synthetic second new").unwrap();
+    std::fs::write(root.path().join("unrelated.txt"), "synthetic unrelated new").unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory(root.path().to_path_buf());
+            for path in ["first.txt", "second.txt", "unrelated.txt"] {
+                this.state.projects[project].files.push(File {
+                    path: path.into(),
+                    disk_path: path.into(),
+                    language: "text".into(),
+                    saved: "synthetic old".into(),
+                    draft: "synthetic old".into(),
+                });
+            }
+            this.init_project(project, window, cx);
+            this.files_active = true;
+            this.sync_changed_files(project, BTreeSet::from(["first.txt".into()]), window, cx);
+            this.sync_changed_files(project, BTreeSet::from(["second.txt".into()]), window, cx);
+        })
+    });
+    cx.run_until_parked();
+    cx.read(|cx| {
+        let this = view.read(cx);
+        let files = &this.state.projects[0].files;
+        assert_eq!(files[0].draft, "synthetic first new");
+        assert_eq!(files[1].draft, "synthetic second new");
+        assert_eq!(
+            files[2].draft, "synthetic old",
+            "Unrelated disk contents must not be read by a scoped event"
+        );
+        assert!(this.monitors[0].syncing.is_none());
+        assert!(this.monitors[0].sync_paths.is_empty());
+    });
+}

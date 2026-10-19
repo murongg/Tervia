@@ -254,6 +254,38 @@ impl Tree {
         requests
     }
 
+    pub fn refresh_paths(&mut self, paths: &BTreeSet<PathBuf>) -> Vec<(PathBuf, u64)> {
+        // Ignore rules can change every descendant's decoration without changing its name.
+        if paths.iter().any(|path| {
+            path.as_os_str().is_empty() || path.file_name().is_some_and(|name| name == ".gitignore")
+        }) {
+            return self.refresh();
+        }
+        let affected = |directory: &Path| {
+            paths
+                .iter()
+                .any(|path| path.parent() == Some(directory) || directory.starts_with(path))
+        };
+        let mut requests = Vec::new();
+        for (path, directory) in &mut self.directories {
+            if !affected(path) {
+                continue;
+            }
+            directory.stale = true;
+            directory.pending = None;
+            if self.expanded.contains(path) {
+                self.generation += 1;
+                directory.pending = Some(self.generation);
+                directory.error = None;
+                requests.push((path.clone(), self.generation));
+            }
+        }
+        if !requests.is_empty() {
+            self.rebuild();
+        }
+        requests
+    }
+
     pub fn finish(&mut self, path: &Path, token: u64, result: Result<Vec<Entry>, String>) -> bool {
         let Some(directory) = self.directories.get_mut(path) else {
             return false;

@@ -1,19 +1,49 @@
 use super::*;
 use tervia::state::ReadingPosition;
 
+#[cfg(all(test, feature = "ui-tests"))]
+mod tests;
+
 impl Tervia {
     pub(super) fn schedule_workspace_save(&mut self, cx: &mut Context<Self>) {
+        self.workspace_revision = self.workspace_revision.wrapping_add(1);
         if self.workspace.is_none() || self.workspace_save.is_some() {
             return;
         }
-        // Coalesce keystrokes without allowing later render notifications to postpone the flush.
+        // Later notifications must not postpone the 300 ms durability deadline.
         self.workspace_save = Some(cx.spawn(async move |weak, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(300))
                 .await;
+            let pending = weak.update(cx, |this, cx| {
+                this.capture_reading_positions(cx);
+                this.capture_terminal_positions(cx);
+                this.workspace
+                    .as_ref()
+                    .map(|store| (store.prepare(&this.state), this.workspace_revision))
+            });
+            let Ok(Some((pending, revision))) = pending else {
+                return;
+            };
+            let result = cx
+                .background_executor()
+                .spawn(async move { pending.save() })
+                .await;
             let _ = weak.update(cx, |this, cx| {
                 this.workspace_save.take();
-                this.persist_workspace(cx);
+                let changed = this.workspace_revision != revision;
+                if let Err(error) = result
+                    && !changed
+                    && this.state.notice.is_empty()
+                {
+                    this.state.notice = format!("{}\n{error}", this.t("workspace_error"));
+                    cx.notify();
+                }
+                // Edits accepted during IO need another capture. A successful
+                // completion itself must not notify and create an endless save loop.
+                if changed {
+                    this.schedule_workspace_save(cx);
+                }
             });
         }));
     }

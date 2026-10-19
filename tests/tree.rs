@@ -529,3 +529,67 @@ fn refreshing_nesting_releases_orphans_and_rebuilds_groups() {
         vec![(".env".into(), 0), (".env.staging".into(), 1)]
     );
 }
+
+#[test]
+fn precise_tree_refresh_preserves_other_reads_and_invalidates_closed_children() {
+    use std::collections::BTreeSet;
+    let mut tree = Tree::default();
+    let token = tree.begin("".into(), false).unwrap();
+    tree.finish(
+        "".as_ref(),
+        token,
+        Ok(["src", "other"]
+            .map(|path| Entry {
+                path: path.into(),
+                kind: EntryKind::Directory,
+                ignored: false,
+            })
+            .into()),
+    );
+    for path in ["src", "other"] {
+        tree.toggle(path.as_ref());
+        let token = tree.begin(path.into(), false).unwrap();
+        tree.finish(path.as_ref(), token, Ok(Vec::new()));
+    }
+    let other = tree.begin("other".into(), true).unwrap();
+    let changes = BTreeSet::from([PathBuf::from("src/mock.rs")]);
+    let requests = tree.refresh_paths(&changes);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].0, PathBuf::from("src"));
+    assert!(
+        tree.finish("other".as_ref(), other, Ok(Vec::new())),
+        "Unrelated in-flight reads must keep their generation"
+    );
+    tree.finish("src".as_ref(), requests[0].1, Ok(Vec::new()));
+    tree.toggle("src".as_ref());
+    assert!(tree.refresh_paths(&changes).is_empty());
+    tree.toggle("src".as_ref());
+    assert!(
+        tree.begin("src".into(), false).is_some(),
+        "Closed changed directories must be reread when reopened"
+    );
+}
+
+#[test]
+fn ignore_rule_changes_refresh_all_cached_directory_decorations() {
+    use std::collections::BTreeSet;
+    let mut tree = Tree::default();
+    let token = tree.begin("".into(), false).unwrap();
+    tree.finish(
+        "".as_ref(),
+        token,
+        Ok(vec![Entry {
+            path: "src".into(),
+            kind: EntryKind::Directory,
+            ignored: false,
+        }]),
+    );
+    tree.toggle("src".as_ref());
+    let token = tree.begin("src".into(), false).unwrap();
+    tree.finish("src".as_ref(), token, Ok(Vec::new()));
+    assert_eq!(
+        tree.refresh_paths(&BTreeSet::from([PathBuf::from(".gitignore")]))
+            .len(),
+        2
+    );
+}

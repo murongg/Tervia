@@ -23,7 +23,7 @@ pub(in crate::ui) struct Finder {
     pub mode: Mode,
     pub input: Entity<InputState>,
     pub rows: Arc<Vec<Row>>,
-    index: Option<Arc<search::Index>>,
+    index: Option<Arc<search::Names>>,
     generation: usize,
     loading: bool,
     limited: bool,
@@ -121,9 +121,10 @@ impl Tervia {
                     if mode == Mode::Files {
                         let index = match index {
                             Some(index) => index,
-                            None => Arc::new(search::index(&root, &cancel)?),
+                            None => Arc::new(search::Names::new(search::index(&root, &cancel)?)),
                         };
-                        let rows = search::find(&index.paths, &query)
+                        let rows = index
+                            .find(&query)
                             .into_iter()
                             .map(Row::File)
                             .collect::<Vec<_>>();

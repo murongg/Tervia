@@ -155,3 +155,63 @@ fn shell_cursor_is_a_blinking_beam_and_programs_can_change_its_shape() {
     terminal.feed(b"\x1b[0 q");
     assert_eq!(terminal.term.cursor_style().shape, CursorShape::Beam);
 }
+
+#[test]
+fn reusable_search_preserves_grid_matches_across_output_resize_and_screen_switches() {
+    use alacritty_terminal::{grid::Dimensions, term::search::RegexSearch};
+    use tervia::terminal::Search;
+    fn reference(terminal: &TerminalBuffer, query: &str) -> Vec<std::ops::RangeInclusive<Point>> {
+        let mut regex = RegexSearch::new(&regex::escape(query)).unwrap();
+        let mut origin = Point::new(terminal.term.topmost_line(), Column(0));
+        let end = Point::new(terminal.term.bottommost_line(), terminal.term.last_column());
+        let mut matches = Vec::new();
+        while let Some(found) = terminal.term.regex_search_right(&mut regex, origin, end) {
+            let last = *found.end();
+            matches.push(found);
+            if last >= end || matches.len() == 5000 {
+                break;
+            }
+            origin = if last.column.0 + 1 == terminal.term.columns() {
+                Point::new(last.line + 1, Column(0))
+            } else {
+                Point::new(last.line, last.column + 1)
+            };
+        }
+        matches
+    }
+    let mut terminal = TerminalBuffer::new(12, 3);
+    let chunks: &[&[u8]] = &[
+        b"mock[1] MOCK[1]\r\n",
+        b"abcde abcde abcde\r\n",
+        b"a\r\nb\r\n",
+        "合成 mock[1] e\u{301}\r\n".as_bytes(),
+        b"\x1b[?1049hMOCK[1]",
+        b"\x1b[?1049l",
+        b"\x1b[3J\x1b[2J\x1b[Hmock[1]",
+    ];
+    for query in [
+        "mock[1]", "MOCK[1]", "abcde", "e a", "a\nb", "合成", " ", "e",
+    ] {
+        let mut search = Search::new(query);
+        for chunk in chunks {
+            terminal.feed(chunk);
+            assert_eq!(
+                search.find(&terminal),
+                reference(&terminal, query),
+                "query={query:?}, chunk={chunk:?}"
+            );
+        }
+        terminal.resize(7, 5);
+        assert_eq!(search.find(&terminal), reference(&terminal, query));
+    }
+}
+
+#[test]
+fn reusable_search_keeps_the_match_limit_and_rejects_empty_or_oversized_queries() {
+    use tervia::terminal::Search;
+    let mut terminal = TerminalBuffer::new(80, 4);
+    terminal.feed("mock ".repeat(6000).as_bytes());
+    assert_eq!(Search::new("mock").find(&terminal).len(), 5000);
+    assert!(Search::new("").find(&terminal).is_empty());
+    assert!(Search::new(&"x".repeat(4097)).find(&terminal).is_empty());
+}

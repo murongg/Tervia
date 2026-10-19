@@ -936,3 +936,65 @@ fn updating_history_preserves_its_symlink_and_updates_the_target() {
     assert!(fs::symlink_metadata(link).unwrap().file_type().is_symlink());
     assert_eq!(Store::new(target).load().unwrap().project().root, beta);
 }
+
+#[test]
+fn deferred_saves_cannot_overwrite_a_newer_synchronous_save_or_newer_draft() {
+    let temporary = tempfile::tempdir().unwrap();
+    let mut store = Store::new(temporary.path().join("workspace.json"));
+    let mut state = store.load().unwrap();
+    state.open_directory(directory(&temporary, "mock-deferred"));
+    state.sidebar_expanded = true;
+    let pending = store.prepare(&state);
+    state.sidebar_expanded = false;
+    store.save(&state).unwrap();
+    pending.save().unwrap();
+    assert!(
+        !Store::new(temporary.path().join("workspace.json"))
+            .load()
+            .unwrap()
+            .sidebar_expanded
+    );
+    state.sidebar_expanded = true;
+    let first = store.prepare(&state);
+    state.sidebar_expanded = false;
+    let second = store.prepare(&state);
+    second.save().unwrap();
+    first.save().unwrap();
+    assert!(
+        !Store::new(temporary.path().join("workspace.json"))
+            .load()
+            .unwrap()
+            .sidebar_expanded
+    );
+}
+
+#[test]
+fn deferred_saves_capture_drafts_and_keep_external_write_conflict_checks() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(directory(&temporary, "mock-deferred-draft"));
+    state.projects[0].files.push(tervia::state::File {
+        path: "mock.txt".into(),
+        disk_path: "mock.txt".into(),
+        language: "text".into(),
+        saved: "synthetic base".into(),
+        draft: "synthetic captured".into(),
+    });
+    state.projects[0].open_files.push(0);
+    let pending = store.prepare(&state);
+    state.projects[0].files[0].draft = "synthetic newer".into();
+    pending.save().unwrap();
+    assert_eq!(
+        Store::new(path.clone()).load().unwrap().projects[0].files[0].draft,
+        "synthetic captured"
+    );
+    let pending = store.prepare(&state);
+    fs::write(&path, "synthetic concurrent edit").unwrap();
+    assert!(pending.save().is_err());
+    assert_eq!(
+        fs::read_to_string(path).unwrap(),
+        "synthetic concurrent edit"
+    );
+}

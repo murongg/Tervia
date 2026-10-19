@@ -1139,3 +1139,150 @@ fn clone_destination_name_follows_https_ssh_and_local_repository_names() {
         assert_eq!(tervia::git::Repository::clone_name(address), name);
     }
 }
+
+#[test]
+fn layered_snapshots_refresh_status_refs_configuration_stashes_and_worktrees() {
+    use tervia::git::SnapshotCache;
+    let fixture = Fixture::new();
+    fixture.seed();
+    let repo = fixture.repo();
+    let mut cache = SnapshotCache::default();
+    let first = cache.refresh(&repo, 100).unwrap();
+    assert!(first.status.files.is_empty());
+    fixture.write("sample.txt", "synthetic changed\n");
+    let changed = cache.refresh(&repo, 100).unwrap();
+    assert_eq!(changed.status.files.len(), 1);
+    fixture.git(&["branch", "synthetic-branch"]);
+    fixture.git(&["tag", "synthetic-tag"]);
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.test/synthetic.git",
+    ]);
+    let refs = cache.refresh(&repo, 100).unwrap();
+    assert!(
+        refs.branches
+            .iter()
+            .any(|branch| branch.name == "synthetic-branch")
+    );
+    assert!(refs.tags.iter().any(|tag| tag == "synthetic-tag"));
+    assert_eq!(refs.remotes[0].url, "https://example.test/synthetic.git");
+    fixture.git(&["stash", "push", "-m", "Synthetic stash"]);
+    assert_eq!(cache.refresh(&repo, 100).unwrap().stashes.len(), 1);
+    fixture.git(&["pack-refs", "--all", "--prune"]);
+    assert!(
+        cache
+            .refresh(&repo, 100)
+            .unwrap()
+            .tags
+            .iter()
+            .any(|tag| tag == "synthetic-tag")
+    );
+    let linked = tempfile::tempdir().unwrap();
+    let path = linked.path().join("linked");
+    fixture.git(&[
+        "worktree",
+        "add",
+        "-b",
+        "synthetic-linked",
+        path.to_str().unwrap(),
+    ]);
+    assert_eq!(cache.refresh(&repo, 100).unwrap().worktrees.len(), 2);
+    fixture.git(&[
+        "worktree",
+        "lock",
+        "--reason",
+        "Synthetic lock",
+        path.to_str().unwrap(),
+    ]);
+    assert!(
+        cache
+            .refresh(&repo, 100)
+            .unwrap()
+            .worktrees
+            .iter()
+            .any(|tree| tree.locked.as_deref() == Some("Synthetic lock"))
+    );
+    fixture.git(&[
+        "remote",
+        "set-url",
+        "origin",
+        "https://example.test/changed.git",
+    ]);
+    assert_eq!(
+        cache.refresh(&repo, 100).unwrap().remotes[0].url,
+        "https://example.test/changed.git"
+    );
+    fixture.git(&["worktree", "unlock", path.to_str().unwrap()]);
+    cache.refresh(&repo, 100).unwrap();
+    fs::remove_file(path.join(".git")).unwrap();
+    assert!(
+        cache
+            .refresh(&repo, 100)
+            .unwrap()
+            .worktrees
+            .iter()
+            .any(|tree| tree.prunable.is_some()),
+        "Removing a linked checkout's Git marker must invalidate cached worktree diagnostics"
+    );
+    let other = Fixture::new();
+    other.seed();
+    assert_eq!(cache.refresh(&other.repo(), 100).unwrap().remotes.len(), 0);
+}
+
+#[test]
+fn layered_snapshots_follow_included_config_branch_switches_and_history_limits() {
+    use tervia::git::SnapshotCache;
+    let fixture = Fixture::new();
+    fixture.seed();
+    fixture.git(&["branch", "synthetic-other"]);
+    fixture.write("sample.txt", "synthetic second commit\n");
+    fixture.git(&["add", "sample.txt"]);
+    fixture.git(&["commit", "-m", "Synthetic second commit"]);
+    fixture.git(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.test/default.git",
+    ]);
+    fixture.git(&["config", "--unset", "remote.origin.url"]);
+    let included = fixture.0.join("synthetic.config");
+    fs::write(
+        &included,
+        "[remote \"origin\"]\nurl = https://example.test/first.git\n",
+    )
+    .unwrap();
+    fixture.git(&["config", "include.path", included.to_str().unwrap()]);
+    let mut cache = SnapshotCache::default();
+    let repo = fixture.repo();
+    assert_eq!(cache.refresh(&repo, 1).unwrap().commits.len(), 1);
+    assert_eq!(cache.refresh(&repo, 10).unwrap().commits.len(), 2);
+    let before = cache.refresh(&repo, 10).unwrap();
+    fs::write(
+        &included,
+        "[remote \"origin\"]\nurl = https://example.test/second.git\n",
+    )
+    .unwrap();
+    let after = cache.refresh(&repo, 10).unwrap();
+    // Compare to Git's complete read even when URL precedence includes duplicate values.
+    assert_eq!(
+        after.remotes[0].url,
+        repo.snapshot(10).unwrap().remotes[0].url
+    );
+    assert_ne!(before.remotes[0].url, after.remotes[0].url);
+    fixture.git(&["checkout", "synthetic-other"]);
+    let switched = cache.refresh(&repo, 10).unwrap();
+    assert_eq!(switched.status.branch, "synthetic-other");
+    assert!(
+        switched
+            .branches
+            .iter()
+            .any(|branch| branch.name == "synthetic-other" && branch.current)
+    );
+    fixture.write(".git/HEAD", "synthetic invalid head\n");
+    assert!(
+        cache.refresh(&repo, 10).is_err(),
+        "Cached metadata must not mask repository failures"
+    );
+}
