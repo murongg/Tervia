@@ -181,7 +181,7 @@ impl Client {
     pub fn definition_request(
         &self,
         server: &Server,
-        query: Query,
+        query: impl Into<Arc<Query>>,
     ) -> Result<DefinitionRequest, String> {
         let (stop, cached, progress) = {
             let mut slot = self.worker.lock().map_err(|error| error.to_string())?;
@@ -196,7 +196,7 @@ impl Client {
         Ok(DefinitionRequest {
             client: self.clone(),
             server: server.clone(),
-            query: Arc::new(query),
+            query: query.into(),
             stop,
             progress,
             cached,

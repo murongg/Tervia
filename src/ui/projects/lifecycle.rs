@@ -108,6 +108,7 @@ impl Tervia {
         }
         self.capture_reading_positions(cx);
         let previous = self.state.clone();
+        self.dismiss_definition_preview(cx);
         let Some(members) = self.state.close_project(owner) else {
             return;
         };

@@ -10,7 +10,10 @@ use super::{
 };
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
+    let (back, forward) = super::files::navigation::shortcuts(Platform::CURRENT);
     cx.bind_keys([
+        KeyBinding::new(back, super::files::FileBack, Some("FileTabs")),
+        KeyBinding::new(forward, super::files::FileForward, Some("FileTabs")),
         KeyBinding::new(
             "f12",
             gpui_kit::component::input::GoToDefinition,
@@ -103,6 +106,8 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
                 language.text("go_to_definition"),
                 gpui_kit::component::input::GoToDefinition,
             ),
+            MenuItem::action(language.text("file_back"), super::files::FileBack),
+            MenuItem::action(language.text("file_forward"), super::files::FileForward),
             MenuItem::separator(),
             MenuItem::action(language.text("save"), SaveFile),
             MenuItem::action(language.text("copy_code_context"), CopyCodeContext),

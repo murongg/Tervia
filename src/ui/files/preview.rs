@@ -9,6 +9,13 @@ pub(in crate::ui) struct Previews {
 }
 
 impl Previews {
+    pub(in crate::ui) fn set_source(&mut self, index: usize, source: bool) {
+        if source {
+            self.sources.insert(index);
+        } else {
+            self.sources.remove(&index);
+        }
+    }
     pub(in crate::ui) fn reading(&self, file: &File, index: usize) -> bool {
         file.is_image() || (file.language == "markdown" && !self.sources.contains(&index))
     }

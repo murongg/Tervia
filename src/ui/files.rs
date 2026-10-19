@@ -15,22 +15,28 @@ use super::{
     controls::{icon, icon_button, label_button},
     icons::file_icon,
 };
-mod definitions;
+pub(in crate::ui) mod definitions;
+mod history;
+pub(in crate::ui) mod navigation;
+use navigation::Travel;
+pub(in crate::ui) use navigation::{FileBack, FileForward};
 pub(in crate::ui) mod management;
 mod preview;
 pub(in crate::ui) mod search;
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
+pub(in crate::ui) use history::{Direction, History, Location, Step};
 pub(super) use preview::Previews;
 pub(super) use search::Finder;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Open {
     Pinned,
     Preview,
     Reload,
     Recovery,
     Match { line: usize, column: usize },
+    Travel(Box<Travel>),
 }
 #[cfg(all(test, feature = "ui-tests"))]
 use core::prelude::v1::test;
@@ -212,6 +218,16 @@ impl Tervia {
             .flex()
             .border_t_1()
             .border_color(p.border)
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| this.navigate_file(Direction::Back, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(NavigationDirection::Forward),
+                cx.listener(|this, _, window, cx| {
+                    this.navigate_file(Direction::Forward, window, cx)
+                }),
+            )
             .child(
                 // The resize handle owns this seam; a sidebar border would draw it twice.
                 h_resizable(("files-split", self.state.active_project))
@@ -226,7 +242,7 @@ impl Tervia {
             )
     }
 
-    fn file_editor(&self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
+    fn file_editor(&self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let p = super::theme::Palette::workbench(self.appearance.light_theme);
         let project = self.state.project();
         let owner = self.state.active_project;
@@ -244,7 +260,8 @@ impl Tervia {
                 .child(
                     label_button("open-file-empty", self.t("git_open_file"), p)
                         .on_click(cx.listener(|this, _, window, cx| this.choose_file(window, cx))),
-                );
+                )
+                .into_any_element();
         };
         let external = self.monitors[owner].external.get(&file.disk_path).copied();
         let tabs = self.file_tabs(cx);
@@ -258,6 +275,7 @@ impl Tervia {
             .gap(px(7.0))
             .text_size(px(11.0))
             .text_color(p.secondary)
+            .child(self.file_navigation_buttons(cx))
             .when_some(self.git_return_button(cx), |bar, button| bar.child(button))
             .when(file.language == "markdown", |bar| {
                 bar.child(self.source_toggle(owner, active, cx))
@@ -326,44 +344,75 @@ impl Tervia {
                     .on_click(cx.listener(|this, _, window, cx| this.save(window, cx))),
             );
         let editor = &self.editors[self.state.active_project][active];
-        div().size_full().min_h_0().flex().child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .flex()
-                .flex_col()
-                .child(tabs)
-                .child(breadcrumbs)
-                .when(external.is_some(), |body| {
-                    body.child(
-                        div()
-                            .h(px(32.0))
-                            .flex_shrink_0()
-                            .px(px(20.0))
-                            .flex()
-                            .items_center()
-                            .text_size(px(12.0))
-                            .text_color(p.secondary)
-                            .child(self.t(external.unwrap())),
-                    )
-                })
-                .child(div().flex_1().min_h_0().overflow_hidden().child(
-                    if let Some(preview) = self.file_preview(owner, active) {
-                        preview
-                    } else {
-                        Editor::new(editor)
-                            .h(relative(1.0))
-                            .w_full()
-                            .appearance(false)
-                            .bordered(false)
-                            .aria_label(self.f("code_editor", &[("path", &file.path)]))
-                            .font_family(self.appearance.font_family.clone())
-                            .text_size(px(self.appearance.code_size as f32))
-                            .into_any_element()
-                    },
-                )),
-        )
+        let preview = self.render_definition_preview(window, cx);
+        div()
+            .id("file-editor-surface")
+            .relative()
+            .size_full()
+            .min_h_0()
+            .flex()
+            .capture_action(cx.listener(
+                |this, _: &gpui_kit::component::input::GoToDefinition, _, _| {
+                    this.prepare_definition_action();
+                },
+            ))
+            .capture_any_mouse_down(
+                cx.listener(|this, event, window, cx| this.definition_click(event, window, cx)),
+            )
+            .on_modifiers_changed(cx.listener(|this, event: &ModifiersChangedEvent, _, cx| {
+                if !event.modifiers.secondary() || event.modifiers.alt {
+                    this.dismiss_definition_preview(cx);
+                }
+            }))
+            .on_mouse_move(cx.listener(|this, event, _, cx| this.definition_pointer(event, cx)))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                if !*hovered {
+                    this.dismiss_definition_preview(cx);
+                }
+            }))
+            .on_scroll_wheel(cx.listener(|this, _, _, cx| {
+                this.dismiss_definition_preview(cx);
+            }))
+            .children(preview)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .child(tabs)
+                    .child(breadcrumbs)
+                    .when(external.is_some(), |body| {
+                        body.child(
+                            div()
+                                .h(px(32.0))
+                                .flex_shrink_0()
+                                .px(px(20.0))
+                                .flex()
+                                .items_center()
+                                .text_size(px(12.0))
+                                .text_color(p.secondary)
+                                .child(self.t(external.unwrap())),
+                        )
+                    })
+                    .child(div().flex_1().min_h_0().overflow_hidden().child(
+                        if let Some(preview) = self.file_preview(owner, active) {
+                            preview
+                        } else {
+                            Editor::new(editor)
+                                .h(relative(1.0))
+                                .w_full()
+                                .appearance(false)
+                                .bordered(false)
+                                .aria_label(self.f("code_editor", &[("path", &file.path)]))
+                                .font_family(self.appearance.font_family.clone())
+                                .text_size(px(self.appearance.code_size as f32))
+                                .into_any_element()
+                        },
+                    )),
+            )
+            .into_any_element()
     }
     pub(super) fn open_real_file(
         &mut self,
@@ -547,10 +596,16 @@ impl Tervia {
                     .map(|file| file.draft.as_str());
                 match this.file_reads.finish(project, &path, request, draft) {
                     tervia::files::ReadOutcome::Stale => {
+                        if let Open::Travel(travel) = &open {
+                            this.abandon_file_travel(project, travel);
+                        }
                         cx.notify();
                         return;
                     }
                     tervia::files::ReadOutcome::Edited => {
+                        if let Open::Travel(travel) = &open {
+                            this.abandon_file_travel(project, travel);
+                        }
                         this.state.projects[project].restoring.remove(&path);
                         if this.state.active_project == project {
                             this.state.notice = "git_reload_skipped".into();
@@ -561,6 +616,16 @@ impl Tervia {
                     tervia::files::ReadOutcome::Apply => {}
                 }
                 this.state.projects[project].restoring.remove(&path);
+                // Typing or moving the caret during an asynchronous history read
+                // supersedes that navigation without consuming its stack entry.
+                if let Open::Travel(travel) = &open
+                    && (!this.file_reads.selected(project, selection)
+                        || !travel.current(this, project, cx))
+                {
+                    this.abandon_file_travel(project, travel);
+                    cx.notify();
+                    return;
+                }
                 match result {
                     Ok(content) => {
                         let (contents, image) = match content {
@@ -661,10 +726,15 @@ impl Tervia {
                                         cx,
                                     )
                                 });
+                            } else if let Open::Travel(travel) = &open {
+                                this.finish_file_travel(project, index, travel, window, cx);
                             }
                         }
                     }
                     Err(error) => {
+                        if let Open::Travel(travel) = &open {
+                            this.reject_file_travel(project, travel);
+                        }
                         if this.state.active_project == project {
                             this.state.notice = error.clone();
                         }

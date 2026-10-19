@@ -24,7 +24,9 @@ pub(super) struct Explorer {
     pub finder: super::files::Finder,
     pub definitions: tervia::lsp::Client,
     pub definition_status: Option<tervia::lsp::tools::Status>,
+    pub definition_preview: super::files::definitions::Peek,
     pub management: super::files::management::Management,
+    pub file_history: super::files::History,
     #[cfg(all(test, feature = "ui-tests"))]
     pub rendered_rows: std::cell::Cell<usize>,
 }
@@ -39,7 +41,9 @@ impl Explorer {
             finder: super::files::Finder::new(window, cx),
             definitions: Default::default(),
             definition_status: None,
+            definition_preview: Default::default(),
             management: super::files::management::Management::new(window, cx),
+            file_history: Default::default(),
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),
         }

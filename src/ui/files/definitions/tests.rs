@@ -3,7 +3,7 @@ use core::prelude::v1::test;
 use gpui_test::{TestAppContext, VisualTestContext};
 use std::fs;
 
-fn mount<'a>(
+pub(in crate::ui::files) fn mount<'a>(
     cx: &'a mut TestAppContext,
     mode: &str,
     target_open: bool,
@@ -71,6 +71,304 @@ fn mount<'a>(
     (root, view.unwrap(), cx)
 }
 
+fn modifier() -> Modifiers {
+    if cfg!(target_os = "macos") {
+        Modifiers {
+            platform: true,
+            ..Default::default()
+        }
+    } else {
+        Modifiers {
+            control: true,
+            ..Default::default()
+        }
+    }
+}
+
+fn source_point(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> Point<Pixels> {
+    cx.update(|_, cx| {
+        let editor = view.read(cx).editors[0][0].read(cx);
+        let text = editor.value();
+        let offset = text.find("mock").unwrap();
+        let bounds = editor.range_to_bounds(&(offset..offset + 4)).unwrap();
+        point(bounds.left() + px(8.0), bounds.center().y)
+    })
+}
+
+fn show_preview(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> Point<Pixels> {
+    let position = source_point(view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        cx.debug_bounds("definition-preview").is_some(),
+        "Preview missing: {}",
+        view.update(cx, |this, cx| {
+            let editor = this.editors[0][0].read(cx);
+            format!(
+                "point={position:?}, input={:?}, scroll={:?}, notice={}, log={:?}",
+                editor.input_bounds(),
+                editor.scroll_offset(),
+                this.state.notice,
+                fs::read_to_string(this.state.project().root.join("mock-log.json"))
+            )
+        })
+    );
+    position
+}
+
+#[gpui_test::test]
+fn preview_dismissal_allows_reopening_the_same_symbol(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let position = show_preview(&view, cx);
+    cx.simulate_modifiers_change(Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_some());
+}
+
+#[gpui_test::test]
+fn preview_escape_dismisses_before_the_workspace_quit_fallback(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    show_preview(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.dismiss(window, cx);
+            assert!(
+                !this.dismiss_definition_preview(cx),
+                "Escape must already consume the preview"
+            );
+        });
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+}
+
+#[gpui_test::test]
+fn preview_source_scroll_and_target_draft_changes_hide_the_overlay(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.set_value(
+                    format!("mock()\n{}", "// synthetic\n".repeat(120)),
+                    window,
+                    cx,
+                );
+                editor.set_cursor_position(lsp_types::Position::new(0, 0), window, cx);
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    let position = show_preview(&view, cx);
+    cx.simulate_event(ScrollWheelEvent {
+        position,
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-32.0))),
+        modifiers: modifier(),
+        ..Default::default()
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.set_scroll_offset(point(px(0.0), px(0.0)), cx);
+            })
+        });
+        window.draw(cx).clear(cx);
+    });
+    show_preview(&view, cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][1].update(cx, |editor, cx| {
+                editor.set_value("// changed target draft\n", window, cx);
+            })
+        });
+        window.draw(cx).clear(cx);
+    });
+    assert!(cx.debug_bounds("definition-preview").is_none());
+}
+
+#[gpui_test::test]
+fn quick_modifier_click_starts_one_jump_without_waiting_for_hover(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_click(position, modifier());
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 1)
+    });
+    let log: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+            .unwrap();
+    assert_eq!(log["definition"], 1);
+}
+
+#[gpui_test::test]
+fn preview_open_remains_clickable_and_reuses_the_lookup(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    show_preview(&view, cx);
+    let open = cx.debug_bounds("definition-preview-open").unwrap();
+    cx.simulate_mouse_move(open.center(), None, modifier());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview-open").is_some());
+    cx.simulate_click(open.center(), modifier());
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 1)
+    });
+    let log: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+            .unwrap();
+    assert_eq!(log["definition"], 1);
+}
+
+#[gpui_test::test]
+fn pending_modifier_release_cancels_before_service_io(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.simulate_modifiers_change(Modifiers::default());
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(!root.path().join("mock-log.json").exists());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+}
+
+#[gpui_test::test]
+fn changed_pending_targets_require_a_fresh_lookup_before_click_navigation(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][1].update(cx, |editor, cx| {
+                editor.set_value(
+                    "// synthetic changed target\nexport function mock() {}\n",
+                    window,
+                    cx,
+                );
+            })
+        });
+    });
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.simulate_click(position, modifier());
+    cx.run_until_parked();
+    let log: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        log["definition"], 2,
+        "A stale draft position must not stay cached as a link"
+    );
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 1)
+    });
+}
+
+#[gpui_test::test]
+fn explicit_f12_works_while_the_modifier_is_held_away_from_the_symbol(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    cx.simulate_modifiers_change(modifier());
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
+    });
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 1)
+    });
+}
+
+#[gpui_test::test]
+fn unsupported_file_actions_do_not_consume_the_next_supported_hover(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let hooks = view.update(cx, |this, cx| {
+        this.state.projects[0].files[0].language = "plaintext".into();
+        this.editors[0][0].update(cx, |editor, _| {
+            (
+                editor.lsp_mut().definition_provider.take(),
+                editor.lsp_mut().show_document.take(),
+            )
+        })
+    });
+    cx.update(|window, cx| {
+        window.dispatch_action(Box::new(gpui_kit::component::input::GoToDefinition), cx)
+    });
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        this.state.projects[0].files[0].language = "typescript".into();
+        this.editors[0][0].update(cx, |editor, _| {
+            editor.lsp_mut().definition_provider = hooks.0;
+            editor.lsp_mut().show_document = hooks.1;
+        });
+    });
+    show_preview(&view, cx);
+}
+
+#[gpui_test::test]
+fn preview_near_the_bottom_keeps_the_source_symbol_uncovered(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    cx.simulate_resize(size(px(1000.0), px(600.0)));
+    let text = format!("{}mock()\n", "// synthetic\n".repeat(12));
+    let offset = text.find("mock").unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.set_value(text, window, cx);
+                editor.set_cursor_position(lsp_types::Position::new(12, 1), window, cx);
+            });
+            let target = format!(
+                "\nexport function mock() {{}}\n{}",
+                "// synthetic target\n".repeat(12)
+            );
+            this.state.projects[0].files[1].draft = target.clone();
+            this.editors[0][1].update(cx, |editor, cx| editor.set_value(target, window, cx));
+        });
+        window.draw(cx).clear(cx);
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][0].update(cx, |editor, cx| {
+                editor.set_cursor_position(lsp_types::Position::new(12, 1), window, cx);
+            })
+        });
+        window.draw(cx).clear(cx);
+    });
+    show_preview(&view, cx);
+    let trigger = view.update(cx, |this, cx| {
+        this.editors[0][0]
+            .read(cx)
+            .range_to_bounds(&(offset..offset + 4))
+            .unwrap()
+    });
+    let overlay = cx.debug_bounds("definition-preview").unwrap();
+    assert!(
+        overlay.bottom() <= trigger.top() || overlay.top() >= trigger.bottom(),
+        "Overlay {overlay:?} must leave source {trigger:?} clickable"
+    );
+}
+
 #[gpui_test::test]
 fn f12_uses_lsp_draft_positions_and_preserves_the_open_target(cx: &mut TestAppContext) {
     let (_root, view, cx) = mount(cx, "normal", true);
@@ -86,6 +384,49 @@ fn f12_uses_lsp_draft_positions_and_preserves_the_open_target(cx: &mut TestAppCo
         let position = this.editors[0][1].read(cx).cursor_position();
         assert_eq!(position.line, 1);
         assert_eq!(position.character, 16);
+    });
+}
+
+#[gpui_test::test]
+fn definition_jumps_support_back_and_forward_without_losing_drafts(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    cx.simulate_keystrokes("f12");
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][1].update(cx, |editor, cx| {
+                editor.set_cursor_position(lsp_types::Position::new(1, 8), window, cx);
+            });
+        });
+        window.draw(cx).clear(cx);
+    });
+    let back = cx
+        .debug_bounds("file-back")
+        .expect("Back is available after a definition jump");
+    cx.simulate_click(back.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        assert_eq!(this.state.project().active_file, 0);
+        assert_eq!(
+            this.editors[0][0].read(cx).cursor_position(),
+            lsp_types::Position::new(0, 0)
+        );
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let forward = cx.debug_bounds("file-forward").unwrap();
+    cx.simulate_click(forward.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.update(cx, |this, cx| {
+        assert_eq!(this.state.project().active_file, 1);
+        assert_eq!(
+            this.editors[0][1].read(cx).cursor_position(),
+            lsp_types::Position::new(1, 8)
+        );
+        assert_eq!(
+            this.editors[0][1].read(cx).value().as_str(),
+            "\nexport function mock() {}\n"
+        );
+        assert!(this.state.project().files[1].dirty());
     });
 }
 
@@ -203,6 +544,9 @@ fn modifier_click_follows_a_definition_without_a_prior_keyboard_request(cx: &mut
     };
     cx.simulate_mouse_move(position, None, modifiers);
     cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
     cx.simulate_click(position, modifiers);
     cx.run_until_parked();
@@ -212,6 +556,79 @@ fn modifier_click_follows_a_definition_without_a_prior_keyboard_request(cx: &mut
             PathBuf::from("target.ts")
         );
     });
+}
+
+#[gpui_test::test]
+fn modifier_hover_previews_the_definition_without_opening_it(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let position = cx.update(|_, cx| {
+        let bounds = view.read(cx).editors[0][0]
+            .read(cx)
+            .cursor_layout()
+            .unwrap()
+            .0;
+        point(bounds.left() + px(8.0), bounds.center().y)
+    });
+    let modifiers = if tervia::platform::Platform::CURRENT == tervia::platform::Platform::Mac {
+        Modifiers {
+            platform: true,
+            ..Default::default()
+        }
+    } else {
+        Modifiers {
+            control: true,
+            ..Default::default()
+        }
+    };
+    cx.simulate_modifiers_change(modifiers);
+    cx.simulate_mouse_move(position, None, modifiers);
+    cx.run_until_parked();
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_some());
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 0);
+        assert_eq!(this.state.project().open_files.len(), 2);
+    });
+    cx.simulate_modifiers_change(Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+}
+
+#[gpui_test::test]
+fn dismissing_a_pending_hover_prevents_a_late_preview(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", false);
+    let position = cx.update(|_, cx| {
+        let bounds = view.read(cx).editors[0][0]
+            .read(cx)
+            .cursor_layout()
+            .unwrap()
+            .0;
+        point(bounds.left() + px(8.0), bounds.center().y)
+    });
+    let modifiers = if cfg!(target_os = "macos") {
+        Modifiers {
+            platform: true,
+            ..Default::default()
+        }
+    } else {
+        Modifiers {
+            control: true,
+            ..Default::default()
+        }
+    };
+    cx.simulate_mouse_move(position, None, modifiers);
+    cx.run_until_parked();
+    view.update(cx, |this, cx| assert!(this.dismiss_definition_preview(cx)));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
 }
 
 #[gpui_test::test]

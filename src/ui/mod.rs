@@ -532,6 +532,7 @@ impl Tervia {
         }
         self.terminal_rename = None;
         self.tasks.cancel();
+        self.dismiss_definition_preview(cx);
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }
@@ -556,6 +557,7 @@ impl Tervia {
         if !self.state.has_project() {
             return;
         }
+        self.dismiss_definition_preview(cx);
         self.terminal_rename = None;
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
@@ -599,6 +601,9 @@ impl Tervia {
             return;
         }
         // Input Escape can bubble past the popover's own Cancel action.
+        if self.dismiss_definition_preview(cx) {
+            return;
+        }
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         } else if self.navigation.open {
@@ -801,6 +806,32 @@ impl Render for Tervia {
                     this.cycle_file_tab(true, window, cx)
                 }))
             })
+            .when(
+                self.state.has_project()
+                    && self.state.active_tab() == Tab::Files
+                    && self.state.project().current_file().is_some()
+                    && self.explorers[self.state.active_project]
+                        .file_history
+                        .can_back(),
+                |workspace| {
+                    workspace.on_action(cx.listener(|this, _: &files::FileBack, window, cx| {
+                        this.navigate_file(files::Direction::Back, window, cx)
+                    }))
+                },
+            )
+            .when(
+                self.state.has_project()
+                    && self.state.active_tab() == Tab::Files
+                    && self.state.project().current_file().is_some()
+                    && self.explorers[self.state.active_project]
+                        .file_history
+                        .can_forward(),
+                |workspace| {
+                    workspace.on_action(cx.listener(|this, _: &files::FileForward, window, cx| {
+                        this.navigate_file(files::Direction::Forward, window, cx)
+                    }))
+                },
+            )
             .when(
                 self.state.active_tab() == Tab::Files
                     && !self.state.project().closed_files.is_empty()

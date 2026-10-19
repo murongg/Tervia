@@ -448,6 +448,7 @@ impl Tervia {
                         root.join(to).strip_prefix(&owner_root),
                     ) {
                         self.state.projects[owner].relocate_files(from, to);
+                        self.explorers[owner].file_history.relocate(from, to);
                         for index in 0..self.state.projects[owner].files.len() {
                             let file = &mut self.state.projects[owner].files[index];
                             if file.disk_path.starts_with(to) && !file.is_image() {

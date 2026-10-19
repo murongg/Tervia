@@ -73,6 +73,7 @@ impl Tervia {
             }
             self.stop_project_monitor(index, cx);
             self.explorers[index].definitions.shutdown();
+            self.explorers[index].definition_preview = Default::default();
             let connections: Vec<_> = self.state.projects[index]
                 .terminal
                 .sessions

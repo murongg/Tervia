@@ -117,6 +117,10 @@ On startup, Tervia restores the last project, local terminal, or welcome screen,
 
 In source files, press **F12**, use File → Go to Definition or the editor context menu, or hold **Cmd** (Windows / Linux: **Ctrl**) while hovering a symbol and click its underline. On keyboards that assign a system action to F12, use Fn+F12.
 
+Holding Cmd (Windows / Linux: Ctrl) over a symbol underlines it and opens a compact definition preview with its file, line and source excerpt. The preview uses unsaved target drafts and never opens a tab by itself. Click the symbol or the preview’s Go to Definition action to jump; moving away, releasing the modifier, scrolling or pressing Escape dismisses the preview. Brief pointer travel is debounced before starting a lookup.
+
+Use the Back / Forward arrows beside the file breadcrumbs to return through successful definition jumps, including positions within the same file. The File menu and mouse navigation buttons offer the same actions. Shortcuts match VS Code: macOS Ctrl+- / Ctrl+Shift+-, Windows Alt+Left / Alt+Right, and Linux Ctrl+Alt+- / Ctrl+Shift+-. History stays separate per project, preserves drafts and restores caret/scroll positions. A new successful jump after going back clears the forward branch; failed or superseded navigation does not commit a history step. File-tab browsing and text-search matches do not add entries to this definition history.
+
 On the first definition request, Tervia reuses a working installed language service. If it is missing, Tervia prepares only that service in the background and continues the original jump when ready. Preparation, download and installation status appear in the existing status bar without moving the code.
 
 | Source language | Automatically prepared service | Existing runtime |
