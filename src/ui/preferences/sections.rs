@@ -38,6 +38,8 @@ impl PreferencesWindow {
             .child(self.file_settings(cx))
             .child(div().h(px(1.0)).bg(p.border))
             .child(self.terminal_settings(cx))
+            .child(div().h(px(1.0)).bg(p.border))
+            .child(self.agent_settings(cx))
     }
 
     fn font_settings(&self, cx: &mut Context<Self>) -> Div {

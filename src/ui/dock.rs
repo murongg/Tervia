@@ -86,7 +86,7 @@ impl Tervia {
                 && terminals
                     .iter()
                     .flatten()
-                    .any(|console| console.read(cx).attention)
+                    .any(|console| console.read(cx).needs_attention())
         })
     }
 }

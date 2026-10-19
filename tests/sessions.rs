@@ -91,6 +91,65 @@ fn task_runner_hosts_keep_the_selected_file_and_replay_without_rerunning() {
     assert!(!root.path().join("unexpected").exists());
 }
 
+#[test]
+fn agent_hooks_follow_the_owned_terminal_and_restored_state_is_a_baseline() {
+    use tervia::agent::{Agent, activity::Phase};
+    let root = tempfile::tempdir().unwrap();
+    // Detached macOS hosts may lack access to executables in the checkout's protected Documents directory.
+    let helper = root.path().join("mock-hook-runner");
+    std::fs::copy(env!("CARGO_BIN_EXE_tervia-session"), &helper).unwrap();
+    let target = target(&root, '8').with_env("MOCK_AGENT_HELPER", helper);
+    let _cleanup = Cleanup(target.clone());
+    let (session, events, _) = target.open(root.path(), size()).unwrap();
+    let mut buffer = TerminalBuffer::new(90, 12);
+    output(&events, &mut buffer, "mock>");
+    let payload = r#"{"session_id":"mock-agent-session","hook_event_name":"Stop","last_assistant_message":"synthetic-notification-content"}"#;
+    std::fs::write(root.path().join("mock-hook.json"), payload).unwrap();
+    session
+        .write(b"touch mock-started; \"$MOCK_AGENT_HELPER\" --tervia-agent-hook claude < mock-hook.json > mock-hook.stdout 2> mock-hook.stderr; touch mock-ended\r")
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while session.activity().is_none() && Instant::now() < deadline {
+        // A real UI drains output continuously; a full test queue can stall readline before the hook runs.
+        while let Ok(event) = events.try_recv() {
+            if let PtyEvent::Data(bytes) = event {
+                buffer.feed(&bytes);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let snapshot = session.activity().unwrap_or_else(|| {
+        panic!(
+            "hook state must reach the connected UI; started={} ended={} stdout={:?} stderr={:?}; output: {}",
+            root.path().join("mock-started").exists(), root.path().join("mock-ended").exists(), std::fs::read_to_string(root.path().join("mock-hook.stdout")), std::fs::read_to_string(root.path().join("mock-hook.stderr")), buffer.visible_text()
+        );
+    });
+    assert_eq!(snapshot.agent, Agent::Claude);
+    assert_eq!(snapshot.phase, Phase::Complete);
+    assert!(
+        !std::fs::read_to_string(target.directory().join("agent.json"))
+            .unwrap()
+            .contains("synthetic-notification-content")
+    );
+    drop(session);
+    let (restored, _events, _) = target.reconnect().unwrap();
+    assert_eq!(restored.activity(), Some(snapshot));
+    restored.terminate().unwrap();
+}
+
+#[test]
+fn standalone_agent_hook_is_quiet_and_cannot_make_an_agent_decision() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_tervia-session"))
+        .args(["--tervia-agent-hook", "codex"])
+        .env_remove("TERVIA_AGENT_DIR")
+        .env_remove("TERVIA_AGENT_TOKEN")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"{}\n");
+    assert!(output.stderr.is_empty());
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn hosted_programs_leave_the_gui_launchers_resource_coalition() {

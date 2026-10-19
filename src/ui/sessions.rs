@@ -129,6 +129,16 @@ impl Tervia {
         })();
         let console = cx
             .new(|cx| console::Console::new(cwd, preferences, history, target, offset, window, cx));
+        self.subscriptions.push(cx.subscribe_in(
+            &console,
+            window,
+            |this, console, event: &console::ActivityChanged, window, cx| {
+                if let Some(snapshot) = &event.0 {
+                    this.agent_notification(console, snapshot, window, cx);
+                }
+                cx.notify();
+            },
+        ));
         self.subscriptions.push(
             cx.subscribe(&console, |_, _, _: &console::LifecycleChanged, cx| {
                 cx.notify()
@@ -168,6 +178,7 @@ impl Tervia {
         self.subscriptions.push(cx.subscribe(
             &console,
             move |this, console, _: &console::Focused, cx| {
+                cx.dismiss_system_notification(&super::agents::tag(&console));
                 // Both owners can have session zero; route delayed events by owner and entity identity.
                 if this.console_owner() == owner
                     && this.state.screen != Screen::Welcome
@@ -243,6 +254,7 @@ impl Tervia {
             return;
         }
         if let Some(console) = self.consoles_mut().remove(session) {
+            cx.dismiss_system_notification(&super::agents::tag(&console));
             if let Err(error) = console.update(cx, |console, _| console.shutdown()) {
                 self.state.notice = format!("{}: {error}", self.t("connection_error"));
             }

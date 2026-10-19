@@ -143,6 +143,20 @@ Each run starts a separate terminal with the configured shell in the exact selec
 
 Task identity and completed output recover across UI restarts. Recovery only reconnects or replays the original session and never reruns the task. Closing its tab or project removes the replay records; reopening a closed project restores its task tabs as ordinary shells without executing the tasks. Supported shells: Bash, Zsh, Fish, sh, PowerShell and CMD. Task names CMD cannot quote safely report an error; select PowerShell and retry. Custom task configuration, dependencies and automatic startup are outside this first version.
 
+## Agent status and notifications
+
+Open **Settings → Workspace → Agent status & notifications** and choose **Connect / repair** for Claude Code or Codex. Tervia merges its command handlers into the CLI's user hook configuration, preserving other settings and hooks. **Remove** deletes only Tervia's handlers. Custom `CLAUDE_CONFIG_DIR` and `CODEX_HOME` locations are respected. Reconnect after moving the application to update its executable path.
+
+Create a new Tervia terminal after connecting so the shell receives its terminal identity, then start the CLI. Restart the CLI to load configuration; Codex also requires reviewing and trusting the new hooks in `/hooks`. Managed policies or disabled hooks can prevent delivery. Unconnected agents display **Status unavailable** rather than inferred turn activity. Other supported agents retain process identification and terminal-bell attention.
+
+The terminal header shows ready, working, approval/input requests and response end. Claude Code's `StopFailure` reports failed turns; Codex's `Interrupt` reports interrupted turns. Recoverable tool failures do not imply a failed turn. Status comes from lifecycle events, never conversation parsing or output inactivity. **Turn ended** means the response ended, not that project acceptance checks passed. If another hook continues the agent, subsequent events update its status.
+
+New approval/input requests, response ends and supported failures flag the unread terminal and its project until the terminal is focused. **Desktop notifications** default off. Enable them explicitly in settings to receive alerts when Tervia is in the background, subject to system permission and notification settings. Clicking a notification or **Open terminal** returns to the originating project, directory and terminal; closed or reordered tabs cannot redirect it to another session. Muting desktop notifications retains in-app state and attention. Resetting interface preferences does not unmute them.
+
+Hooks only record normalized local state for Tervia-owned terminals. They never retain prompts, tool arguments, conversation text or transcript paths, and never approve or block agent actions. Restart restores status without sending historical alerts. If the UI has fully quit, terminal hosts can still retain hook state, but this first version does not deliver desktop notifications until the UI runs again.
+
+Official interfaces: [Claude Code hooks](https://code.claude.com/docs/en/hooks), [Codex hooks](https://learn.chatgpt.com/docs/hooks). A CLI version supporting these lifecycle events is required.
+
 ## Project management
 
 The sidebar Search control, File menu and Cmd+Option+P (Ctrl+Alt+P on Windows/Linux) open global project switching. Search names, paths or abbreviations to enter a project or a known working directory/worktree. Empty searches prioritize favorites, then recent projects; Back to Previous Project restores the prior project's last directory.

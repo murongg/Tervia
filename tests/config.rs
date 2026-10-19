@@ -10,6 +10,51 @@ fn fixture(source: &str) -> (TempDir, Config) {
 }
 
 #[test]
+fn agent_notifications_default_off_and_explicit_opt_in_survives_reset() {
+    assert!(!Preferences::default().agent_notifications);
+    let (_root, mut config) = fixture("");
+    assert!(!config.load().unwrap().agent_notifications);
+    let root = tempfile::tempdir().unwrap();
+    let mut first_launch = Config::new(root.path().join("mock-config.toml"));
+    assert!(!first_launch.load().unwrap().agent_notifications);
+    let (_root, mut enabled) = fixture("[agents]\nnotifications = true\n");
+    let mut preferences = enabled.load().unwrap();
+    preferences.reset();
+    assert!(preferences.agent_notifications);
+    enabled.save(&preferences).unwrap();
+    assert!(
+        Config::new(enabled.path().into())
+            .load()
+            .unwrap()
+            .agent_notifications
+    );
+}
+
+#[test]
+fn agent_notifications_are_persisted_and_reset_does_not_unmute_them() {
+    let (_root, mut config) =
+        fixture("[agents]\nnotifications = false # mock choice\nfuture = 'mock'\n");
+    let mut preferences = config.load().unwrap();
+    assert!(!preferences.agent_notifications);
+    preferences.reset();
+    assert!(!preferences.agent_notifications);
+    config.save(&preferences).unwrap();
+    assert!(
+        !Config::new(config.path().into())
+            .load()
+            .unwrap()
+            .agent_notifications
+    );
+    assert!(
+        fs::read_to_string(config.path())
+            .unwrap()
+            .contains("# mock choice")
+    );
+    let (_root, mut config) = fixture("[agents]\nnotifications = 'invalid'\n");
+    assert!(config.load().is_err());
+}
+
+#[test]
 fn terminal_shell_rejects_unknown_profiles_and_non_string_values() {
     for value in ["'mock-shell'", "false", "7", "[]"] {
         let (_root, mut config) = fixture(&format!("[terminal]\nshell = {value}\n"));

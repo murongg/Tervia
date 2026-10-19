@@ -76,6 +76,7 @@ fn shell_selection_is_per_session_and_settings_only_affect_new_terminals(cx: &mu
 fn window(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTestContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
+        cx.set_app_identity("test.tervia.mock", "Mock Tervia");
         crate::ui::console::init(cx);
         crate::ui::menus::bind_menu_keys(cx);
         cx.bind_keys([KeyBinding::new(
@@ -91,6 +92,229 @@ fn window(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::VisualTes
         gpui_kit::base::Root::new(entity, window, cx)
     });
     (view.unwrap(), cx)
+}
+
+#[gpui_test::test]
+fn agent_notifications_stay_silent_until_explicitly_enabled(cx: &mut TestAppContext) {
+    use tervia::agent::{
+        Agent,
+        activity::{Phase, Snapshot},
+    };
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let console = cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.config = Some(tervia::config::Config::new(
+                root.path().join("mock-config.toml"),
+            ));
+            this.open_local_terminal(window, cx);
+            this.ensure_console(0, window, cx)
+        })
+    });
+    cx.deactivate_window();
+    console.update(cx, |this, cx| {
+        this.observe_activity(
+            Some(Snapshot {
+                agent: Agent::Codex,
+                phase: Phase::Complete,
+                session: "mock-session".into(),
+                epoch: "mock-epoch".into(),
+                turn: "mock-turn".into(),
+                revision: "mock-revision".into(),
+            }),
+            false,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    assert!(cx.shown_system_notifications().is_empty());
+}
+
+#[gpui_test::test]
+fn agent_notifications_are_background_only_and_clicks_resolve_console_identity(
+    cx: &mut TestAppContext,
+) {
+    use tervia::agent::{
+        Agent,
+        activity::{Phase, Snapshot},
+    };
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let snapshot = |phase, revision: &str| Snapshot {
+        epoch: "mock-epoch".into(),
+        agent: Agent::Codex,
+        phase,
+        session: "mock-session".into(),
+        turn: revision.into(),
+        revision: revision.into(),
+    };
+    let console = cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            window.activate_window();
+            this.preferences
+                .update(cx, |prefs, _| prefs.agent_notifications = true);
+            this.config = Some(tervia::config::Config::new(root.path().join("config.toml")));
+            this.open_local_terminal(window, cx);
+            this.ensure_console(0, window, cx)
+        })
+    });
+    cx.run_until_parked();
+    cx.update(|window, _| assert!(window.is_window_active()));
+    console.update(cx, |this, cx| {
+        this.observe_activity(Some(snapshot(Phase::Complete, "mock-1")), false, cx)
+    });
+    cx.run_until_parked();
+    assert!(cx.shown_system_notifications().is_empty());
+    cx.deactivate_window();
+    console.update(cx, |this, cx| {
+        this.observe_activity(Some(snapshot(Phase::Permission, "mock-2")), false, cx)
+    });
+    cx.run_until_parked();
+    let notifications = cx.shown_system_notifications();
+    assert_eq!(notifications.len(), 1);
+    assert!(!notifications[0].body.contains("mock-session"));
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.new_session(window, cx);
+            this.state.show_welcome();
+        })
+    });
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: notifications[0].tag.clone(),
+        action_id: Some("open".into()),
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.screen, Screen::Local);
+            assert_eq!(this.state.local_terminal.active_session, 0);
+            this.preferences
+                .update(cx, |prefs, _| prefs.agent_notifications = false);
+        })
+    });
+    cx.deactivate_window();
+    console.update(cx, |this, cx| {
+        this.observe_activity(Some(snapshot(Phase::Complete, "mock-3")), false, cx)
+    });
+    cx.run_until_parked();
+    assert_eq!(cx.shown_system_notifications().len(), 1);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.close_terminal_session(0, window, cx);
+            let before = this.state.local_terminal.active_session;
+            this.open_agent_notification(&notifications[0].tag, window, cx);
+            assert_eq!(this.state.local_terminal.active_session, before);
+        })
+    });
+    assert!(cx.delivered_system_notifications().is_empty());
+}
+
+#[gpui_test::test]
+fn agent_notifications_do_not_interrupt_an_active_settings_window(cx: &mut TestAppContext) {
+    use tervia::agent::{
+        Agent,
+        activity::{Phase, Snapshot},
+    };
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let console = cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.preferences
+                .update(cx, |prefs, _| prefs.agent_notifications = true);
+            this.config = Some(tervia::config::Config::new(root.path().join("config.toml")));
+            this.open_local_terminal(window, cx);
+            let console = this.ensure_console(0, window, cx);
+            this.open_preferences(cx);
+            this.preferences_window
+                .unwrap()
+                .update(cx, |_, window, _| window.activate_window())
+                .unwrap();
+            console
+        })
+    });
+    cx.run_until_parked();
+    console.update(cx, |this, cx| {
+        this.observe_activity(
+            Some(Snapshot {
+                epoch: "mock-epoch".into(),
+                agent: Agent::Claude,
+                phase: Phase::Permission,
+                session: "mock-session".into(),
+                turn: "mock-turn".into(),
+                revision: "mock-revision".into(),
+            }),
+            false,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    assert!(cx.shown_system_notifications().is_empty());
+}
+
+#[gpui_test::test]
+fn agent_notification_returns_to_its_project_after_neighbor_tabs_close(cx: &mut TestAppContext) {
+    use tervia::agent::{
+        Agent,
+        activity::{Phase, Snapshot},
+    };
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let alpha = root.path().join("mock-alpha");
+    let beta = root.path().join("mock-beta");
+    std::fs::create_dir(&alpha).unwrap();
+    std::fs::create_dir(&beta).unwrap();
+    let (project, console) = cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.preferences
+                .update(cx, |prefs, _| prefs.agent_notifications = true);
+            this.config = Some(tervia::config::Config::new(root.path().join("config.toml")));
+            let project = this.state.open_directory(alpha);
+            this.init_project(project, window, cx);
+            this.state.set_tab(Tab::Terminal);
+            this.ensure_console(0, window, cx);
+            this.new_session(window, cx);
+            let console = this.ensure_console(1, window, cx);
+            this.close_terminal_session(0, window, cx);
+            let other = this.state.open_directory(beta);
+            this.init_project(other, window, cx);
+            (project, console)
+        })
+    });
+    cx.deactivate_window();
+    console.update(cx, |this, cx| {
+        this.observe_activity(
+            Some(Snapshot {
+                epoch: "mock-epoch".into(),
+                agent: Agent::Codex,
+                phase: Phase::Complete,
+                session: "mock-session".into(),
+                turn: "mock-turn".into(),
+                revision: "mock-revision".into(),
+            }),
+            false,
+            cx,
+        )
+    });
+    cx.run_until_parked();
+    let notification = cx.shown_system_notifications().pop().unwrap();
+    assert!(notification.body.contains("mock-alpha"));
+    cx.simulate_system_notification_response(SystemNotificationResponse {
+        tag: notification.tag,
+        action_id: None,
+    });
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            assert_eq!(this.state.active_project, project);
+            assert_eq!(this.state.active_tab(), Tab::Terminal);
+            assert_eq!(this.state.terminals().active_session, 0);
+            assert_eq!(
+                this.consoles()[0].as_ref().unwrap().entity_id(),
+                console.entity_id()
+            );
+            assert!(!console.read(cx).needs_attention());
+        })
+    });
 }
 
 fn saved_tabs(

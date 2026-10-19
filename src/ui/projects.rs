@@ -371,7 +371,7 @@ impl Tervia {
             .local_terminals
             .iter()
             .flatten()
-            .any(|console| console.read(cx).attention);
+            .any(|console| console.read(cx).needs_attention());
         content = content
             .child(
                 Button::new("local-terminal-entry")

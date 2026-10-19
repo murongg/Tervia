@@ -15,6 +15,7 @@ pub struct Connection {
     sender: Option<mpsc::SyncSender<Command>>,
     stop: Arc<AtomicBool>,
     identity: Arc<Mutex<Option<Agent>>>,
+    activity: Arc<Mutex<Option<crate::agent::activity::Snapshot>>>,
     pid: Option<u32>,
     target: PathBuf,
     supports_colors: bool,
@@ -53,6 +54,9 @@ impl Connection {
     }
     pub fn foreground_agent(&self) -> Option<Agent> {
         *self.identity.lock().unwrap()
+    }
+    pub fn activity(&self) -> Option<crate::agent::activity::Snapshot> {
+        self.activity.lock().unwrap().clone()
     }
     pub fn process_id(&self) -> Option<u32> {
         self.pid
@@ -231,10 +235,14 @@ pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened
     let identity = Arc::new(Mutex::new(
         response["agent"].as_str().and_then(Agent::from_executable),
     ));
+    // Restored state is a baseline, not a new event to notify about.
+    let activity = Arc::new(Mutex::new(crate::agent::activity::read(directory)));
     let (events, receiver) = async_channel::bounded(64);
     let (sender, commands) = mpsc::sync_channel::<Command>(1024);
     if let Some(mut stream) = stream.take() {
         let identity = identity.clone();
+        let activity = activity.clone();
+        let directory = directory.to_owned();
         let stop = stop.clone();
         let events = events.clone();
         let meta = meta.clone();
@@ -250,6 +258,9 @@ pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened
                     Err(_) => break,
                 };
                 let result = request(&mut stream, &meta, command.value);
+                if let Some(snapshot) = crate::agent::activity::read(&directory) {
+                    *activity.lock().unwrap() = Some(snapshot);
+                }
                 if let Some(completion) = command.completion {
                     let _ =
                         completion.send(result.as_ref().map(|_| ()).map_err(ToString::to_string));
@@ -301,6 +312,7 @@ pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened
             sender: (!finished).then_some(sender),
             stop,
             identity,
+            activity,
             pid,
             target: directory.to_owned(),
             shell: meta["shell"].as_str().unwrap_or("").to_owned(),

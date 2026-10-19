@@ -7,6 +7,7 @@ pub struct Preferences {
     pub language: Language,
     pub file_nesting: bool,
     pub command_suggestions: bool,
+    pub agent_notifications: bool,
     pub shell: crate::shell::Profile,
     pub updates: crate::updates::Settings,
 }
@@ -21,6 +22,7 @@ impl Default for Preferences {
             language: Language::System,
             file_nesting: false,
             command_suggestions: true,
+            agent_notifications: false,
             shell: crate::shell::Profile::Default,
             updates: crate::updates::Settings::default(),
         }

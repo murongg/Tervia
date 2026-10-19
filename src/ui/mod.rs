@@ -1,3 +1,4 @@
+mod agents;
 pub(crate) mod console;
 mod context;
 mod controls;
@@ -238,6 +239,7 @@ impl Tervia {
             subscriptions: Vec::new(),
         };
         view.subscribe_tasks(window, cx);
+        view.subscribe_agent_notifications(window, cx);
         view.subscriptions.push(cx.subscribe_in(
             &view.terminal_name,
             window,

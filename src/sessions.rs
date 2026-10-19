@@ -98,6 +98,7 @@ impl Target {
         }
         let launch = (|| -> io::Result<()> {
             runtime::private_directory(&self.directory())?;
+            let agent_token = random_id()?;
             runtime::write_private(
                 &self.directory().join("launch.json"),
                 &json!({
@@ -105,13 +106,25 @@ impl Target {
                     "token": random_id()?, "colors": self.colors,
                     "shell": self.shell,
                     "task": self.task.as_ref().map(crate::tasks::Task::to_json),
+                    "agent_token": agent_token,
                 }),
             )?;
+            let mut environment = self.environment.clone();
+            environment.extend([
+                (
+                    OsString::from("TERVIA_AGENT_DIR"),
+                    self.directory().into_os_string(),
+                ),
+                (
+                    OsString::from("TERVIA_AGENT_TOKEN"),
+                    OsString::from(agent_token),
+                ),
+            ]);
             runtime::spawn(
                 &self.root,
                 &self.executable,
                 &self.directory(),
-                &self.environment,
+                &environment,
             )
         })();
         if let Err(error) = launch {

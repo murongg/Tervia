@@ -148,6 +148,7 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
     let updates = section(document.get("updates"), "updates", &empty)?;
     let files = section(document.get("files"), "files", &empty)?;
     let terminal = section(document.get("terminal"), "terminal", &empty)?;
+    let agents = section(document.get("agents"), "agents", &empty)?;
     let theme = string(ui.get("theme"), "ui.theme", "dark")?;
     let light_theme = match theme {
         "dark" => false,
@@ -190,6 +191,11 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
             terminal.get("suggestions"),
             "terminal.suggestions",
             defaults.command_suggestions,
+        )?,
+        agent_notifications: boolean(
+            agents.get("notifications"),
+            "agents.notifications",
+            defaults.agent_notifications,
         )?,
         shell: crate::shell::Profile::from_id(string(
             terminal.get("shell"),
@@ -276,6 +282,10 @@ fn language_code(language: Language) -> &'static str {
 }
 
 fn write(document: &mut DocumentMut, preferences: &Preferences) {
+    set(
+        &mut document["agents"]["notifications"],
+        Value::from(preferences.agent_notifications),
+    );
     set(
         &mut document["terminal"]["shell"],
         Value::from(preferences.shell.id()),

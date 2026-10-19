@@ -22,6 +22,7 @@ use tervia::{
 };
 
 use super::theme::Palette;
+mod activity;
 mod scroll;
 mod search;
 mod suggestions;
@@ -59,6 +60,8 @@ pub struct AttentionChanged;
 impl EventEmitter<AttentionChanged> for Console {}
 pub struct LifecycleChanged;
 impl EventEmitter<LifecycleChanged> for Console {}
+pub(super) struct ActivityChanged(pub Option<tervia::agent::activity::Snapshot>);
+impl EventEmitter<ActivityChanged> for Console {}
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -186,6 +189,9 @@ pub struct Console {
     pub cwd: PathBuf,
     pub agent: Option<Agent>,
     pub(super) attention: bool,
+    activity: Option<tervia::agent::activity::Snapshot>,
+    retired_epoch: Option<String>,
+    agent_attention: bool,
     search: Option<search::Search>,
     suggestions: suggestions::State,
     buffer: TerminalBuffer,
@@ -310,6 +316,9 @@ impl Console {
             cwd: cwd.clone(),
             agent: None,
             attention: false,
+            activity: None,
+            retired_epoch: None,
+            agent_attention: false,
             search: None,
             suggestions: suggestions::State::new(history),
             buffer: TerminalBuffer::new(80, 24),
@@ -381,11 +390,8 @@ impl Console {
                 if weak
                     .update(cx, |this, cx| {
                         let agent = this.session.as_ref().and_then(Connection::foreground_agent);
-                        if this.agent != agent {
-                            this.agent = agent;
-                            cx.emit(IdentityChanged);
-                            cx.notify();
-                        }
+                        let activity = this.session.as_ref().and_then(Connection::activity);
+                        this.observe_session(agent, activity, cx);
                         if this.buffer.term.is_focused && this.buffer.term.cursor_style().blinking {
                             this.cursor_on = !this.cursor_on;
                             cx.notify();
@@ -435,6 +441,7 @@ impl Console {
                     .await;
                 let receiver = match weak.update(cx, |this, cx| match result {
                     Ok((session, receiver, tracker)) => {
+                        this.observe_activity(session.activity(), true, cx);
                         this.session = Some(session);
                         this.suggestions.tracker = tracker;
                         cx.notify();
@@ -571,8 +578,9 @@ impl Console {
         }
         self.buffer.term.is_focused = focused;
         if focused {
-            if self.attention {
+            if self.needs_attention() {
                 self.attention = false;
+                self.agent_attention = false;
                 cx.emit(AttentionChanged);
             }
             cx.emit(Focused);
@@ -1042,6 +1050,221 @@ impl Console {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+
+    #[gpui_test::test]
+    fn precise_agent_attention_deduplicates_and_replay_never_alerts(cx: &mut TestAppContext) {
+        use tervia::agent::activity::{Phase, Snapshot};
+        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            let console = cx.new(mock_console);
+            console.update(cx, |this, cx| {
+                let snapshot = |phase, revision: &str| Snapshot {
+                    epoch: "mock-epoch".into(),
+                    agent: Agent::Codex,
+                    phase,
+                    session: "mock-session".into(),
+                    turn: "mock-turn".into(),
+                    revision: revision.into(),
+                };
+                this.buffer.term.is_focused = false;
+                this.observe_activity(Some(snapshot(Phase::Complete, "mock-1")), true, cx);
+                assert!(!this.needs_attention());
+                this.observe_activity(Some(snapshot(Phase::Permission, "mock-2")), false, cx);
+                assert!(this.needs_attention());
+                this.focus_changed(true, cx);
+                assert!(!this.needs_attention());
+                this.focus_changed(false, cx);
+                this.observe_activity(Some(snapshot(Phase::Permission, "mock-3")), false, cx);
+                assert!(!this.needs_attention());
+                this.observe_activity(Some(snapshot(Phase::Working, "mock-4")), false, cx);
+                this.observe_activity(Some(snapshot(Phase::Complete, "mock-5")), false, cx);
+                assert!(this.needs_attention());
+                this.focus_changed(true, cx);
+                this.replaying = true;
+                this.focus_changed(false, cx);
+                this.observe_activity(Some(snapshot(Phase::Failed, "mock-6")), false, cx);
+                assert!(!this.needs_attention());
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn restarting_the_same_agent_without_new_hooks_does_not_reuse_its_old_status(
+        cx: &mut TestAppContext,
+    ) {
+        use tervia::agent::activity::{Phase, Snapshot};
+        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            let console = cx.new(mock_console);
+            console.update(cx, |this, cx| {
+                this.observe_agent(Some(Agent::Claude), cx);
+                this.observe_activity(
+                    Some(Snapshot {
+                        epoch: "mock-epoch".into(),
+                        agent: Agent::Claude,
+                        phase: Phase::Working,
+                        session: "mock-old-session".into(),
+                        turn: "mock-old-turn".into(),
+                        revision: "mock-old-event".into(),
+                    }),
+                    true,
+                    cx,
+                );
+                let late = Snapshot {
+                    epoch: "mock-epoch".into(),
+                    agent: Agent::Claude,
+                    phase: Phase::Permission,
+                    session: "mock-old-session".into(),
+                    turn: "mock-old-turn".into(),
+                    revision: "mock-late-event".into(),
+                };
+                this.observe_session(None, Some(late.clone()), cx);
+                this.observe_session(Some(Agent::Claude), Some(late), cx);
+                assert_eq!(
+                    this.agent_status(),
+                    Some((Agent::Claude, "agent_untracked"))
+                );
+                assert!(!this.needs_attention());
+                let ended = Snapshot {
+                    epoch: "mock-epoch".into(),
+                    agent: Agent::Claude,
+                    phase: Phase::Exited,
+                    session: "mock-old-session".into(),
+                    turn: "mock-old-turn".into(),
+                    revision: "mock-ended-event".into(),
+                };
+                this.observe_session(None, Some(ended.clone()), cx);
+                this.observe_session(Some(Agent::Claude), Some(ended), cx);
+                assert_eq!(
+                    this.agent_status(),
+                    Some((Agent::Claude, "agent_untracked"))
+                );
+                this.observe_activity(
+                    Some(Snapshot {
+                        epoch: "mock-resumed-epoch".into(),
+                        agent: Agent::Claude,
+                        phase: Phase::Ready,
+                        session: "mock-old-session".into(),
+                        turn: "mock-new-turn".into(),
+                        revision: "mock-new-event".into(),
+                    }),
+                    false,
+                    cx,
+                );
+                assert_eq!(this.agent_status(), Some((Agent::Claude, "agent_ready")));
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn resumed_session_state_survives_when_polling_skips_its_ready_event(cx: &mut TestAppContext) {
+        use tervia::agent::activity::{Event, Phase, Snapshot};
+        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            let console = cx.new(mock_console);
+            console.update(cx, |this, cx| {
+                let event = |name| {
+                    Event::parse(
+                        Agent::Claude,
+                        &serde_json::json!({"session_id":"mock-session", "hook_event_name":name}),
+                    )
+                    .unwrap()
+                };
+                let old =
+                    Snapshot::advance(None, event("UserPromptSubmit"), "mock-old-epoch".into())
+                        .unwrap();
+                this.observe_session(Some(Agent::Claude), Some(old.clone()), cx);
+                this.observe_session(None, None, cx);
+                let start =
+                    Snapshot::advance(Some(&old), event("SessionStart"), "mock-new-epoch".into())
+                        .unwrap();
+                let working = Snapshot::advance(
+                    Some(&start),
+                    event("UserPromptSubmit"),
+                    "mock-latest".into(),
+                )
+                .unwrap();
+                this.observe_session(Some(Agent::Claude), Some(working), cx);
+                assert_eq!(
+                    this.agent_status(),
+                    Some((Agent::Claude, Phase::Working.key()))
+                );
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn a_fresh_hook_survives_a_foreground_transition_in_the_same_poll(cx: &mut TestAppContext) {
+        use tervia::agent::activity::{Phase, Snapshot};
+        cx.update(gpui_kit::init);
+        cx.update(|cx| {
+            let console = cx.new(mock_console);
+            console.update(cx, |this, cx| {
+                let snapshot = |session: &str, phase, revision: &str| Snapshot {
+                    epoch: session.into(),
+                    agent: Agent::Claude,
+                    phase,
+                    session: session.into(),
+                    turn: revision.into(),
+                    revision: revision.into(),
+                };
+                this.observe_agent(Some(Agent::Claude), cx);
+                this.observe_activity(
+                    Some(snapshot("mock-old", Phase::Working, "mock-1")),
+                    true,
+                    cx,
+                );
+                let fresh = snapshot("mock-new", Phase::Ready, "mock-2");
+                this.observe_session(None, Some(fresh.clone()), cx);
+                this.observe_session(Some(Agent::Claude), Some(fresh), cx);
+                assert_eq!(this.agent_status(), Some((Agent::Claude, "agent_ready")));
+                this.observe_agent(Some(Agent::Gemini), cx);
+                assert_eq!(this.agent_status(), None);
+            });
+        });
+    }
+
+    #[gpui_test::test]
+    fn agent_status_stays_above_the_terminal_in_constrained_panes_and_both_themes(
+        cx: &mut TestAppContext,
+    ) {
+        use tervia::agent::activity::{Phase, Snapshot};
+        let (console, cx) = scroll_fixture(cx);
+        cx.simulate_resize(size(px(360.0), px(320.0)));
+        for light in [false, true] {
+            console.update(cx, |this, cx| {
+                this.agent = Some(Agent::Codex);
+                this.appearance.light_theme = light;
+                this.appearance.language = Language::Chinese;
+                this.observe_activity(
+                    Some(Snapshot {
+                        epoch: "mock-epoch".into(),
+                        agent: Agent::Codex,
+                        phase: Phase::Permission,
+                        session: "mock-session".into(),
+                        turn: "mock-turn".into(),
+                        revision: "mock-revision".into(),
+                    }),
+                    true,
+                    cx,
+                );
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let status = cx.debug_bounds("agent-status").unwrap();
+            assert_eq!(status.size.height, px(30.0));
+            console.update(cx, |this, _| {
+                assert!(status.bottom() <= this.bounds.top());
+                assert!(status.left() <= this.bounds.left());
+                assert!(status.right() >= this.bounds.right());
+                assert!(status.left() >= px(0.0) && status.right() <= px(360.0));
+                assert_eq!(
+                    this.agent_status(),
+                    Some((Agent::Codex, "agent_permission"))
+                );
+            });
+        }
+    }
 
     #[gpui_test::test]
     fn replay_suppresses_historical_bells_clipboard_and_input(cx: &mut TestAppContext) {
@@ -2164,6 +2387,9 @@ mod tests {
             cwd: "/mock-home".into(),
             agent: None,
             attention: false,
+            activity: None,
+            retired_epoch: None,
+            agent_attention: false,
             search: None,
             suggestions: suggestions::State::new(tervia::suggestions::Worker::new(None)),
             buffer: TerminalBuffer::new(80, 24),
@@ -2417,6 +2643,7 @@ impl Render for Console {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_scroll_wheel(cx.listener(Self::scroll))
             .children(search_bar)
+            .children(self.agent_status_bar())
             .child(
                 div()
                     .relative()
