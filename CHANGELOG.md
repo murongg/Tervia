@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.15.0 (2026-10-19)
+
+### Features
+
+- **agents:** add opt-in status and notifications (776b2038)
+- **tasks:** add project task launcher (5b6e5127)
+
+### Other changes
+
+- **settings:** reveal toggles before clicking (e7b025a7)
+- **windows:** compare packaged license with source bytes (6917dfe7)
+- license project under AGPL-3.0-only (84d08e86)
+
 ## v0.14.1 (2026-10-18)
 
 ### Fixes
