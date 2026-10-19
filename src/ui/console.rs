@@ -1,4 +1,4 @@
-use std::{ops::Range, path::PathBuf, time::Duration};
+use std::{ops::Range, path::PathBuf, sync::Arc, time::Duration};
 
 use alacritty_terminal::{
     event::{Event, WindowSize},
@@ -23,6 +23,7 @@ use tervia::{
 
 use super::theme::Palette;
 mod activity;
+mod render;
 mod scroll;
 mod search;
 mod suggestions;
@@ -195,6 +196,7 @@ pub struct Console {
     search: Option<search::Search>,
     suggestions: suggestions::State,
     buffer: TerminalBuffer,
+    glyphs: render::Glyphs,
     session: Option<Connection>,
     target: Option<Target>,
     replaying: bool,
@@ -322,6 +324,7 @@ impl Console {
             search: None,
             suggestions: suggestions::State::new(history),
             buffer: TerminalBuffer::new(80, 24),
+            glyphs: Default::default(),
             session: None,
             target: target.as_ref().ok().map(|(target, _)| target.clone()),
             replaying: !cfg!(test) && target.is_ok(),
@@ -2381,6 +2384,104 @@ mod tests {
         });
     }
 
+    #[gpui_test::test]
+    fn terminal_reuses_glyphs_without_reusing_stale_colors_fonts_or_combining_text(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(mock_console);
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(900.0), px(500.0)));
+                this.layout(bounds, window, cx);
+                this.buffer.feed(b"aaaaaaaaaaaaaaaaaaaa");
+                let first = this.layout(bounds, window, cx);
+                let second = this.layout(bounds, window, cx);
+                assert_eq!(first.text.len(), second.text.len());
+                for ((a, origin_a), (b, origin_b)) in first.text.iter().zip(&second.text) {
+                    assert_eq!(origin_a, origin_b);
+                    assert!(std::sync::Arc::ptr_eq(a, b));
+                }
+                assert!(std::sync::Arc::ptr_eq(&first.text[0].0, &first.text[1].0));
+                this.buffer.feed(b"\x1b]10;#ff0000\x07");
+                let recolored = this.layout(bounds, window, cx);
+                assert!(!std::sync::Arc::ptr_eq(
+                    &first.text[0].0,
+                    &recolored.text[0].0
+                ));
+                this.appearance.code_size += 2;
+                let resized = this.layout(bounds, window, cx);
+                assert!(!std::sync::Arc::ptr_eq(
+                    &recolored.text[0].0,
+                    &resized.text[0].0
+                ));
+                this.buffer
+                    .feed("\r\n\x1b[1;3;4m合成😀e\u{301}\x1b[0m".as_bytes());
+                let unicode = this.layout(bounds, window, cx);
+                assert!(
+                    unicode
+                        .text
+                        .iter()
+                        .any(|(line, _)| line.text.as_ref() == "e\u{301}")
+                );
+                assert!(
+                    unicode
+                        .text
+                        .iter()
+                        .any(|(line, _)| line.text.as_ref() == "😀")
+                );
+            })
+        });
+    }
+
+    #[gpui_test::test]
+    #[ignore = "manual terminal layout benchmark"]
+    fn terminal_layout_benchmark(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(mock_console);
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                let bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(1800.0), px(1200.0)));
+                this.layout(bounds, window, cx);
+                let (columns, rows) = this.buffer.size();
+                let row: String = (0..columns)
+                    .map(|column| (b'!' + (column % 90) as u8) as char)
+                    .collect();
+                this.buffer
+                    .feed(format!("{row}\r\n").repeat(rows).as_bytes());
+                for _ in 0..3 {
+                    std::hint::black_box(this.layout(bounds, window, cx));
+                }
+                let mut times = Vec::new();
+                let mut cells = 0;
+                for _ in 0..60 {
+                    let started = std::time::Instant::now();
+                    let frame = this.layout(bounds, window, cx);
+                    times.push(started.elapsed().as_secs_f64() * 1000.0);
+                    cells = frame.text.len();
+                    std::hint::black_box(frame);
+                }
+                times.sort_by(f64::total_cmp);
+                println!(
+                    "terminal_layout: median_ms={:.3} p95_ms={:.3} glyphs={cells} samples=60",
+                    times[30], times[56]
+                );
+            })
+        });
+    }
+
     fn mock_console(cx: &mut Context<Console>) -> Console {
         Console {
             focus: cx.focus_handle(),
@@ -2393,6 +2494,7 @@ mod tests {
             search: None,
             suggestions: suggestions::State::new(tervia::suggestions::Worker::new(None)),
             buffer: TerminalBuffer::new(80, 24),
+            glyphs: Default::default(),
             session: None,
             target: None,
             replaying: false,
@@ -2708,7 +2810,7 @@ impl Render for Console {
 }
 
 struct Frame {
-    text: Vec<(ShapedLine, Point<Pixels>)>,
+    text: Vec<(Arc<ShapedLine>, Point<Pixels>)>,
     backgrounds: Vec<(Bounds<Pixels>, Hsla)>,
     cursor: Option<(Bounds<Pixels>, Hsla)>,
     line_height: Pixels,
@@ -2733,19 +2835,8 @@ impl Console {
             family: self.appearance.font_family.clone().into(),
             ..Default::default()
         };
-        let run = TextRun {
-            len: 1,
-            font: font.clone(),
-            color: p.text,
-            background_color: None,
-            underline: None,
-            strikethrough: None,
-        };
-        self.cell_width = window
-            .text_system()
-            .shape_line("M".into(), font_size, &[run], None)
-            .width
-            .max(px(1.0));
+        self.glyphs.configure(&font, font_size);
+        self.cell_width = self.glyphs.cell_width(window);
         self.cell_height = px(self.appearance.code_size as f32 * 1.65);
         self.bounds = Bounds::new(
             bounds.origin + point(px(20.0), px(16.0)),
@@ -2827,10 +2918,6 @@ impl Console {
             {
                 continue;
             }
-            let mut text = cell.c.to_string();
-            if let Some(combining) = cell.zerowidth() {
-                text.extend(combining);
-            }
             let color = self
                 .color(foreground)
                 .opacity(if cell.flags.contains(Flags::DIM) {
@@ -2838,39 +2925,9 @@ impl Console {
                 } else {
                     1.0
                 });
-            let run = TextRun {
-                len: text.len(),
-                font: Font {
-                    weight: if cell.flags.contains(Flags::BOLD) {
-                        FontWeight::BOLD
-                    } else {
-                        FontWeight::NORMAL
-                    },
-                    style: if cell.flags.contains(Flags::ITALIC) {
-                        FontStyle::Italic
-                    } else {
-                        FontStyle::Normal
-                    },
-                    ..font.clone()
-                },
-                color,
-                background_color: None,
-                underline: cell
-                    .flags
-                    .intersects(Flags::ALL_UNDERLINES)
-                    .then_some(UnderlineStyle {
-                        color: Some(color),
-                        thickness: px(1.0),
-                        wavy: false,
-                    }),
-                strikethrough: None,
-            };
-            frame.text.push((
-                window
-                    .text_system()
-                    .shape_line(text.into(), font_size, &[run], None),
-                origin,
-            ));
+            frame
+                .text
+                .push((self.glyphs.line(cell, color, window), origin));
         }
         if self.focus.is_focused(window)
             && (self.cursor_on || !self.buffer.term.cursor_style().blinking)
@@ -2920,12 +2977,12 @@ impl Console {
                         strikethrough: None,
                     };
                     frame.text.push((
-                        window.text_system().shape_line(
+                        Arc::new(window.text_system().shape_line(
                             self.composition.clone().into(),
                             font_size,
                             &[run],
                             None,
-                        ),
+                        )),
                         origin,
                     ));
                 }

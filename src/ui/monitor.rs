@@ -21,7 +21,9 @@ pub(super) struct Monitor {
     registered: BTreeSet<PathBuf>,
     syncing: Option<usize>,
     sync_again: bool,
+    sync_paths: BTreeSet<PathBuf>,
     tree_pending: bool,
+    tree_paths: BTreeSet<PathBuf>,
     generation: usize,
     pub external: BTreeMap<PathBuf, &'static str>,
 }
@@ -34,7 +36,9 @@ impl Tervia {
         monitor.generation += 1;
         monitor.syncing = None;
         monitor.sync_again = false;
+        monitor.sync_paths.clear();
         monitor.tree_pending = false;
+        monitor.tree_paths.clear();
         monitor.starting = false;
         monitor.registered.clear();
         if let Some(watch) = monitor.watch.take() {
@@ -57,7 +61,9 @@ impl Tervia {
             monitor.generation += 1;
             monitor.syncing = None;
             monitor.sync_again = false;
+            monitor.sync_paths.clear();
             monitor.tree_pending = false;
+            monitor.tree_paths.clear();
             monitor.starting = false;
             monitor.registered.clear();
             if let Some(watch) = monitor.watch.take() {
@@ -220,9 +226,9 @@ impl Tervia {
         for project in 0..self.monitors.len() {
             let changes = self.monitors[project].watch.as_ref().map(Watch::drain);
             let monitor = &mut self.monitors[project];
-            let mut changed = monitor.fallback && fallback_tick;
+            let mut full = monitor.fallback && fallback_tick;
             if let Some(changes) = changes {
-                changed |= changes.rescan || !changes.paths.is_empty();
+                full |= changes.rescan || changes.error.is_some();
                 if changes.error.is_some() {
                     monitor.fallback = true;
                 }
@@ -234,11 +240,32 @@ impl Tervia {
                         .registered
                         .retain(|path| !path.starts_with(&removed));
                 }
+                if !full && !changes.paths.is_empty() {
+                    self.request_tree_paths(project, changes.paths.clone(), window, cx);
+                    self.sync_changed_files(project, changes.paths, window, cx);
+                }
             }
-            if changed {
+            if full {
                 self.request_tree_sync(project, window, cx);
                 self.sync_open_files(project, window, cx);
             }
+        }
+    }
+
+    fn request_tree_paths(
+        &mut self,
+        project: usize,
+        paths: BTreeSet<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.files_active || self.monitors[project].tree_pending {
+            return;
+        }
+        if self.explorers[project].tree.loading() {
+            self.monitors[project].tree_paths.extend(paths);
+        } else {
+            self.refresh_explorer_paths(project, &paths, window, cx);
         }
     }
 
@@ -262,9 +289,17 @@ impl Tervia {
         if !self.files_active {
             return;
         }
-        if self.monitors[project].tree_pending && !self.explorers[project].tree.loading() {
-            self.monitors[project].tree_pending = false;
-            self.refresh_explorer(project, window, cx);
+        if !self.explorers[project].tree.loading() {
+            if self.monitors[project].tree_pending {
+                self.monitors[project].tree_pending = false;
+                self.monitors[project].tree_paths.clear();
+                self.refresh_explorer(project, window, cx);
+            } else {
+                let paths = std::mem::take(&mut self.monitors[project].tree_paths);
+                if !paths.is_empty() {
+                    self.request_tree_paths(project, paths, window, cx);
+                }
+            }
         }
     }
 
@@ -281,14 +316,42 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.sync_files(project, None, window, cx);
+    }
+
+    fn sync_changed_files(
+        &mut self,
+        project: usize,
+        paths: BTreeSet<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_files(project, Some(paths), window, cx);
+    }
+
+    fn sync_files(
+        &mut self,
+        project: usize,
+        paths: Option<BTreeSet<PathBuf>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.files_active {
             return;
         }
         let monitor = &mut self.monitors[project];
         if monitor.syncing.is_some() {
-            monitor.sync_again = true;
+            if let Some(paths) = paths {
+                monitor.sync_paths.extend(paths);
+            } else {
+                monitor.sync_again = true;
+            }
             return;
         }
+        let changes = paths.map(|paths| tervia::files::Changes {
+            paths,
+            ..Default::default()
+        });
         let files: Vec<_> = self.state.projects[project]
             .files
             .iter()
@@ -307,8 +370,14 @@ impl Tervia {
             let updates = cx
                 .background_executor()
                 .spawn(async move {
+                    let root = root.canonicalize().unwrap_or(root);
                     files
                         .into_iter()
+                        .filter(|(_, path)| {
+                            changes
+                                .as_ref()
+                                .is_none_or(|changes| changes.affects_file(&root, path))
+                        })
                         .map(|(index, path)| {
                             let contents = tervia::files::text(&root, &path);
                             (index, path, contents)
@@ -339,7 +408,16 @@ impl Tervia {
         monitor.syncing = None;
         if monitor.sync_again || monitor.generation != generation {
             monitor.sync_again = false;
+            monitor.sync_paths.clear();
             self.sync_open_files(project, window, cx);
+            return;
+        }
+        if !monitor.sync_paths.is_empty() {
+            // A newer event can supersede a read already in flight. Retry the union
+            // before installing results so an older disk snapshot cannot replace it.
+            let mut paths = std::mem::take(&mut monitor.sync_paths);
+            paths.extend(updates.iter().map(|(_, path, _)| path.clone()));
+            self.sync_changed_files(project, paths, window, cx);
             return;
         }
         self.apply_disk_updates(project, updates, window, cx);

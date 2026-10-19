@@ -73,6 +73,7 @@ enum Detail {
 
 pub(super) struct GitUi {
     pub snapshot: Option<Arc<Snapshot>>,
+    refresh_cache: tervia::git::SnapshotCache,
     workspace: Option<Arc<tervia::git::Discovery>>,
     changes_scroll: [UniformListScrollHandle; 4],
     changes_layout: sections::State,
@@ -321,6 +322,7 @@ impl GitUi {
     pub fn new(window: &mut Window, cx: &mut Context<Tervia>) -> Self {
         let mut ui = Self {
             snapshot: None,
+            refresh_cache: Default::default(),
             workspace: None,
             changes_scroll: std::array::from_fn(|_| UniformListScrollHandle::new()),
             changes_layout: sections::State::default(),
@@ -640,7 +642,15 @@ impl Tervia {
         if !self.state.project_visible(project) {
             return;
         }
+        // Explicit refreshes retry all metadata; only the periodic poll reuses it.
+        self.git_states[project].refresh_cache.clear();
         self.git_job(project, None, false, window, cx);
+    }
+
+    pub(super) fn poll_git(&mut self, project: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.project_visible(project) {
+            self.git_job_with_cache(project, None, false, true, window, cx);
+        }
     }
 
     fn git_job(
@@ -648,6 +658,18 @@ impl Tervia {
         project: usize,
         operation: Option<Operation>,
         initialize: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.git_job_with_cache(project, operation, initialize, false, window, cx);
+    }
+
+    fn git_job_with_cache(
+        &mut self,
+        project: usize,
+        operation: Option<Operation>,
+        initialize: bool,
+        reuse_metadata: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -678,8 +700,12 @@ impl Tervia {
             self.git_states[project].error.clear();
         }
         cx.notify();
+        let mut refresh_cache = std::mem::take(&mut self.git_states[project].refresh_cache);
+        if !reuse_metadata || mutating {
+            refresh_cache.clear();
+        }
         cx.spawn_in(window, async move |weak, cx| {
-            let (repository, result, snapshot) = cx
+            let (repository, result, snapshot, refresh_cache) = cx
                 .background_executor()
                 .spawn(async move {
                     let repository = if initialize {
@@ -693,11 +719,19 @@ impl Tervia {
                         Ok(Some(repository)) => {
                             let result = operation.map(|operation| repository.execute(operation));
                             // A failed merge/rebase can still change Git's operation state.
-                            let snapshot = repository.snapshot(limit).map(Some);
-                            (Some(repository), result, snapshot)
+                            let snapshot = if reuse_metadata {
+                                refresh_cache.refresh(&repository, limit)
+                            } else {
+                                repository.snapshot(limit)
+                            }
+                            .map(Some);
+                            if snapshot.is_err() {
+                                refresh_cache.clear();
+                            }
+                            (Some(repository), result, snapshot, refresh_cache)
                         }
-                        Ok(None) => (None, None, Ok(None)),
-                        Err(error) => (None, None, Err(error)),
+                        Ok(None) => (None, None, Ok(None), Default::default()),
+                        Err(error) => (None, None, Err(error), Default::default()),
                     }
                 })
                 .await;
@@ -719,6 +753,7 @@ impl Tervia {
                 }
                 let ui = &mut this.git_states[project];
                 ui.busy = false;
+                ui.refresh_cache = refresh_cache;
                 ui.repository = repository;
                 // Only a positive absence result may enable initialization; failed reads remain unknown.
                 ui.plain_directory = matches!(&snapshot, Ok(None));

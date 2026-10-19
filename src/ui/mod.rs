@@ -83,6 +83,7 @@ pub struct Tervia {
     config: Option<Config>,
     workspace: Option<Store>,
     workspace_save: Option<Task<()>>,
+    workspace_revision: u64,
     config_error: Entity<Option<String>>,
     preferences_window: Option<AnyWindowHandle>,
     updater: Entity<updates::Updater>,
@@ -205,6 +206,7 @@ impl Tervia {
             config,
             workspace,
             workspace_save: None,
+            workspace_revision: 0,
             config_error: cx.new(|_| error),
             preferences_window: None,
             updater,
@@ -384,7 +386,7 @@ impl Tervia {
                             && this.state.has_project()
                             && this.state.project().tab == Tab::Git
                         {
-                            this.refresh_git(this.state.active_project, window, cx);
+                            this.poll_git(this.state.active_project, window, cx);
                         }
                     })
                     .is_err()

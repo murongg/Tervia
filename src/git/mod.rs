@@ -8,7 +8,9 @@ pub mod graph;
 pub use discovery::{Discovery, Scan, ScanLimit};
 mod operations;
 mod pipe;
+mod refresh;
 mod review;
+pub use refresh::SnapshotCache;
 mod stash;
 mod status;
 pub use review::{ReviewKey, Reviews};
@@ -291,7 +293,10 @@ impl Repository {
         None
     }
     pub fn snapshot(&self, limit: usize) -> Result<Snapshot, Error> {
-        let status = self.status()?;
+        self.snapshot_with_status(limit, self.status()?)
+    }
+
+    fn snapshot_with_status(&self, limit: usize, status: Status) -> Result<Snapshot, Error> {
         let branches = text(self.run(&[
             "for-each-ref",
             "--format=%(refname:short)%00%(HEAD)%00%(upstream:short)%00%(refname)%00%(symref)",

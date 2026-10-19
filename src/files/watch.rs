@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Changes {
     pub paths: BTreeSet<PathBuf>,
     pub removed: BTreeSet<PathBuf>,
@@ -17,6 +17,29 @@ pub struct Changes {
 }
 
 impl Changes {
+    pub fn affects(&self, path: &Path) -> bool {
+        self.rescan
+            || self.error.is_some()
+            || self.paths.iter().any(|changed| path.starts_with(changed))
+    }
+
+    /// Resolve aliases on a background worker; unavailable paths still need reconciliation.
+    pub fn affects_file(&self, root: &Path, path: &Path) -> bool {
+        // Watch events name real targets; documents may keep an internal symlink alias.
+        self.affects(path)
+            || root
+                .join(path)
+                .canonicalize()
+                .ok()
+                .and_then(|resolved| {
+                    resolved
+                        .strip_prefix(root)
+                        .ok()
+                        .map(|path| self.affects(path))
+                })
+                .unwrap_or(true)
+    }
+
     pub fn record(&mut self, root: &Path, event: notify::Result<Event>) {
         let event = match event {
             Ok(event) => event,

@@ -74,35 +74,81 @@ pub fn index(root: &Path, cancel: &AtomicBool) -> Result<Index, String> {
     Ok(index)
 }
 
+struct Name {
+    path: PathBuf,
+    full: String,
+    name: String,
+}
+
+/// Normalized names belong to one immutable directory index, shared across queries.
+pub struct Names {
+    names: Vec<Name>,
+    pub limited: bool,
+}
+
+impl Names {
+    pub fn new(index: Index) -> Self {
+        Self {
+            limited: index.limited,
+            names: index
+                .paths
+                .into_iter()
+                .filter_map(|path| {
+                    let name = path.file_name()?.to_string_lossy().to_lowercase();
+                    let full = path.to_string_lossy().replace('\\', "/").to_lowercase();
+                    Some(Name { path, full, name })
+                })
+                .collect(),
+        }
+    }
+
+    pub fn find(&self, query: &str) -> Vec<PathBuf> {
+        let query = normalize(query);
+        top(self.names.iter().filter_map(|entry| {
+            score(&entry.full, &entry.name, &query)
+                .map(|score| (score, entry.full.len(), &entry.path))
+        }))
+    }
+}
+
+fn normalize(query: &str) -> String {
+    query.trim().replace('\\', "/").to_lowercase()
+}
+
+fn score(full: &str, name: &str, query: &str) -> Option<u8> {
+    Some(if name.starts_with(query) {
+        0
+    } else if name.contains(query) {
+        1
+    } else if full.contains(query) {
+        2
+    } else {
+        let mut chars = full.chars();
+        if !query.chars().all(|wanted| chars.any(|ch| ch == wanted)) {
+            return None;
+        }
+        3
+    })
+}
+
+fn top<'a>(matches: impl Iterator<Item = (u8, usize, &'a PathBuf)>) -> Vec<PathBuf> {
+    let mut found: Vec<_> = matches.collect();
+    // Preserve the complete ranking, but only sort and clone the visible prefix.
+    if found.len() > 500 {
+        found.select_nth_unstable(500);
+        found.truncate(500);
+    }
+    found.sort_unstable();
+    found.into_iter().map(|(_, _, path)| path.clone()).collect()
+}
+
 pub fn find(paths: &[PathBuf], query: &str) -> Vec<PathBuf> {
-    let query = query.trim().replace('\\', "/").to_lowercase();
-    let mut found: Vec<_> = paths
-        .iter()
-        .filter_map(|path| {
-            let full = path.to_string_lossy().replace('\\', "/").to_lowercase();
-            let name = path.file_name()?.to_string_lossy().to_lowercase();
-            let score = if name.starts_with(&query) {
-                0
-            } else if name.contains(&query) {
-                1
-            } else if full.contains(&query) {
-                2
-            } else {
-                let mut chars = full.chars();
-                if !query.chars().all(|wanted| chars.any(|ch| ch == wanted)) {
-                    return None;
-                }
-                3
-            };
-            Some((score, full.len(), path.clone()))
-        })
-        .collect();
-    found.sort();
-    found
-        .into_iter()
-        .take(500)
-        .map(|(_, _, path)| path)
-        .collect()
+    let query = normalize(query);
+    top(paths.iter().filter_map(|path| {
+        let full = path.to_string_lossy().replace('\\', "/").to_lowercase();
+        let name = path.file_name()?.to_string_lossy().to_lowercase();
+        score(&full, &name, &query).map(|score| (score, full.len(), path))
+    }))
 }
 
 pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, String> {
@@ -114,7 +160,8 @@ pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, St
         .case_insensitive(true)
         .build()
         .map_err(|error| error.to_string())?;
-    let index = index(root, cancel)?;
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let index = index(&root, cancel)?;
     results.limited = index.limited;
     let started = Instant::now();
     let mut read_bytes = 0;
@@ -129,7 +176,7 @@ pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, St
             results.limited = true;
             break;
         }
-        let Ok(bytes) = super::read(root, &path) else {
+        let Ok(bytes) = super::read_at(&root, &path) else {
             results.limited = true;
             continue;
         };
@@ -140,6 +187,11 @@ pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, St
         let Ok(content) = std::str::from_utf8(&bytes) else {
             continue;
         };
+        // Most files do not match. Avoid starting a regex search on every line
+        // while retaining line-local matching and UTF-16 columns for actual hits.
+        if !matcher.is_match(content) {
+            continue;
+        }
         for (line, text) in content.lines().enumerate() {
             if cancel.load(Ordering::Relaxed) {
                 return Ok(results);

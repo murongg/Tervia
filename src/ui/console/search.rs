@@ -5,7 +5,7 @@ use gpui_kit::component::input::{Input, InputEvent, InputState};
 pub(super) struct Search {
     pub input: Entity<InputState>,
     pub open: bool,
-    query: String,
+    matcher: tervia::terminal::Search,
     matches: Vec<alacritty_terminal::term::search::Match>,
     active: usize,
 }
@@ -22,7 +22,8 @@ impl Console {
                 window,
                 |this, input, event, _, cx| match event {
                     InputEvent::Change => {
-                        this.search.as_mut().unwrap().query = input.read(cx).value().to_string();
+                        this.search.as_mut().unwrap().matcher =
+                            tervia::terminal::Search::new(input.read(cx).value().as_ref());
                         this.refresh_search(cx);
                     }
                     InputEvent::PressEnter { shift, .. } => this.navigate_match(*shift, cx),
@@ -32,7 +33,7 @@ impl Console {
             self.search = Some(Search {
                 input,
                 open: true,
-                query: String::new(),
+                matcher: tervia::terminal::Search::new(""),
                 matches: Vec::new(),
                 active: 0,
             });
@@ -54,7 +55,7 @@ impl Console {
         if !search.open {
             return;
         }
-        let matches = self.buffer.find(&search.query);
+        let matches = search.matcher.find(&self.buffer);
         if matches != search.matches {
             search.matches = matches;
             search.active = search.active.min(search.matches.len().saturating_sub(1));
