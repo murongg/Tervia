@@ -95,6 +95,98 @@ fn source_point(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> Point<Pixe
     })
 }
 
+fn source_is_underlined(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> bool {
+    cx.update(|window, cx| {
+        window.draw(cx).clear(cx);
+        let bounds = view.read(cx).editors[0][0]
+            .read(cx)
+            .range_to_bounds(&(0..4))
+            .unwrap()
+            .scale(window.scale_factor());
+        window.painted_underlines().iter().any(|line| {
+            line.wavy == false.into() && line.color.a > 0.0 && line.bounds.intersects(&bounds)
+        })
+    })
+}
+
+#[gpui_test::test]
+fn pressing_modifier_over_a_stationary_symbol_underlines_it(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_mouse_move(position, None, Modifiers::default());
+    cx.run_until_parked();
+    assert!(!source_is_underlined(&view, cx));
+    cx.simulate_modifiers_change(modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(
+        source_is_underlined(&view, cx),
+        "Pressing Cmd/Ctrl must update the symbol already under the pointer"
+    );
+}
+
+#[gpui_test::test]
+fn stationary_definition_hover_works_without_editor_focus_and_clears_on_release(
+    cx: &mut TestAppContext,
+) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.update(|window, cx| view.update(cx, |this, cx| this.focus.focus(window, cx)));
+    cx.simulate_mouse_move(position, None, Modifiers::default());
+    cx.simulate_modifiers_change(modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(source_is_underlined(&view, cx));
+    cx.update(|window, cx| view.update(cx, |this, _| assert!(this.focus.is_focused(window))));
+    cx.simulate_modifiers_change(Modifiers::default());
+    cx.run_until_parked();
+    assert!(!source_is_underlined(&view, cx));
+}
+
+#[gpui_test::test]
+fn symbols_without_definitions_do_not_get_a_modifier_underline(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "empty", true);
+    let position = source_point(&view, cx);
+    cx.simulate_mouse_move(position, None, Modifiers::default());
+    cx.simulate_modifiers_change(modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(!source_is_underlined(&view, cx));
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 0)
+    });
+}
+
+#[gpui_test::test]
+fn definition_links_paint_underlines_in_both_themes_and_clear_on_release(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    for light in [false, true] {
+        if light {
+            cx.update(|window, cx| view.update(cx, |this, cx| this.toggle_theme(window, cx)));
+            cx.run_until_parked();
+        }
+        let position = source_point(&view, cx);
+        cx.simulate_mouse_move(position, None, modifier());
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+        assert!(
+            source_is_underlined(&view, cx),
+            "light={light}: a confirmed definition must paint an underline"
+        );
+        cx.simulate_modifiers_change(Modifiers::default());
+        cx.run_until_parked();
+        assert!(!source_is_underlined(&view, cx));
+    }
+}
+
 fn show_preview(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> Point<Pixels> {
     let position = source_point(view, cx);
     cx.simulate_modifiers_change(modifier());

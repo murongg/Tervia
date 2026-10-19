@@ -206,6 +206,61 @@ pub(super) fn target_current(prepared: &Prepared, view: &Tervia, project: usize,
 }
 
 impl Tervia {
+    pub(in crate::ui) fn definition_modifiers(
+        &mut self,
+        event: &ModifiersChangedEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !event.modifiers.secondary() || event.modifiers.alt {
+            self.dismiss_definition_preview(cx);
+            return;
+        }
+        if !self.state.has_project() || self.state.project().tab != Tab::Files {
+            return;
+        }
+        let project = self.state.active_project;
+        let index = self.state.project().active_file;
+        let position = window.mouse_position();
+        if !self.definition_source(project, index)
+            || !self.editors[project][index]
+                .read(cx)
+                .input_bounds()
+                .contains(&position)
+        {
+            return;
+        }
+        let selection = self.file_reads.selection(project);
+        let navigation = self.navigation.generation();
+        let weak = cx.weak_entity();
+        // Base currently hit-tests definitions only on mouse movement. Reuse
+        // that path for modifier-only changes until the editor handles them.
+        // Defer so neither entity event handler is borrowed during redispatch.
+        window.defer(cx, move |window, cx| {
+            let modifiers = window.modifiers();
+            if !modifiers.secondary() || modifiers.alt || window.mouse_position() != position {
+                return;
+            }
+            let current = weak
+                .update(cx, |this, _| {
+                    this.definition_source(project, index)
+                        && this.file_reads.selected(project, selection)
+                        && this.navigation.generation() == navigation
+                })
+                .unwrap_or(false);
+            if current {
+                window.dispatch_event(
+                    PlatformInput::MouseMove(MouseMoveEvent {
+                        position,
+                        pressed_button: None,
+                        modifiers,
+                    }),
+                    cx,
+                );
+            }
+        });
+    }
+
     pub(in crate::ui) fn dismiss_definition_preview(&mut self, cx: &mut Context<Self>) -> bool {
         let mut changed = false;
         for project in 0..self.explorers.len() {

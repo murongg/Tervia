@@ -700,6 +700,7 @@ impl Render for Tervia {
                 Tab::Git => "Tervia",
             })
             .track_focus(&self.focus)
+            .on_modifiers_changed(cx.listener(Self::definition_modifiers))
             .size_full()
             .flex()
             .flex_col()

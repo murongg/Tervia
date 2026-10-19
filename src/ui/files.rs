@@ -359,11 +359,6 @@ impl Tervia {
             .capture_any_mouse_down(
                 cx.listener(|this, event, window, cx| this.definition_click(event, window, cx)),
             )
-            .on_modifiers_changed(cx.listener(|this, event: &ModifiersChangedEvent, _, cx| {
-                if !event.modifiers.secondary() || event.modifiers.alt {
-                    this.dismiss_definition_preview(cx);
-                }
-            }))
             .on_mouse_move(cx.listener(|this, event, _, cx| this.definition_pointer(event, cx)))
             .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
                 if !*hovered {
