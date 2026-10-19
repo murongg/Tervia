@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.15.1 (2026-10-19)
+
+### Performance
+
+- reduce terminal and workspace refresh overhead (5cb9dba1)
+
 ## v0.15.0 (2026-10-19)
 
 ### Features
