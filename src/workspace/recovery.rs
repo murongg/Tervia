@@ -23,6 +23,11 @@ pub(super) fn snapshot(
                         .as_ref()
                         .is_some_and(|id| !Session::valid_connection(id))
                     || session.scroll_offset > 10000
+                    || session
+                        .task
+                        .as_ref()
+                        .is_some_and(|task| crate::tasks::Task::from_json(&task.to_json()).is_err())
+                    || (session.task.is_some() && session.connection.is_none())
             })
         {
             return Err(serde_json::Error::io(io::Error::new(
@@ -35,6 +40,7 @@ pub(super) fn snapshot(
             // A lone renamed tab still needs a recovery context in the default Git layout.
             && project.terminal.sessions[0].custom_name.is_none()
             && project.terminal.sessions[0].connection.is_none()
+            && project.terminal.sessions[0].task.is_none()
             && project.terminal.sessions[0].scroll_offset == 0
             && !project.dock.visible
             && project.tab == Tab::Git
@@ -82,6 +88,7 @@ pub(super) fn snapshot(
             "custom_names": project.terminal.sessions.iter().map(|session| &session.custom_name).collect::<Vec<_>>(),
             "connections": project.terminal.sessions.iter().map(|session| &session.connection).collect::<Vec<_>>(),
             "scroll_offsets": project.terminal.sessions.iter().map(|session| session.scroll_offset).collect::<Vec<_>>(),
+            "tasks": project.terminal.sessions.iter().map(|session| session.task.as_ref().map(crate::tasks::Task::to_json)).collect::<Vec<_>>(),
             "active_session": project.terminal.active_session, "focused_session": project.terminal.focused_session,
             "split_terminal": project.terminal.split_terminal, "files": files,
             "active_file": project.current_file().map(|file| serde_json::to_value(&file.disk_path)).transpose()?
@@ -266,6 +273,7 @@ pub(super) fn terminals(context: &Value) -> Result<Terminals, String> {
     };
     let connections = parallel("connections")?;
     let offsets = parallel("scroll_offsets")?;
+    let tasks = parallel("tasks")?;
     let mut identities = std::collections::BTreeSet::new();
     let sessions = sessions
         .iter()
@@ -303,9 +311,21 @@ pub(super) fn terminals(context: &Value) -> Result<Terminals, String> {
                     })
                     .transpose()?,
                 scroll_offset: number(offsets.map(|values| &values[index]), 0, 10000)? as usize,
+                task: tasks
+                    .map(|values| &values[index])
+                    .filter(|task| !task.is_null())
+                    .map(crate::tasks::Task::from_json)
+                    .transpose()?,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    // Recovery may reconnect a task, but must never turn missing host metadata into permission to execute it again.
+    if sessions
+        .iter()
+        .any(|session| session.task.is_some() && session.connection.is_none())
+    {
+        return Err("A recovered task must have a terminal connection".into());
+    }
     let active = number(context.get("active_session"), 0, 63)? as usize;
     let focused = number(context.get("focused_session"), active as u64, 63)? as usize;
     if active > sessions.len().saturating_sub(1) || focused > sessions.len().saturating_sub(1) {

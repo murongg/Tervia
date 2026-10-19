@@ -5,12 +5,13 @@ use tervia::platform::Platform;
 use super::{
     ClearTerminal, CloseFileTab, CloseSession, CopyCodeContext, CopyTerminalOutput, FilesTab,
     GitTab, NewLocalTerminal, NewSession, OpenFile, OpenPreferences, OpenProject, QuickOpenFile,
-    Quit, ReopenFileTab, SaveFile, SearchProjectText, SplitTerminal, TerminalTab, TogglePalette,
-    ToggleSidebar, ToggleTerminalDock, ToggleTheme, Welcome,
+    Quit, ReopenFileTab, RunProjectTask, SaveFile, SearchProjectText, SplitTerminal, TerminalTab,
+    TogglePalette, ToggleSidebar, ToggleTerminalDock, ToggleTheme, Welcome,
 };
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
     cx.bind_keys([
+        KeyBinding::new("secondary-shift-r", RunProjectTask, Some("Tervia")),
         KeyBinding::new("secondary-shift-n", NewLocalTerminal, Some("Tervia")),
         // Keep Ctrl+W available to shell line editing outside macOS.
         KeyBinding::new(
@@ -118,6 +119,7 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::action(language.text("new_local_terminal"), NewLocalTerminal),
             MenuItem::action(language.text("close_session"), CloseSession),
             MenuItem::action(language.text("toggle_split"), SplitTerminal),
+            MenuItem::action(language.text("tasks_title"), RunProjectTask),
             MenuItem::separator(),
             MenuItem::action(language.text("clear_terminal"), ClearTerminal),
             MenuItem::action(language.text("copy_terminal"), CopyTerminalOutput),

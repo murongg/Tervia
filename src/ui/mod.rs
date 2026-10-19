@@ -15,6 +15,7 @@ mod scroll;
 mod sessions;
 mod shell;
 mod tabs;
+mod tasks;
 mod terminal;
 mod theme;
 mod updates;
@@ -68,7 +69,8 @@ gpui_kit::actions!(
         QuickOpenFile,
         SearchProjectText,
         CopyCodeContext,
-        ToggleTerminalDock
+        ToggleTerminalDock,
+        RunProjectTask
     ]
 );
 
@@ -94,6 +96,7 @@ pub struct Tervia {
     terminal_name: Entity<InputState>,
     terminal_rename: Option<(sessions::Owner, usize)>,
     command_history: tervia::suggestions::Worker,
+    tasks: tasks::Launcher,
     git_states: Vec<git::GitUi>,
     git_scans: git::Scans,
     git_mutating: bool,
@@ -218,6 +221,7 @@ impl Tervia {
             }),
             terminal_rename: None,
             command_history,
+            tasks: tasks::Launcher::new(window, cx),
             git_states: Vec::new(),
             git_scans: git::Scans::default(),
             git_mutating: false,
@@ -233,6 +237,7 @@ impl Tervia {
             files_active: window.is_window_active(),
             subscriptions: Vec::new(),
         };
+        view.subscribe_tasks(window, cx);
         view.subscriptions.push(cx.subscribe_in(
             &view.terminal_name,
             window,
@@ -518,6 +523,7 @@ impl Tervia {
             return;
         }
         self.terminal_rename = None;
+        self.tasks.cancel();
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }
@@ -574,6 +580,10 @@ impl Tervia {
     }
 
     fn dismiss(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.tasks.open {
+            self.close_project_tasks(window, cx);
+            return;
+        }
         if self.welcome_cloning {
             self.welcome_cloning = false;
             self.focus.focus(window, cx);
@@ -839,6 +849,11 @@ impl Render for Tervia {
                 this.close_terminal_session(this.state.command_session(), window, cx)
             }))
             .child(self.titlebar(window, cx))
+            .when(self.state.has_project(), |workspace| {
+                workspace.on_action(cx.listener(|this, _: &RunProjectTask, window, cx| {
+                    this.show_project_tasks(window, cx)
+                }))
+            })
             .child(
                 div()
                     .flex()
@@ -862,6 +877,9 @@ impl Render for Tervia {
             .when(self.state.palette_open, |this| this.child(self.palette(cx)))
             .when(self.navigation.switcher.open, |this| {
                 this.child(self.project_switcher(cx))
+            })
+            .when(self.tasks.open && self.state.has_project(), |this| {
+                this.child(self.project_tasks(cx))
             })
             .into_any_element()
     }

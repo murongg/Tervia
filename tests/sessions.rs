@@ -33,6 +33,64 @@ impl Drop for Cleanup {
     }
 }
 
+#[test]
+fn task_runner_hosts_keep_the_selected_file_and_replay_without_rerunning() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("Makefile"), "mock-make:\n\t@echo mock\n").unwrap();
+    std::fs::write(root.path().join("justfile"), "mock-just:\n  echo mock\n").unwrap();
+    std::fs::write(
+        root.path().join("Taskfile.yml"),
+        "version: '3'\ntasks:\n  'mock-task;touch unexpected': echo mock\n",
+    )
+    .unwrap();
+    let tasks = tervia::tasks::discover(root.path()).tasks;
+    assert_eq!(tasks.len(), 3);
+    let bin = root.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    for program in ["make", "just", "task"] {
+        let path = bin.join(program);
+        std::fs::write(&path, format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > args-{program}\nprintf 'run\\n' >> runs-{program}\nprintf 'mock-runner-output\\n'\nexit 7\n")).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    for (index, task) in tasks.iter().enumerate() {
+        let target = target(&root, ['b', 'c', 'd'][index])
+            .with_env("MOCK_TASK_BIN", &bin)
+            .with_task(task.clone());
+        std::fs::write(
+            root.path().join(".bash_profile"),
+            "export PATH=\"$MOCK_TASK_BIN:/usr/bin:/bin\"\n",
+        )
+        .unwrap();
+        let _cleanup = Cleanup(target.clone());
+        let (session, events, _) = target.open(root.path(), size()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(12);
+        let mut exit = None;
+        while Instant::now() < deadline && exit.is_none() {
+            match events.try_recv() {
+                Ok(PtyEvent::Exited(status)) => exit = Some(status),
+                Ok(PtyEvent::Error(error)) => panic!("{error}"),
+                _ => std::thread::sleep(Duration::from_millis(5)),
+            }
+        }
+        assert_eq!(exit.as_deref(), Some("Exited with code 7"));
+        drop(session);
+        drop(events);
+        let (_session, events, _) = target.reconnect().unwrap();
+        let mut buffer = TerminalBuffer::new(90, 12);
+        output(&events, &mut buffer, "mock-runner-output");
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(format!("args-{}", task.program))).unwrap(),
+            format!("{}\n", task.args.join("\n"))
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(format!("runs-{}", task.program))).unwrap(),
+            "run\n"
+        );
+    }
+    assert!(!root.path().join("unexpected").exists());
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn hosted_programs_leave_the_gui_launchers_resource_coalition() {
@@ -114,6 +172,68 @@ fn size() -> PtySize {
         pixel_width: 0,
         pixel_height: 0,
     }
+}
+
+#[test]
+fn project_task_reconnect_replays_output_and_exit_without_executing_again() {
+    use tervia::tasks::Task;
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let script = bin.join("npm");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf 'mock-task-output\\n'\nprintf '%s\\n' \"$2\" >> runs\nexit 7\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let target = target(&root, 'a')
+        .with_env("MOCK_TASK_BIN", &bin)
+        .with_task(Task {
+            label: "mock 'quoted' $(touch unexpected)".into(),
+            source: "package.json".into(),
+            program: "npm".into(),
+            args: vec!["run".into(), "mock 'quoted' $(touch unexpected)".into()],
+        });
+    std::fs::write(
+        root.path().join(".bash_profile"),
+        "export PATH=\"$MOCK_TASK_BIN:/usr/bin:/bin\"\nprintf 'mock-login-profile\\n'\n",
+    )
+    .unwrap();
+    let _cleanup = Cleanup(target.clone());
+    let (session, events, tracker) = target.open(root.path(), size()).unwrap();
+    assert!(tracker.is_none());
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut buffer = TerminalBuffer::new(90, 12);
+    let mut exit = None;
+    while Instant::now() < deadline && exit.is_none() {
+        match events.try_recv() {
+            Ok(PtyEvent::Data(bytes)) => buffer.feed(&bytes),
+            Ok(PtyEvent::Exited(status)) => exit = Some(status),
+            Ok(PtyEvent::Error(error)) => panic!("{error}"),
+            _ => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    assert_eq!(
+        exit.as_deref(),
+        Some("Exited with code 7"),
+        "{}",
+        buffer.text()
+    );
+    assert!(buffer.text().contains("mock-login-profile"));
+    assert!(buffer.text().contains("mock-task-output"));
+    drop(session);
+    drop(events);
+    let (_session, events, tracker) = target.reconnect().unwrap();
+    assert!(tracker.is_none());
+    let mut restored = TerminalBuffer::new(90, 12);
+    output(&events, &mut restored, "mock-task-output");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("runs")).unwrap(),
+        "mock 'quoted' $(touch unexpected)\n"
+    );
+    assert!(!root.path().join("unexpected").exists());
 }
 
 fn output(receiver: &async_channel::Receiver<PtyEvent>, buffer: &mut TerminalBuffer, text: &str) {

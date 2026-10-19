@@ -34,6 +34,7 @@ pub struct Target {
     environment: Vec<(OsString, OsString)>,
     colors: Vec<[u8; 3]>,
     shell: Option<PathBuf>,
+    task: Option<crate::tasks::Task>,
 }
 
 impl Target {
@@ -45,6 +46,7 @@ impl Target {
             environment: Vec::new(),
             colors: Vec::new(),
             shell: None,
+            task: None,
         }
     }
 
@@ -60,6 +62,11 @@ impl Target {
 
     pub fn with_shell(mut self, shell: impl Into<PathBuf>) -> Self {
         self.shell = Some(shell.into());
+        self
+    }
+
+    pub fn with_task(mut self, task: crate::tasks::Task) -> Self {
+        self.task = Some(task);
         self
     }
 
@@ -97,6 +104,7 @@ impl Target {
                     "version": VERSION, "cwd": cwd, "cols": size.cols, "rows": size.rows,
                     "token": random_id()?, "colors": self.colors,
                     "shell": self.shell,
+                    "task": self.task.as_ref().map(crate::tasks::Task::to_json),
                 }),
             )?;
             runtime::spawn(

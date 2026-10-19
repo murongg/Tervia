@@ -18,12 +18,14 @@ pub(super) fn discard_exited(state: &mut tervia::state::Workspace, root: &std::p
     {
         changed |= terminal.retain(|session| {
             session.connection.as_ref().is_none_or(|id| {
-                !tervia::sessions::Target::new(
+                let target = tervia::sessions::Target::new(
                     root.to_owned(),
                     id.clone(),
                     std::path::PathBuf::new(),
-                )
-                .has_exited()
+                );
+                // Completed tasks keep their output and explicit rerun action across UI restarts.
+                (session.task.is_some() && target.directory().join("finished.json").is_file())
+                    || !target.has_exited()
             })
         });
     }
@@ -93,6 +95,10 @@ impl Tervia {
             .unwrap_or_else(|| std::path::PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" }));
         let cwd = match owner {
             Owner::Local => home,
+            Owner::Project(project) if self.state.terminals().sessions[session].task.is_some() => {
+                // A missing task directory must fail at spawn, never fall back to running in the user's home.
+                self.state.projects[project].root.clone()
+            }
             Owner::Project(project) => {
                 tervia::pty::initial_directory(&self.state.projects[project].root, &home)
             }
@@ -108,9 +114,12 @@ impl Tervia {
                 Some(id) => id,
                 None => tervia::sessions::Target::identifier()?,
             };
-            let target = self
+            let mut target = self
                 .session_target(id.clone())?
                 .with_shell(profile.resolve());
+            if let Some(task) = &self.state.terminals().sessions[session].task {
+                target = target.with_task(task.clone());
+            }
             self.state.terminals_mut().sessions[session].connection = Some(id);
             // Record ownership before starting a host; a fast exit/update must not orphan a live shell.
             if let Some(store) = &mut self.workspace {
@@ -120,6 +129,11 @@ impl Tervia {
         })();
         let console = cx
             .new(|cx| console::Console::new(cwd, preferences, history, target, offset, window, cx));
+        self.subscriptions.push(
+            cx.subscribe(&console, |_, _, _: &console::LifecycleChanged, cx| {
+                cx.notify()
+            }),
+        );
         self.subscriptions.push(
             cx.subscribe(&console, |_, _, _: &console::AttentionChanged, cx| {
                 cx.notify()
@@ -307,6 +321,7 @@ impl Tervia {
     }
 
     fn leave_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tasks.cancel();
         self.terminal_rename = None;
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);

@@ -37,6 +37,7 @@ impl Default for Terminals {
                 custom_name: None,
                 connection: None,
                 scroll_offset: 0,
+                task: None,
             }],
             active_session: 0,
             focused_session: 0,
@@ -88,6 +89,7 @@ impl Terminals {
             custom_name: None,
             connection: None,
             scroll_offset: 0,
+            task: None,
         });
         self.active_session = index;
         self.focused_session = index;

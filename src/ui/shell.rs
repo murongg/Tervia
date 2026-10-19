@@ -238,6 +238,15 @@ impl Tervia {
             );
         }
         nav.child(div().flex_1())
+            .child(
+                label_button("run-project-task", self.t("tasks_title"), p)
+                    .debug_selector(|| "run-project-task".into())
+                    .icon(icon(IconName::Play, p.secondary))
+                    .tooltip(Platform::CURRENT.hint(self.t("tasks_shortcut")))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.show_project_tasks(window, cx)),
+                    ),
+            )
             .when(active != Tab::Terminal, |nav| {
                 nav.child(
                     icon_button(

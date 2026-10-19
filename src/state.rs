@@ -26,6 +26,7 @@ pub struct Session {
     pub custom_name: Option<String>,
     pub connection: Option<String>,
     pub scroll_offset: usize,
+    pub task: Option<crate::tasks::Task>,
 }
 
 #[derive(Clone, Debug)]
