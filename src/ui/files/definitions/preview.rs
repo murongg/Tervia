@@ -200,7 +200,7 @@ pub(super) fn target_current(prepared: &Prepared, view: &Tervia, project: usize,
         .copied()
         .find(|index| owner.files[*index].disk_path == prepared.path)
     {
-        Some(index) => view.editors[project][index].read(cx).value().as_str() == prepared.text,
+        Some(index) => view.editors[project][index].read(cx).text() == prepared.text.as_str(),
         None => !prepared.was_open,
     }
 }

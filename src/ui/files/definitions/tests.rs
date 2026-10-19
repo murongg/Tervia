@@ -110,6 +110,29 @@ fn source_is_underlined(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> bo
 }
 
 #[gpui_test::test]
+fn moving_within_a_symbol_does_not_postpone_its_definition_link(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    for delta in [1.0, 2.0, 3.0, 4.0] {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(20));
+        cx.simulate_mouse_move(position + point(px(delta), px(0.0)), None, modifier());
+        cx.run_until_parked();
+    }
+    assert!(
+        source_is_underlined(&view, cx),
+        "Small pointer movements within one symbol must not restart the hover delay"
+    );
+    let log: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+            .unwrap();
+    assert_eq!(log["definition"], 1);
+}
+
+#[gpui_test::test]
 fn pressing_modifier_over_a_stationary_symbol_underlines_it(cx: &mut TestAppContext) {
     let (_root, view, cx) = mount(cx, "normal", true);
     let position = source_point(&view, cx);

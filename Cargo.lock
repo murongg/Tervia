@@ -7340,6 +7340,7 @@ dependencies = [
  "dirs 6.0.0",
  "dunce",
  "embed-resource",
+ "futures",
  "getrandom 0.3.4",
  "gpui-kit",
  "gpui-pre",

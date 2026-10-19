@@ -11,7 +11,7 @@ default-run = "tervia"
 [features]
 default = []
 pty = ["dep:portable-pty", "dep:async-channel", "dep:getrandom"]
-native = ["pty", "dep:gpui-kit", "dep:gpui-test", "dep:anyhow"]
+native = ["pty", "dep:gpui-kit", "dep:gpui-test", "dep:anyhow", "dep:futures"]
 ui-tests = ["native", "gpui-test/test-support"]
 
 [dependencies]
@@ -21,6 +21,7 @@ base64 = "=0.22.1"
 lsp-types = "=0.97.0"
 url = "=2.5.8"
 anyhow = { version = "=1.0.104", optional = true }
+futures = { version = "=0.3.34", optional = true }
 serde-saphyr = { version = "=1.3.0", default-features = false, features = ["deserialize"] }
 shlex = "=1.3.0"
 notify = "=8.2.0"

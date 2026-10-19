@@ -1,4 +1,5 @@
 use super::*;
+use futures::{FutureExt as _, future::Shared};
 use gpui_kit::component::input::{DefinitionProvider, Rope, RopeExt as _};
 use lsp_types::{LocationLink, ShowDocumentParams};
 use std::{
@@ -21,21 +22,27 @@ struct Origin {
     selection: usize,
     navigation: u64,
     path: PathBuf,
-    text: String,
+    text: Rope,
     offset: usize,
 }
 impl Origin {
-    fn current(&self, view: &Tervia, cx: &App) -> bool {
+    fn context(&self, view: &Tervia) -> bool {
         view.definition_source(self.project, self.index)
             && view.file_reads.selected(self.project, self.selection)
             && view.navigation.generation() == self.navigation
             && view.state.projects[self.project].files[self.index].disk_path == self.path
-            && view.editors[self.project][self.index]
-                .read(cx)
-                .value()
-                .as_str()
-                == self.text
     }
+
+    fn current(&self, view: &Tervia, cx: &App) -> bool {
+        self.context(view) && view.editors[self.project][self.index].read(cx).text() == &self.text
+    }
+}
+
+struct Pending {
+    origin: Origin,
+    range: std::ops::Range<usize>,
+    token: Arc<()>,
+    response: Shared<Task<Vec<LocationLink>>>,
 }
 
 struct Definitions {
@@ -45,6 +52,7 @@ struct Definitions {
     server: Server,
     generation: Rc<Cell<u64>>,
     origin: Rc<RefCell<Option<Origin>>>,
+    pending: RefCell<Option<Pending>>,
 }
 impl Definitions {
     fn attach(
@@ -63,6 +71,7 @@ impl Definitions {
             server,
             generation: Rc::new(Cell::new(0)),
             origin: origin.clone(),
+            pending: RefCell::default(),
         });
         editor.update(cx, |editor, _| {
             editor.lsp_mut().definition_provider = Some(provider);
@@ -96,13 +105,44 @@ impl DefinitionProvider for Definitions {
     ) -> Task<anyhow::Result<Vec<LocationLink>>> {
         let symbol = text.word_range(offset).unwrap_or(offset..offset);
         let modifier_hover = window.modifiers().secondary() && !window.modifiers().alt;
-        let text = text.to_string();
+        let explicit = self
+            .view
+            .update(cx, |this, _| {
+                this.definition_source(self.project, self.index)
+                    && this.explorers[self.project]
+                        .definition_preview
+                        .take_explicit()
+            })
+            .unwrap_or(false);
+        if modifier_hover && !explicit {
+            let pending = self.pending.borrow();
+            if let Some(pending) = pending.as_ref().filter(|pending| {
+                pending.range == symbol
+                    && &pending.origin.text == text
+                    && self
+                        .view
+                        .update(cx, |this, _| {
+                            pending.origin.context(this)
+                                && this.explorers[self.project]
+                                    .definition_preview
+                                    .current(&pending.token)
+                        })
+                        .unwrap_or(false)
+            }) {
+                // Base replaces its waiter on every pointer move, including
+                // inside one symbol. Keep the lookup and debounce alive.
+                let response = pending.response.clone();
+                return window.spawn(cx, async move |_| Ok(response.await));
+            }
+        }
+        self.pending.borrow_mut().take();
+        let text = text.clone();
         let project = self.project;
         let index = self.index;
         let server = self.server.clone();
         let snapshot = self
             .view
-            .update(cx, |this, _| {
+            .update(cx, |this, cx| {
                 if !this.definition_source(project, index) {
                     return None;
                 }
@@ -115,25 +155,22 @@ impl DefinitionProvider for Definitions {
                     .filter(|file| *file != index)
                     .filter_map(|file| {
                         let source = &owner.files[file];
-                        (Server::for_language(&source.language) == family).then(|| Document {
-                            path: source.disk_path.clone(),
-                            language: source.language.clone(),
-                            text: source.draft.clone(),
+                        (Server::for_language(&source.language) == family).then(|| {
+                            (
+                                source.disk_path.clone(),
+                                source.language.clone(),
+                                this.editors[project][file].read(cx).text().clone(),
+                            )
                         })
                     })
                     .collect::<Vec<_>>();
                 let source = &owner.files[index];
-                documents.push(Document {
-                    path: source.disk_path.clone(),
-                    language: source.language.clone(),
-                    text: text.clone(),
-                });
-                let query = Query {
-                    root: owner.root.clone(),
-                    path: source.disk_path.clone(),
-                    documents,
-                    offset,
-                };
+                documents.push((
+                    source.disk_path.clone(),
+                    source.language.clone(),
+                    text.clone(),
+                ));
+                let root = owner.root.clone();
                 let origin = Origin {
                     project,
                     index,
@@ -145,14 +182,13 @@ impl DefinitionProvider for Definitions {
                 };
                 let client = this.explorers[project].definitions.clone();
                 let peek = &mut this.explorers[project].definition_preview;
-                let explicit = peek.take_explicit();
                 let token =
                     (modifier_hover && !explicit).then(|| peek.begin(index, symbol.clone()));
-                Some((client, query, origin, token))
+                Some((client, root, documents, origin, token))
             })
             .ok()
             .flatten();
-        let Some((client, query, origin, token)) = snapshot else {
+        let Some((client, root, documents, origin, token)) = snapshot else {
             return Task::ready(Ok(Vec::new()));
         };
         let hovering = token.is_some();
@@ -167,9 +203,10 @@ impl DefinitionProvider for Definitions {
         let ready = self.origin.clone();
         ready.replace(None);
         let view = self.view.clone();
-        let query = Arc::new(query);
-        let request = client.definition_request(&server, query.clone());
-        window.spawn(cx, async move |cx| {
+        let pending = token
+            .as_ref()
+            .map(|token| (origin.clone(), symbol.clone(), token.clone()));
+        let response = window.spawn(cx, async move |cx| {
             // The provider is called inside an editor update. Source editor
             // reads and hover-cache dismissal must wait until that borrow ends.
             let hover = view
@@ -186,13 +223,11 @@ impl DefinitionProvider for Definitions {
                 })
                 .unwrap_or_default();
             if hovering && hover.is_none() {
-                return Ok(Vec::new());
+                return Vec::new();
             }
             if let Some(hover) = &hover {
-                // Replaced hover tasks are dropped by the editor: pointer travel
-                // should not start service preparation or a lookup for every pixel.
                 cx.background_executor()
-                    .timer(std::time::Duration::from_millis(150))
+                    .timer(std::time::Duration::from_millis(50))
                     .await;
                 let current = view
                     .update_in(cx, |this, window, cx| {
@@ -205,9 +240,53 @@ impl DefinitionProvider for Definitions {
                             .definition_preview
                             .cancel(&hover.token);
                     });
-                    return Ok(Vec::new());
+                    return Vec::new();
                 }
             }
+            let path = origin.path.clone();
+            // Rope clones retain the original drafts without copying whole
+            // buffers on mouse movement or while the preview is repainted.
+            let query = cx
+                .background_executor()
+                .spawn(async move {
+                    Arc::new(Query {
+                        root,
+                        path,
+                        documents: documents
+                            .into_iter()
+                            .map(|(path, language, text)| Document {
+                                path,
+                                language,
+                                text: text.to_string(),
+                            })
+                            .collect(),
+                        offset,
+                    })
+                })
+                .await;
+            // Closing a project during materialization must not create a
+            // request with the client's new, uncanceled service generation.
+            let request = view
+                .update_in(cx, |this, window, cx| {
+                    ((hovering || latest.get() == generation)
+                        && origin.current(this, cx)
+                        && hover
+                            .as_ref()
+                            .is_none_or(|hover| hover.current(this, &origin, window, cx)))
+                    .then(|| client.definition_request(&server, query.clone()))
+                })
+                .ok()
+                .flatten();
+            let Some(request) = request else {
+                if let Some(hover) = &hover {
+                    let _ = view.update_in(cx, |this, _, _| {
+                        this.explorers[project]
+                            .definition_preview
+                            .cancel(&hover.token);
+                    });
+                }
+                return Vec::new();
+            };
             let result = cx
                 .background_executor()
                 .spawn(async move {
@@ -222,87 +301,94 @@ impl DefinitionProvider for Definitions {
                     Ok::<_, String>((locations, preview))
                 })
                 .await;
-            let result = view
-                .update_in(cx, |this, window, cx| {
-                    if (!hovering && latest.get() != generation)
-                        || !origin.current(this, cx)
-                        || hover
-                            .as_ref()
-                            .is_some_and(|hover| !hover.current(this, &origin, window, cx))
-                    {
-                        if let Some(hover) = &hover {
-                            this.explorers[project]
-                                .definition_preview
-                                .cancel(&hover.token);
-                        }
-                        return Vec::new();
+            view.update_in(cx, |this, window, cx| {
+                if (!hovering && latest.get() != generation)
+                    || !origin.current(this, cx)
+                    || hover
+                        .as_ref()
+                        .is_some_and(|hover| !hover.current(this, &origin, window, cx))
+                {
+                    if let Some(hover) = &hover {
+                        this.explorers[project]
+                            .definition_preview
+                            .cancel(&hover.token);
                     }
-                    match result {
-                        Ok((locations, prepared)) => {
-                            if hovering
-                                && prepared.as_ref().is_some_and(|prepared| {
-                                    !preview::target_current(prepared, this, project, cx)
-                                })
-                            {
-                                // Do not leave an underlined link with coordinates
-                                // resolved against a draft that changed during IO.
-                                this.explorers[project].definition_preview.clear();
-                                return Vec::new();
-                            }
-                            if locations.is_empty() {
-                                if let Some(hover) = &hover {
-                                    this.explorers[project]
-                                        .definition_preview
-                                        .cancel(&hover.token);
-                                }
-                                if !hovering {
-                                    this.state.notice = "definition_not_found".into();
-                                }
-                            } else {
-                                if let Some(hover) = &hover {
-                                    let preview = prepared.map(|prepared| {
-                                        preview::Preview::new(
-                                            origin.clone(),
-                                            symbol,
-                                            locations[0].clone(),
-                                            prepared,
-                                            hover.scroll,
-                                        )
-                                    });
-                                    this.explorers[project]
-                                        .definition_preview
-                                        .complete(&hover.token, preview);
-                                }
-                                ready.replace(Some(origin));
-                                this.state.notice.clear();
-                            }
-                            cx.notify();
-                            locations
+                    return Vec::new();
+                }
+                match result {
+                    Ok((locations, prepared)) => {
+                        if hovering
+                            && prepared.as_ref().is_some_and(|prepared| {
+                                !preview::target_current(prepared, this, project, cx)
+                            })
+                        {
+                            // Do not leave an underlined link with coordinates
+                            // resolved against a draft that changed during IO.
+                            this.explorers[project].definition_preview.clear();
+                            return Vec::new();
                         }
-                        Err(error) => {
+                        if locations.is_empty() {
                             if let Some(hover) = &hover {
                                 this.explorers[project]
                                     .definition_preview
                                     .cancel(&hover.token);
                             }
-                            if this.explorers[project]
-                                .definitions
-                                .status()
-                                .is_some_and(|status| matches!(status.stage, Stage::Runtime(_)))
-                            {
-                                this.state.notice.clear();
-                            } else if !hovering {
-                                this.state.notice =
-                                    this.f("definition_failed", &[("error", &error)]);
+                            if !hovering {
+                                this.state.notice = "definition_not_found".into();
                             }
-                            cx.notify();
-                            Vec::new()
+                        } else {
+                            if let Some(hover) = &hover {
+                                let preview = prepared.map(|prepared| {
+                                    preview::Preview::new(
+                                        origin.clone(),
+                                        symbol,
+                                        locations[0].clone(),
+                                        prepared,
+                                        hover.scroll,
+                                    )
+                                });
+                                this.explorers[project]
+                                    .definition_preview
+                                    .complete(&hover.token, preview);
+                            }
+                            ready.replace(Some(origin));
+                            this.state.notice.clear();
                         }
+                        cx.notify();
+                        locations
                     }
-                })
-                .unwrap_or_default();
-            Ok(result)
-        })
+                    Err(error) => {
+                        if let Some(hover) = &hover {
+                            this.explorers[project]
+                                .definition_preview
+                                .cancel(&hover.token);
+                        }
+                        if this.explorers[project]
+                            .definitions
+                            .status()
+                            .is_some_and(|status| matches!(status.stage, Stage::Runtime(_)))
+                        {
+                            this.state.notice.clear();
+                        } else if !hovering {
+                            this.state.notice = this.f("definition_failed", &[("error", &error)]);
+                        }
+                        cx.notify();
+                        Vec::new()
+                    }
+                }
+            })
+            .unwrap_or_default()
+        });
+        let response = response.shared();
+        if let Some((origin, range, token)) = pending {
+            self.pending.replace(Some(Pending {
+                origin,
+                range,
+                token,
+                response: response.clone(),
+            }));
+        }
+        window.spawn(cx, async move |_| Ok(response.await))
     }
 }
 
@@ -446,11 +532,18 @@ impl Tervia {
         let cursor = self.editors[project][origin.index]
             .read(cx)
             .cursor_position();
+        let source = origin.text.clone();
+        let offset = origin.offset;
         cx.spawn_in(window, async move |weak, cx| {
             let target = cx
                 .background_executor()
                 .spawn(async move {
-                    preview::resolve(&root, params.uri.as_str(), open_paths.into_iter())
+                    preview::resolve(&root, params.uri.as_str(), open_paths.into_iter()).map(
+                        |path| {
+                            let reference = tervia::lsp::position(&source.to_string(), offset);
+                            (path, reference)
+                        },
+                    )
                 })
                 .await;
             let _ = weak.update_in(cx, |this, window, cx| {
@@ -463,7 +556,7 @@ impl Tervia {
                     return;
                 }
                 match target {
-                    Ok(path) => {
+                    Ok((path, reference)) => {
                         if this.worktree_removing(&this.state.projects[project].root.join(&path)) {
                             return;
                         }
@@ -473,7 +566,7 @@ impl Tervia {
                         };
                         // A modifier click can precede caret movement. Back should
                         // return to that reference, not an unrelated old caret.
-                        if let Ok(reference) = tervia::lsp::position(&origin.text, origin.offset) {
+                        if let Ok(reference) = reference {
                             from.position.line = reference.line;
                             from.position.column = reference.character;
                         }
