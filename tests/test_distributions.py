@@ -68,6 +68,7 @@ class DistributionTests(unittest.TestCase):
         for name in ("linux.sh", "macos.sh"):
             if (ROOT / "scripts" / name).exists():
                 shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
+        (self.root / "LICENSE").write_text("synthetic project license\n")
         (self.root / "assets").mkdir()
         for name in ("tervia.svg", "lobe-license.txt", "hermes-license.txt", "material-license.txt"):
             (self.root / "assets" / name).write_text("synthetic asset\n")
@@ -106,6 +107,7 @@ class DistributionTests(unittest.TestCase):
             self.assertTrue((self.root / f"build/Tervia-linux-x86_64.{suffix}").is_file())
         with tarfile.open(self.root / "build/Tervia-linux-x86_64.tar.gz") as archive:
             self.assertEqual(archive.extractfile("Tervia/tervia").read(), b"synthetic executable")
+            self.assertEqual(archive.extractfile("Tervia/LICENSE").read(), b"synthetic project license\n")
         stage = self.root / "build/linux/deb"
         self.assertTrue((stage / "usr/bin/tervia").stat().st_mode & 0o111)
         self.assertTrue((stage / "usr/share/icons/hicolor/scalable/apps/tervia.svg").is_file())
@@ -113,12 +115,15 @@ class DistributionTests(unittest.TestCase):
         self.assertIn("Exec=tervia", desktop)
         self.assertIn("Icon=tervia", desktop)
         self.assertIn("synthetic asset", (stage / "usr/share/doc/tervia/ThirdPartyNotices.txt").read_text())
+        self.assertEqual((stage / "usr/share/doc/tervia/LICENSE").read_text(), "synthetic project license\n")
         control = (stage / "DEBIAN/control").read_text()
         self.assertIn("Version: 1.2.3~beta.1", control)
         self.assertIn("Architecture: amd64", control)
         self.assertIn("libc6 (>= 2.38)", control)
         self.assertIn("git", control)
         self.assertIn("Release: 0.beta.1", self.spec.read_text())
+        self.assertIn("License: AGPL-3.0-only\n", self.spec.read_text())
+        self.assertIn("%license /usr/share/doc/tervia/LICENSE\n", self.spec.read_text())
         self.assertIn(["dpkg-deb", "--root-owner-group", "--build", str(stage), str(self.root / "build/Tervia-linux-x86_64.deb")], self.recorded())
         self.assertFalse(any(call[:2] == ["cargo", "build"] for call in self.recorded()))
 

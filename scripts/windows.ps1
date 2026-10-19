@@ -29,6 +29,7 @@ $TerviaPackage = Join-Path $TerviaRoot "build/windows/Tervia"
 if (Test-Path $TerviaPackage) { Remove-Item -Recurse -Force $TerviaPackage }
 New-Item -ItemType Directory -Force -Path $TerviaPackage | Out-Null
 Copy-Item "target/release/tervia.exe" (Join-Path $TerviaPackage "Tervia.exe")
+Copy-Item "LICENSE" (Join-Path $TerviaPackage "LICENSE")
 Get-Content "assets/lobe-license.txt", "assets/hermes-license.txt", "assets/material-license.txt" | Set-Content (Join-Path $TerviaPackage "ThirdPartyNotices.txt") -Encoding utf8
 Compress-Archive -Path "$TerviaPackage/*" -DestinationPath "build/Tervia-windows-x64.zip" -Force
 # Install per user so the existing online updater can replace the executable without elevation.

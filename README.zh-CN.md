@@ -34,3 +34,9 @@ Tervia 把终端、Git 和轻量文件编辑放进同一个桌面工作区，让
 目前优先打磨 macOS 15+，Windows / Linux 体验仍在完善中。
 
 [下载体验](https://github.com/murongg/Tervia/releases) · [使用指南](docs/guide.zh-CN.md) · [更新记录](CHANGELOG.md) · [反馈建议](https://github.com/murongg/Tervia/issues)
+
+## 开源协议
+
+Tervia 采用 [GNU Affero 通用公共许可证第 3 版](LICENSE)（`AGPL-3.0-only`，仅限第 3 版）。
+
+第三方依赖和素材保留各自的许可协议。

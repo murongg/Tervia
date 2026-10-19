@@ -22,6 +22,7 @@ class WindowsPackageTests(unittest.TestCase):
         for name in ("windows.ps1", "windows.iss"):
             if (ROOT / "scripts" / name).exists():
                 shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
+        (self.root / "LICENSE").write_text("synthetic project license\n")
         (self.root / "assets").mkdir()
         for name in ("tervia.ico", "lobe-license.txt", "hermes-license.txt", "material-license.txt"):
             (self.root / "assets" / name).write_text("synthetic asset\n")
@@ -55,6 +56,7 @@ function ISCC.exe {
         self.assertTrue((self.root / "build/Tervia-windows-x64-setup.exe").is_file())
         with zipfile.ZipFile(self.root / "build/Tervia-windows-x64.zip") as archive:
             self.assertEqual(archive.read("Tervia.exe"), b"synthetic executable")
+            self.assertEqual(archive.read("LICENSE"), b"synthetic project license\n")
             self.assertIn("synthetic asset", archive.read("ThirdPartyNotices.txt").decode("utf-8-sig"))
         arguments = (self.root / "compiler.txt").read_text()
         self.assertIn("/DAppVersion=1.2.3-beta.1", arguments)

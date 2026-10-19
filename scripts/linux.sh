@@ -33,6 +33,7 @@ rm -rf -- "$TERVIA_PACKAGE" "$TERVIA_ROOT/build/linux/deb"
 mkdir -p "$TERVIA_PACKAGE"
 install -m 755 target/release/tervia "$TERVIA_PACKAGE/tervia"
 cp assets/tervia.svg "$TERVIA_PACKAGE/tervia.svg"
+cp LICENSE "$TERVIA_PACKAGE/LICENSE"
 cat assets/lobe-license.txt assets/hermes-license.txt assets/material-license.txt > "$TERVIA_PACKAGE/ThirdPartyNotices.txt"
 cat > "$TERVIA_PACKAGE/tervia.desktop" <<'DESKTOP'
 [Desktop Entry]
@@ -51,6 +52,7 @@ mkdir -p "$TERVIA_DEB/usr/bin" "$TERVIA_DEB/usr/share/applications" \
 install -m755 "$TERVIA_PACKAGE/tervia" "$TERVIA_DEB/usr/bin/tervia"
 install -m644 "$TERVIA_PACKAGE/tervia.desktop" "$TERVIA_DEB/usr/share/applications/tervia.desktop"
 install -m644 "$TERVIA_PACKAGE/tervia.svg" "$TERVIA_DEB/usr/share/icons/hicolor/scalable/apps/tervia.svg"
+install -m644 "$TERVIA_PACKAGE/LICENSE" "$TERVIA_DEB/usr/share/doc/tervia/LICENSE"
 install -m644 "$TERVIA_PACKAGE/ThirdPartyNotices.txt" "$TERVIA_DEB/usr/share/doc/tervia/ThirdPartyNotices.txt"
 
 TERVIA_SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/tervia-linux.XXXXXX")"
@@ -89,7 +91,7 @@ Name: tervia
 Version: $TERVIA_CORE
 Release: $TERVIA_RPM_RELEASE
 Summary: A native terminal workspace with Git and lightweight editing
-License: LicenseRef-Unknown
+License: AGPL-3.0-only
 URL: https://github.com/murongg/Tervia
 Source0: tervia.tar.gz
 BuildArch: $TERVIA_ARCH
@@ -109,6 +111,7 @@ tar -xzf "%{SOURCE0}" -C "%{buildroot}"
 %attr(0755,root,root) /usr/bin/tervia
 /usr/share/applications/tervia.desktop
 /usr/share/icons/hicolor/scalable/apps/tervia.svg
+%license /usr/share/doc/tervia/LICENSE
 %doc /usr/share/doc/tervia/ThirdPartyNotices.txt
 SPEC
 # Keep RPM's ELF dependency detection enabled; Ubuntu package names cannot describe RPM runtime requirements.

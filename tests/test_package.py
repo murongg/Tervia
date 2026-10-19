@@ -46,6 +46,7 @@ class PackageTests(unittest.TestCase):
         self.root = Path(self.temporary.name) / "synthetic project"
         (self.root / "scripts").mkdir(parents=True)
         shutil.copyfile(SCRIPT, self.root / "scripts/package.sh")
+        (self.root / "LICENSE").write_text("synthetic project license\n")
         (self.root / "assets").mkdir()
         for name in ("lobe-license.txt", "hermes-license.txt"):
             (self.root / "assets" / name).write_text("synthetic license\n")
@@ -76,6 +77,8 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(binary.read_bytes(), b"synthetic release executable")
         notices = self.root / "build/Tervia.app/Contents/Resources/ThirdPartyNotices.txt"
         self.assertIn("synthetic material license", notices.read_text())
+        license_file = self.root / "build/Tervia.app/Contents/Resources/LICENSE"
+        self.assertEqual(license_file.read_text(), "synthetic project license\n")
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         self.assertIn(["cargo", "build", "--release", "--features", "native"], calls)
         with (self.root / "build/Tervia.app/Contents/Info.plist").open("rb") as file:

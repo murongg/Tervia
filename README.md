@@ -34,3 +34,9 @@ Tervia brings the terminal, Git, and lightweight file editing into one desktop w
 Currently focused on macOS 15+. The Windows and Linux experience is still being refined.
 
 [Download](https://github.com/murongg/Tervia/releases) · [User guide](docs/guide.md) · [Changelog](CHANGELOG.md) · [Feedback](https://github.com/murongg/Tervia/issues)
+
+## License
+
+Tervia is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+
+Third-party dependencies and assets retain their respective licenses.
