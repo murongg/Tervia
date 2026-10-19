@@ -605,6 +605,8 @@ impl Tervia {
             || self.state.dismiss_palette()
         {
             cx.notify();
+        } else if self.dismiss_project_sidebar(cx) {
+            // A transient navigation panel consumes Escape before the workspace's quit fallback.
         } else if !self.state.projects.is_empty()
             && self.state.active_tab() == Tab::Files
             && self.explorers[self.state.active_project].finder.mode != files::search::Mode::Browse
@@ -736,8 +738,7 @@ impl Render for Tervia {
                     }))
             })
             .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| {
-                this.state.toggle_sidebar();
-                cx.notify();
+                this.toggle_project_sidebar(cx);
             }))
             .on_action(cx.listener(|this, _: &NewLocalTerminal, window, cx| {
                 this.new_local_terminal(window, cx)
@@ -860,10 +861,12 @@ impl Render for Tervia {
             })
             .child(
                 div()
+                    .relative()
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .child(self.sidebar(cx))
+                    // Reserve only the rail; both hover and pinned expansion cover the content.
+                    .child(div().w(px(56.0)).h_full().flex_shrink_0())
                     .child(
                         div()
                             .flex_1()
@@ -875,7 +878,8 @@ impl Render for Tervia {
                                 body.child(self.navigation(cx))
                             })
                             .child(self.workspace_body(window, cx)),
-                    ),
+                    )
+                    .child(self.sidebar(cx)),
             )
             .child(self.statusbar(cx))
             .when(self.state.palette_open, |this| this.child(self.palette(cx)))
