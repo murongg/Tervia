@@ -2,6 +2,50 @@ use super::*;
 use core::prelude::v1::test;
 use gpui_test::TestAppContext;
 
+#[gpui_test::test]
+fn closing_and_reopening_a_task_project_does_not_restore_a_task_without_its_host(
+    cx: &mut TestAppContext,
+) {
+    let (root, view, cx) = project_window(cx);
+    let path = root.path().join("workspace.json");
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let session = &mut view.state.projects[0].terminal.sessions[0];
+            session.name = "mock:test".into();
+            session.task = Some(tervia::tasks::Task {
+                label: "mock:test".into(),
+                source: "package.json".into(),
+                program: "npm".into(),
+                args: vec!["run".into(), "mock:test".into()],
+            });
+            session.connection = Some("a".repeat(32));
+            let mut store = tervia::workspace::Store::new(path.clone());
+            store.load().unwrap();
+            store.save(&view.state).unwrap();
+            view.workspace = Some(store);
+            view.ensure_console(0, window, cx);
+            view.request_project_close(0, window, cx);
+        })
+    });
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("git_confirm"));
+    cx.run_until_parked();
+    view.update(cx, |view, _| assert!(view.state.project_closed(0)));
+    let saved = tervia::workspace::Store::new(path).load().unwrap();
+    assert!(saved.projects[0].terminal.sessions[0].task.is_none());
+    assert!(saved.projects[0].terminal.sessions[0].connection.is_none());
+    cx.update(|window, cx| view.update(cx, |view, cx| view.reopen_closed_project(0, window, cx)));
+    cx.run_until_parked();
+    view.update(cx, |view, _| {
+        assert_eq!(view.state.active_project, 0);
+        assert!(view.state.project().terminal.sessions[0].task.is_none());
+        assert_eq!(view.state.project().terminal.sessions[0].name, "shell");
+        assert_eq!(
+            view.state.project().current_file().unwrap().draft,
+            "synthetic draft"
+        );
+    });
+}
+
 fn project_window(
     cx: &mut TestAppContext,
 ) -> (

@@ -2,6 +2,94 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn make_just_and_taskfile_task_commands_keep_their_file_binding_after_recovery() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-task-sources");
+    fs::write(root.join("Makefile"), "mock-make:\n\t@echo mock\n").unwrap();
+    fs::write(root.join("justfile"), "mock-just:\n  echo mock\n").unwrap();
+    fs::write(
+        root.join("Taskfile.yml"),
+        "version: '3'\ntasks:\n  mock-task: echo mock\n",
+    )
+    .unwrap();
+    let tasks = tervia::tasks::discover(&root).tasks;
+    assert_eq!(tasks.len(), 3);
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root);
+    for (index, task) in tasks.iter().enumerate() {
+        if index > 0 {
+            state.new_session();
+        }
+        let session = &mut state.terminals_mut().sessions[index];
+        session.task = Some(task.clone());
+        session.connection = Some(['a', 'b', 'c'][index].to_string().repeat(32));
+    }
+    store.save(&state).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(
+        restored
+            .terminals()
+            .sessions
+            .iter()
+            .map(|session| session.task.clone().unwrap())
+            .collect::<Vec<_>>(),
+        tasks
+    );
+    assert!(
+        restored
+            .terminals()
+            .sessions
+            .iter()
+            .all(|session| session.connection.is_some())
+    );
+}
+
+#[test]
+fn project_task_identity_survives_recovery_without_becoming_a_new_launch() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-task-project");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(root);
+    let task = tervia::tasks::Task {
+        label: "mock:test".into(),
+        source: "package.json".into(),
+        program: "npm".into(),
+        args: vec!["run".into(), "mock:test".into()],
+    };
+    state.terminals_mut().sessions[0].task = Some(task.clone());
+    state.terminals_mut().sessions[0].connection = Some("a".repeat(32));
+    store.save(&state).unwrap();
+    let restored = Store::new(path).load().unwrap();
+    assert_eq!(restored.terminals().sessions[0].task, Some(task));
+    assert_eq!(
+        restored.terminals().sessions[0].connection,
+        Some("a".repeat(32))
+    );
+}
+
+#[test]
+fn recovered_tasks_require_an_existing_session_identity() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-task-no-host");
+    let path = temporary.path().join("workspace.json");
+    let task = tervia::tasks::Task {
+        label: "dev".into(),
+        source: "package.json".into(),
+        program: "npm".into(),
+        args: vec!["run".into(), "dev".into()],
+    };
+    let source = serde_json::json!({"version": 2, "projects": [{"root": root, "directory": root}], "active": root,
+        "contexts": [{"root": root, "sessions": ["dev"], "tasks": [task.to_json()], "files": []}] }).to_string();
+    fs::write(&path, &source).unwrap();
+    assert!(Store::new(path.clone()).load().is_err());
+    assert_eq!(fs::read_to_string(path).unwrap(), source);
+}
+
+#[test]
 fn closed_local_tabs_remain_empty_after_restart() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("workspace.json");

@@ -57,6 +57,8 @@ impl EventEmitter<IdentityChanged> for Console {}
 impl EventEmitter<FileLink> for Console {}
 pub struct AttentionChanged;
 impl EventEmitter<AttentionChanged> for Console {}
+pub struct LifecycleChanged;
+impl EventEmitter<LifecycleChanged> for Console {}
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -247,6 +249,34 @@ impl Status {
 }
 
 impl Console {
+    pub(super) fn can_rerun_task(&self) -> bool {
+        matches!(self.status, Some(Status::Exited(_) | Status::Spawn(_)))
+    }
+
+    pub(super) fn task_status(&self) -> String {
+        let language = self.appearance.language;
+        match &self.status {
+            Some(Status::Restoring) => language.text("tasks_starting").into(),
+            Some(Status::Exited(status)) => {
+                format!("{} · {status}", language.text("tasks_finished"))
+            }
+            Some(Status::Spawn(error)) => format!("{} · {error}", language.text("tasks_failed")),
+            Some(Status::Connection(error)) => {
+                format!("{} · {error}", language.text("connection_error"))
+            }
+            _ => language.text("tasks_running").into(),
+        }
+    }
+
+    pub(super) fn finish_process(&mut self, status: String, cx: &mut Context<Self>) {
+        self.finish_replay(cx);
+        self.status = Some(Status::Exited(status));
+        self.session.take();
+        self.invalidate_suggestion();
+        cx.emit(LifecycleChanged);
+        cx.notify();
+    }
+
     pub fn shell(&self) -> String {
         self.session
             .as_ref()
@@ -413,6 +443,7 @@ impl Console {
                     Err(error) => {
                         this.replaying = false;
                         this.status = Some(Status::Spawn(error));
+                        cx.emit(LifecycleChanged);
                         cx.notify();
                         None
                     }
@@ -440,14 +471,12 @@ impl Console {
                                     }
                                     PtyEvent::ReplayComplete => this.finish_replay(cx),
                                     PtyEvent::Exited(status) => {
-                                        this.finish_replay(cx);
-                                        this.status = Some(Status::Exited(status));
-                                        this.session.take();
-                                        this.invalidate_suggestion();
+                                        this.finish_process(status, cx);
                                     }
                                     PtyEvent::Error(error) => {
                                         this.replaying = false;
                                         this.status = Some(Status::Connection(error));
+                                        cx.emit(LifecycleChanged);
                                         this.invalidate_suggestion();
                                     }
                                 }
@@ -530,6 +559,7 @@ impl Console {
             .scroll_display(Scroll::Delta(self.restored_scroll.min(10000) as i32));
         if matches!(self.status, Some(Status::Restoring)) {
             self.status = None;
+            cx.emit(LifecycleChanged);
         }
         cx.notify();
     }

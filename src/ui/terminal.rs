@@ -75,6 +75,9 @@ impl Tervia {
         if let Some(name) = &session.custom_name {
             return name.clone();
         }
+        if let Some(task) = &session.task {
+            return task.label.clone();
+        }
         let agent = self.consoles()[index]
             .as_ref()
             .and_then(|console| console.read(cx).agent);
@@ -489,7 +492,16 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) -> Div {
         let console = self.ensure_console(session, window, cx);
-        div().flex_1().min_w_0().min_h_0().child(console)
+        div()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .when_some(self.task_run_summary(session, cx), |pane, summary| {
+                pane.child(summary)
+            })
+            .child(console)
     }
 }
 

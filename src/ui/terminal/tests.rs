@@ -37,6 +37,24 @@ fn double_click(cx: &mut gpui_test::VisualTestContext, selector: &'static str) {
     cx.run_until_parked();
 }
 
+#[gpui_test::test]
+fn task_labels_stay_stable_when_a_task_starts_an_agent(cx: &mut TestAppContext) {
+    let (view, cx) = mount(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.state.terminals_mut().sessions[0].task = Some(tervia::tasks::Task {
+                label: "mock:agent".into(),
+                source: "package.json".into(),
+                program: "npm".into(),
+                args: vec!["run".into(), "mock:agent".into()],
+            });
+            this.ensure_console(0, window, cx)
+                .update(cx, |console, _| console.agent = Some(Agent::Claude));
+            assert_eq!(this.terminal_session_name(0, cx), "mock:agent");
+        })
+    });
+}
+
 #[cfg(windows)]
 #[gpui_test::test]
 fn new_terminal_shell_menu_supports_keyboard_selection_and_returns_focus(cx: &mut TestAppContext) {

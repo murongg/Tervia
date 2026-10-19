@@ -15,6 +15,7 @@ pub mod sessions;
 pub mod shell;
 pub mod state;
 pub mod suggestions;
+pub mod tasks;
 pub mod terminal;
 pub mod updates;
 pub mod workspace;

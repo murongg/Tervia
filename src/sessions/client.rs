@@ -180,15 +180,22 @@ pub(super) fn terminate(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
-pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened> {
-    let meta = metadata(directory)?;
-    let finished = directory.join("finished.json").is_file();
-    let mut stream = if finished { None } else { Some(socket(&meta)?) };
-    let response = if let Some(stream) = &mut stream {
+fn attach(
+    directory: &Path,
+    meta: &Value,
+    colors: &[[u8; 3]],
+) -> io::Result<(Option<BufReader<TcpStream>>, Value)> {
+    let path = directory.join("finished.json");
+    let completed = || -> io::Result<_> { Ok((None, serde_json::from_slice(&fs::read(&path)?)?)) };
+    if path.is_file() {
+        return completed();
+    }
+    let live = (|| {
+        let mut stream = socket(meta)?;
         // A just-dropped client may still be releasing its lease on the host thread.
         let deadline = Instant::now() + Duration::from_secs(2);
-        loop {
-            match request(stream, &meta, json!({"op":"attach","colors":colors})) {
+        let response = loop {
+            match request(&mut stream, meta, json!({"op":"attach","colors":colors})) {
                 Ok(value) => break value,
                 Err(error)
                     if error.to_string().contains("already attached")
@@ -198,10 +205,21 @@ pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened
                 }
                 Err(error) => return Err(error),
             }
-        }
-    } else {
-        serde_json::from_slice(&fs::read(directory.join("finished.json"))?)?
-    };
+        };
+        Ok((Some(stream), response))
+    })();
+    match live {
+        // The final journal event can reach a client just before the finished marker.
+        // A failed attach during shutdown must replay that marker, never start a replacement shell.
+        Err(_) if path.is_file() => completed(),
+        result => result,
+    }
+}
+
+pub(super) fn connect(directory: &Path, colors: &[[u8; 3]]) -> io::Result<Opened> {
+    let meta = metadata(directory)?;
+    let (mut stream, response) = attach(directory, &meta, colors)?;
+    let finished = stream.is_none();
     let replay_length = response["length"]
         .as_u64()
         .ok_or_else(|| io::Error::other("Invalid terminal replay boundary"))?;
@@ -316,6 +334,70 @@ fn deliver(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attach_errors_without_a_finished_marker_remain_errors() {
+        use std::net::TcpListener;
+        let root = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let meta = json!({"version":VERSION,"port":listener.local_addr().unwrap().port(),"token":"mock-token"});
+        runtime::write_private(&root.path().join("endpoint.json"), &meta).unwrap();
+        let server = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket);
+            host::packet(&mut reader).unwrap();
+            host::reply(
+                reader.get_mut(),
+                &json!({"ok":false,"error":"mock attach rejected"}),
+            )
+            .unwrap();
+        });
+        let error = connect(root.path(), &[]).err().unwrap();
+        server.join().unwrap();
+        assert!(error.to_string().contains("mock attach rejected"));
+        assert!(!root.path().join("finished.json").exists());
+    }
+
+    #[test]
+    fn host_finishing_during_attach_falls_back_to_its_completed_journal() {
+        use std::net::TcpListener;
+        let root = tempfile::tempdir().unwrap();
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let meta = json!({"version":VERSION,"port":listener.local_addr().unwrap().port(),"token":"mock-token","shell":"/bin/bash","pid":0});
+        runtime::write_private(&root.path().join("endpoint.json"), &meta).unwrap();
+        let mut journal = journal::Journal::create(&root.path().join("output")).unwrap();
+        journal.append(0, b"mock-completed-output").unwrap();
+        journal.append(2, b"Success").unwrap();
+        let mut finished = meta.clone();
+        finished["length"] = json!(journal.length);
+        let directory = root.path().to_owned();
+        let server = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(socket);
+            assert_eq!(host::packet(&mut reader).unwrap()["op"], "attach");
+            // Reproduce the real transition: the endpoint closes after the final marker is published.
+            runtime::write_private(&directory.join("finished.json"), &finished).unwrap();
+        });
+        let connected = connect(root.path(), &[]);
+        server.join().unwrap();
+        let (session, events, _) = connected.unwrap();
+        assert!(session.sender.is_none());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut output = false;
+        let mut exited = false;
+        while Instant::now() < deadline && !exited {
+            match events.try_recv() {
+                Ok(PtyEvent::Data(bytes)) => output |= bytes == b"mock-completed-output",
+                Ok(PtyEvent::Exited(status)) => {
+                    assert_eq!(status, "Success");
+                    exited = true;
+                }
+                Ok(PtyEvent::Error(error)) => panic!("{error}"),
+                _ => std::thread::sleep(Duration::from_millis(2)),
+            }
+        }
+        assert!(output && exited);
+    }
 
     #[test]
     fn recovery_discards_only_destroyed_or_confirmed_exited_processes() {

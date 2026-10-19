@@ -121,6 +121,14 @@ impl Tervia {
             {
                 session.scroll_offset = 0;
                 let connection = session.connection.take();
+                if session.task.take().is_some() {
+                    // Explicit close ends this run; reopening restores a shell tab, never a task with no host.
+                    session.name = if slot == 0 {
+                        "shell".into()
+                    } else {
+                        format!("shell {}", slot + 1)
+                    };
+                }
                 if self.terminals[*index].get(slot).is_none_or(Option::is_none) {
                     connections.extend(connection);
                 }
@@ -135,6 +143,7 @@ impl Tervia {
             cx.notify();
             return;
         }
+        self.tasks.cancel();
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         }

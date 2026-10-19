@@ -3,6 +3,101 @@
 use portable_pty::{CommandBuilder, PtySize};
 use tervia::pty::{PtyEvent, PtySession, initial_directory};
 
+#[cfg(unix)]
+#[test]
+fn a_discovered_make_task_runs_in_its_directory_and_reports_failure() {
+    use std::{
+        ffi::OsStr,
+        time::{Duration, Instant},
+    };
+    let root = tempfile::Builder::new()
+        .prefix("mock tasks ")
+        .tempdir()
+        .unwrap();
+    std::fs::write(root.path().join("Makefile"), ".PHONY: mock-check\nmock-check:\n\t@printf 'mock-make-output\\n'\n\t@printf 'mock marker\\n' > mock-ran\n\t@exit 7\n").unwrap();
+    let task = tervia::tasks::discover(root.path()).tasks.remove(0);
+    assert!(!root.path().join("mock-ran").exists());
+    let mut command =
+        tervia::pty::task_command_for(OsStr::new("/bin/sh"), root.path(), &task).unwrap();
+    command.env_clear();
+    command.env("HOME", root.path());
+    command.env("PATH", "/usr/bin:/bin");
+    command.env("TERM", "xterm-256color");
+    let (_session, receiver) = PtySession::spawn(
+        command,
+        PtySize {
+            rows: 12,
+            cols: 90,
+            pixel_width: 0,
+            pixel_height: 0,
+        },
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut buffer = tervia::terminal::TerminalBuffer::new(90, 12);
+    let mut status = None;
+    while Instant::now() < deadline && status.is_none() {
+        match receiver.try_recv() {
+            Ok(PtyEvent::Data(bytes)) => buffer.feed(&bytes),
+            Ok(PtyEvent::Exited(exit)) => status = Some(exit),
+            Ok(PtyEvent::Error(error)) => panic!("{error}"),
+            _ => std::thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    assert_eq!(status.as_deref(), Some("Exited with code 2"));
+    assert!(buffer.text().contains("mock-make-output"));
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("mock-ran")).unwrap(),
+        "mock marker\n"
+    );
+}
+
+#[test]
+fn task_launch_keeps_script_names_single_arguments_and_does_not_leave_an_interactive_shell() {
+    use std::{ffi::OsStr, path::Path};
+    use tervia::tasks::Task;
+    let task = Task {
+        label: "mock 'quote' $(touch unexpected)".into(),
+        source: "package.json".into(),
+        program: "npm".into(),
+        args: vec!["run".into(), "mock 'quote' $(touch unexpected)".into()],
+    };
+    for shell in ["/bin/bash", "/bin/zsh", "/usr/bin/fish"] {
+        let command =
+            tervia::pty::task_command_for(OsStr::new(shell), Path::new("mock-project"), &task)
+                .unwrap();
+        assert_eq!(
+            command.get_argv()[1..4],
+            ["-l", "-i", "-c"].map(std::ffi::OsString::from)
+        );
+        assert_eq!(
+            shlex::split(&command.get_argv()[4].to_string_lossy()).unwrap(),
+            ["npm", "run", task.args[1].as_str()]
+        );
+        assert_eq!(
+            command.get_cwd().unwrap().as_os_str(),
+            OsStr::new("mock-project")
+        );
+    }
+    let command =
+        tervia::pty::task_command_for(OsStr::new("pwsh.exe"), Path::new("mock-project"), &task)
+            .unwrap();
+    let args: Vec<_> = command
+        .get_argv()
+        .iter()
+        .map(|arg| arg.to_string_lossy())
+        .collect();
+    assert_eq!(&args[1..3], ["-NoLogo", "-Command"]);
+    assert!(args[3].contains("mock ''quote'' $(touch unexpected)"));
+    assert!(args[3].ends_with("exit $LASTEXITCODE"));
+    let mut invalid = task.clone();
+    invalid.args[1] = "mock%PATH%".into();
+    assert!(
+        tervia::pty::task_command_for(OsStr::new("cmd.exe"), Path::new("mock-project"), &invalid)
+            .is_err()
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn shell_working_directories_use_compatible_paths_without_changing_their_meaning() {

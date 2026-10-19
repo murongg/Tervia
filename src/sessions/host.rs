@@ -69,8 +69,16 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
         Some(shell) => serde_json::from_value::<PathBuf>(shell.clone())?.into_os_string(),
         None => default_shell(),
     };
-    let (pty, events, tracker) =
-        PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?;
+    let (pty, events, tracker) = match launch.get("task").filter(|task| !task.is_null()) {
+        Some(value) => {
+            let task = crate::tasks::Task::from_json(value).map_err(io::Error::other)?;
+            let command =
+                crate::pty::task_command_for(&shell, &cwd, &task).map_err(io::Error::other)?;
+            let (pty, events) = PtySession::spawn(command, size).map_err(io::Error::other)?;
+            (pty, events, None)
+        }
+        None => PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?,
+    };
     let mut journal = Journal::create(&directory.join("output"))?;
     journal.resize(size)?;
     let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;

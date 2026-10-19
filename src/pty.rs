@@ -10,7 +10,9 @@ use crate::agent::Agent;
 use async_channel::Receiver;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 mod integration;
+mod task;
 pub use integration::ShellIntegration;
+pub use task::task_command_for;
 
 pub enum PtyEvent {
     Data(Vec<u8>),
