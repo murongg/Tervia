@@ -203,7 +203,7 @@ fn background_pauses_monitoring_and_foreground_refreshes_immediately(
 
 impl Tervia {
     pub(super) fn files(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let p = super::theme::Palette::workbench(self.appearance.theme);
+        let p = super::theme::Palette::workbench(&self.appearance.theme);
         div()
             .flex_1()
             .min_h_0()
@@ -226,7 +226,7 @@ impl Tervia {
     }
 
     fn file_editor(&self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let p = super::theme::Palette::workbench(self.appearance.theme);
+        let p = super::theme::Palette::workbench(&self.appearance.theme);
         let project = self.state.project();
         let owner = self.state.active_project;
         let active = project.active_file;

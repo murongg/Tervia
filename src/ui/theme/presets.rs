@@ -12,7 +12,7 @@ pub(super) struct Preset {
     pub ansi: [u32; 16],
 }
 
-pub(super) fn get(theme: ColorTheme) -> Option<&'static Preset> {
+pub(super) fn get(theme: &ColorTheme) -> Option<&'static Preset> {
     let index = match theme {
         ColorTheme::Darcula => 0,
         ColorTheme::Monokai => 1,

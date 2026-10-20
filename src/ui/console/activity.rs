@@ -102,7 +102,7 @@ impl Console {
 
     pub(super) fn agent_status_bar(&self) -> Option<AnyElement> {
         let (agent, key) = self.agent_status()?;
-        let p = Palette::new(self.appearance.theme);
+        let p = Palette::new(&self.appearance.theme);
         let color = match key {
             "agent_failed" => p.red,
             "agent_complete" => p.green,

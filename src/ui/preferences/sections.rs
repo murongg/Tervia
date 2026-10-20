@@ -2,7 +2,7 @@ use super::*;
 
 impl PreferencesWindow {
     pub(super) fn general_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -21,7 +21,7 @@ impl PreferencesWindow {
     }
 
     pub(super) fn appearance_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -38,7 +38,7 @@ impl PreferencesWindow {
     }
 
     pub(super) fn workspace_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -51,7 +51,7 @@ impl PreferencesWindow {
     }
 
     fn font_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -99,7 +99,7 @@ impl PreferencesWindow {
     }
 
     fn file_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -135,7 +135,7 @@ impl PreferencesWindow {
     }
 
     fn terminal_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .flex()
             .flex_col()

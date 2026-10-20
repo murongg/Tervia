@@ -1,3 +1,6 @@
+pub(crate) mod document;
+use document::set;
+
 use std::{
     fs,
     io::{self, Write},
@@ -51,7 +54,8 @@ impl Config {
             Err(error) => return Err(self.error(error)),
         };
         let document = parse(&source).map_err(|error| self.error(error))?;
-        let preferences = read(&document).map_err(|error| self.error(error))?;
+        let preferences = read(&document, &crate::themes::Store::new(self.path.clone()))
+            .map_err(|error| self.error(error))?;
         self.source = Some(source);
         Ok(preferences)
     }
@@ -62,7 +66,8 @@ impl Config {
         })?;
         let mut document = parse(source).map_err(|error| self.error(error))?;
         write(&mut document, preferences);
-        read(&document).map_err(|error| self.error(error))?;
+        read(&document, &crate::themes::Store::new(self.path.clone()))
+            .map_err(|error| self.error(error))?;
         let updated = document.to_string();
 
         // Never replace edits made by a text editor or another Tervia instance.
@@ -140,7 +145,7 @@ fn parse(source: &str) -> Result<DocumentMut, String> {
         .map_err(|error| format!("Invalid TOML: {error}"))
 }
 
-fn read(document: &DocumentMut) -> Result<Preferences, String> {
+fn read(document: &DocumentMut, store: &crate::themes::Store) -> Result<Preferences, String> {
     let defaults = Preferences::default();
     let empty = Table::new();
     let ui = section(document.get("ui"), "ui", &empty)?;
@@ -156,7 +161,11 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
         Theme::from_id(mode).ok_or_else(|| {
             format!(
                 "ui.theme must be system or one of: {}",
-                Theme::ALL.map(Theme::id).join(", ")
+                Theme::ALL
+                    .iter()
+                    .map(Theme::id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         })?
     };
@@ -166,19 +175,31 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
     }
     for (key, light) in [("dark_theme", false), ("light_theme", true)] {
         let name = format!("ui.{key}");
-        let selected = Theme::from_id(string(ui.get(key), &name, theme.selected(light).id())?)
-            .filter(|theme| theme.is_light() == light)
-            .ok_or_else(|| {
-                format!(
-                    "{name} must be {}",
-                    Theme::ALL
-                        .into_iter()
-                        .filter(|theme| theme.is_light() == light)
-                        .map(Theme::id)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            })?;
+        let fallback = theme.selected(light);
+        let id = string(ui.get(key), &name, fallback.id())?;
+        let selected = if crate::themes::valid_id(id) {
+            // A removed or broken custom file must not prevent the rest of settings loading.
+            Some(
+                store
+                    .load(id)
+                    .map(|document| Theme::Custom(document.data))
+                    .unwrap_or_else(|_| Theme::from(light)),
+            )
+        } else {
+            Theme::from_id(id)
+        }
+        .filter(|theme| theme.is_light() == light)
+        .ok_or_else(|| {
+            format!(
+                "{name} must be {}",
+                Theme::ALL
+                    .iter()
+                    .filter(|theme| theme.is_light() == light)
+                    .map(Theme::id)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })?;
         theme.select(selected);
     }
     let code = string(ui.get("language"), "ui.language", "system")?;
@@ -353,26 +374,4 @@ fn write(document: &mut DocumentMut, preferences: &Preferences) {
         &mut document["updates"]["interval_minutes"],
         Value::from(i64::from(preferences.updates.interval_minutes)),
     );
-}
-
-fn set(item: &mut Item, mut value: Value) {
-    if let Some(previous) = item.as_value() {
-        if previous
-            .as_str()
-            .zip(value.as_str())
-            .is_some_and(|(a, b)| a == b)
-            || previous
-                .as_bool()
-                .zip(value.as_bool())
-                .is_some_and(|(a, b)| a == b)
-            || previous
-                .as_integer()
-                .zip(value.as_integer())
-                .is_some_and(|(a, b)| a == b)
-        {
-            return;
-        }
-        *value.decor_mut() = previous.decor().clone();
-    }
-    *item = Item::Value(value);
 }

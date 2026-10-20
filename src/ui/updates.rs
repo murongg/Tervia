@@ -314,7 +314,7 @@ impl Updater {
         let preferences = self.preferences.read(cx);
         let (percentage, progress) = self.progress_status();
         ProgressCircle::new("workspace-update-progress-circle")
-            .color(Palette::new(preferences.theme).accent)
+            .color(Palette::new(&preferences.theme).accent)
             .w(px(18.0))
             .h(px(18.0))
             .value(percentage.unwrap_or(0.0))
@@ -332,7 +332,7 @@ impl Render for Updater {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let preferences = self.preferences.read(cx);
         let language = preferences.language;
-        let p = Palette::new(preferences.theme);
+        let p = Palette::new(&preferences.theme);
         let candidate = self.state.candidate().cloned();
         let status = match &self.state {
             State::Idle => String::new(),
@@ -625,6 +625,9 @@ impl Tervia {
             cx.notify();
             return false;
         }
+        if !super::preferences::allow_quit(cx) {
+            return false;
+        }
         self.flush_terminals(cx)
     }
 
@@ -648,11 +651,16 @@ impl Tervia {
             return;
         };
         let installed = installed.clone();
-        if !self.update_restart_allowed() {
+        let theme_pending = super::preferences::has_pending_theme_edits(cx);
+        if !self.update_restart_allowed() || theme_pending {
             drop(window.prompt(
                 PromptLevel::Warning,
                 self.t("update_restart"),
-                Some(self.t("update_restart_blocked")),
+                Some(self.t(if theme_pending {
+                    "theme_restart_blocked"
+                } else {
+                    "update_restart_blocked"
+                })),
                 &[self.t("close")],
                 cx,
             ));

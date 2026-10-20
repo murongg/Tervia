@@ -137,7 +137,7 @@ impl Tervia {
             return self.search_sidebar(cx);
         }
         let ui = &self.explorers[project];
-        let p = Palette::workbench(self.appearance.theme);
+        let p = Palette::workbench(&self.appearance.theme);
         let rows = ui.tree.rows();
         div()
             .size_full()
@@ -270,7 +270,7 @@ impl Tervia {
         self.explorers[project]
             .rendered_rows
             .set(self.explorers[project].rendered_rows.get() + 1);
-        let p = Palette::workbench(self.appearance.theme);
+        let p = Palette::workbench(&self.appearance.theme);
         match row {
             Row::Entry { entry, depth } => {
                 let path = entry.path.clone();

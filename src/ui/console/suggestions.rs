@@ -327,7 +327,7 @@ impl Console {
 
     pub(super) fn suggestion_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (bounds, rows) = self.suggestion_layout()?;
-        let p = Palette::new(self.appearance.theme);
+        let p = Palette::new(&self.appearance.theme);
         let language = self.appearance.language;
         let row_height = self.suggestion_row_height();
         let first = self

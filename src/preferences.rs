@@ -63,7 +63,7 @@ impl Preferences {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Theme {
     #[default]
     Dark,
@@ -77,6 +77,7 @@ pub enum Theme {
     SolarizedDark,
     SolarizedLight,
     QuietLight,
+    Custom(std::sync::Arc<crate::themes::Definition>),
 }
 
 impl Theme {
@@ -94,7 +95,7 @@ impl Theme {
         Self::QuietLight,
     ];
 
-    pub fn id(self) -> &'static str {
+    pub fn id(&self) -> &str {
         match self {
             Self::Dark => "dark",
             Self::Light => "light",
@@ -107,6 +108,7 @@ impl Theme {
             Self::SolarizedDark => "solarized-dark",
             Self::SolarizedLight => "solarized-light",
             Self::QuietLight => "quiet-light",
+            Self::Custom(data) => data.id(),
         }
     }
 
@@ -114,14 +116,24 @@ impl Theme {
         Self::ALL.into_iter().find(|theme| theme.id() == id)
     }
 
-    pub fn is_light(self) -> bool {
+    pub fn custom(&self) -> Option<&crate::themes::Definition> {
+        match self {
+            Self::Custom(data) => Some(data),
+            _ => None,
+        }
+    }
+
+    pub fn is_light(&self) -> bool {
+        if let Self::Custom(data) = self {
+            return data.is_light();
+        }
         matches!(
             self,
             Self::Light | Self::Paper | Self::Rose | Self::SolarizedLight | Self::QuietLight
         )
     }
 
-    pub fn key(self) -> &'static str {
+    pub fn key(&self) -> &'static str {
         match self {
             Self::Dark => "dark",
             Self::Light => "light",
@@ -134,10 +146,14 @@ impl Theme {
             Self::SolarizedDark => "theme_solarized_dark",
             Self::SolarizedLight => "theme_solarized_light",
             Self::QuietLight => "theme_quiet_light",
+            Self::Custom(_) => "theme_custom",
         }
     }
 
-    pub fn label(self, language: Language) -> &'static str {
+    pub fn label(&self, language: Language) -> &str {
+        if let Self::Custom(data) = self {
+            return data.name();
+        }
         language.text(self.key())
     }
 }
@@ -161,7 +177,7 @@ impl Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Themes {
     dark: Theme,
     light: Theme,
@@ -181,15 +197,19 @@ impl Default for Themes {
 }
 
 impl Themes {
-    pub fn current(self) -> Theme {
+    pub fn current(&self) -> Theme {
         self.selected(self.light_mode)
     }
 
-    pub fn selected(self, light: bool) -> Theme {
-        if light { self.light } else { self.dark }
+    pub fn selected(&self, light: bool) -> Theme {
+        if light {
+            self.light.clone()
+        } else {
+            self.dark.clone()
+        }
     }
 
-    pub fn is_light(self) -> bool {
+    pub fn is_light(&self) -> bool {
         self.light_mode
     }
 
@@ -202,12 +222,27 @@ impl Themes {
         }
     }
 
+    pub fn remove_custom(&mut self, id: &str) -> bool {
+        let mut removed = false;
+        for light in [false, true] {
+            if self
+                .selected(light)
+                .custom()
+                .is_some_and(|data| data.id() == id)
+            {
+                self.select(Theme::from(light));
+                removed = true;
+            }
+        }
+        removed
+    }
+
     pub fn set_light(&mut self, light: bool) {
         self.light_mode = light;
         self.mode = if light { Mode::Light } else { Mode::Dark };
     }
 
-    pub fn mode(self) -> Mode {
+    pub fn mode(&self) -> Mode {
         self.mode
     }
 
@@ -235,8 +270,8 @@ impl Themes {
 impl From<Theme> for Themes {
     fn from(theme: Theme) -> Self {
         let mut themes = Self::default();
-        themes.select(theme);
         themes.set_light(theme.is_light());
+        themes.select(theme);
         themes
     }
 }
@@ -259,3 +294,21 @@ impl From<bool> for Theme {
     }
 }
 use crate::{locale::Language, platform::Platform};
+
+impl From<&Themes> for Theme {
+    fn from(themes: &Themes) -> Self {
+        themes.current()
+    }
+}
+
+impl From<&Theme> for Theme {
+    fn from(theme: &Theme) -> Self {
+        theme.clone()
+    }
+}
+
+impl From<&Theme> for Themes {
+    fn from(theme: &Theme) -> Self {
+        theme.clone().into()
+    }
+}

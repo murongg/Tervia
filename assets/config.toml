@@ -10,6 +10,7 @@ language = "system"
 # Active appearance: "dark", "light" or "system". Older preset names remain readable.
 theme = "dark"
 # Each appearance remembers its own theme.
+# Custom user-* IDs refer to complete TOML snapshots in themes/ beside this file.
 # "dark", "midnight", "forest", "darcula", "monokai" or "solarized-dark"
 dark_theme = "dark"
 # "light", "paper", "rose", "solarized-light" or "quiet-light"

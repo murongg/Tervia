@@ -151,7 +151,7 @@ impl Tervia {
         let Some(edit) = &management.edit else {
             return div();
         };
-        let p = super::super::theme::Palette::workbench(self.appearance.theme);
+        let p = super::super::theme::Palette::workbench(&self.appearance.theme);
         let context = match edit {
             Edit::File(parent) | Edit::Directory(parent) => {
                 if parent.as_os_str().is_empty() {

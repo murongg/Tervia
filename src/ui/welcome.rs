@@ -17,7 +17,7 @@ use tervia::platform::Platform;
 
 impl Tervia {
     fn welcome_action(&self, local: bool, cx: &mut Context<Self>) -> Button {
-        let p = theme::Palette::new(self.appearance.theme);
+        let p = theme::Palette::new(&self.appearance.theme);
         let foreground = if local { p.text } else { p.on_accent };
         let glyph = if local {
             IconName::SquareTerminal
@@ -130,7 +130,7 @@ impl Tervia {
     }
 
     pub(super) fn welcome(&self, window: &Window, cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = theme::Palette::workbench(self.appearance.theme);
+        let p = theme::Palette::workbench(&self.appearance.theme);
         let update = self.workspace_update(cx);
         let recent = self
             .state
@@ -317,7 +317,7 @@ impl Tervia {
             .flex_col()
             .track_focus(&self.focus)
             .key_context("Tervia")
-            .bg(theme::workspace_background(self.appearance.theme))
+            .bg(theme::workspace_background(&self.appearance.theme))
             .text_color(p.text)
             .font_family(Platform::CURRENT.ui_font())
             .text_size(px(self.appearance.ui_size as f32))
@@ -432,7 +432,7 @@ impl Tervia {
     }
 
     fn welcome_clone(&self, cx: &mut Context<Self>) -> Div {
-        let p = theme::Palette::new(self.appearance.theme);
+        let p = theme::Palette::new(&self.appearance.theme);
         div()
             .absolute()
             .inset_0()

@@ -95,7 +95,7 @@ impl Console {
 
     pub(super) fn search_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let search = self.search.as_ref().filter(|search| search.open)?;
-        let p = Palette::new(self.appearance.theme);
+        let p = Palette::new(&self.appearance.theme);
         let language = self.appearance.language;
         let count = search.matches.len();
         let position = if count == 0 { 0 } else { search.active + 1 };

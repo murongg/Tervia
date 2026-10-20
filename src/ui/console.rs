@@ -357,7 +357,7 @@ impl Console {
                     this.invalidate_suggestion();
                     this.suggestions.new_session();
                 }
-                // Presets in the same light/dark mode still change terminal color queries.
+                // Compare snapshots: editing the selected custom ID must refresh PTY color queries too.
                 let theme_changed = this.appearance.theme.current() != appearance.theme.current();
                 this.appearance = appearance;
                 if theme_changed
@@ -993,12 +993,21 @@ impl Console {
         if let Some(color) = self.buffer.term.colors()[index] {
             return color;
         }
-        let p = Palette::new(self.appearance.theme);
+        let theme = self.appearance.theme.current();
+        if let Some(color) = super::theme::terminal_entry(&theme, index) {
+            let rgb = color.rgb();
+            return Rgb {
+                r: (rgb >> 16) as u8,
+                g: (rgb >> 8) as u8,
+                b: rgb as u8,
+            };
+        }
+        let p = Palette::new(&theme);
         let color = match index {
             256 => p.text.to_rgb(),
             257 => p.background.to_rgb(),
             258 => p.text.to_rgb(),
-            0..=15 => rgb(super::theme::terminal_ansi(self.appearance.theme)[index]),
+            0..=15 => rgb(super::theme::terminal_ansi(&self.appearance.theme)[index]),
             16..=231 => {
                 let cube = index - 16;
                 let channel = |value| if value == 0 { 0 } else { 55 + value * 40 };
@@ -1025,7 +1034,29 @@ impl Console {
         }
     }
 
+    fn background_color(&self) -> Hsla {
+        // OSC 11 overrides the theme; otherwise a copied theme retains its transparent canvas.
+        if self.buffer.term.colors()[NamedColor::Background as usize].is_some() {
+            self.color(Color::Named(NamedColor::Background))
+        } else {
+            super::theme::terminal_color(&self.appearance.theme.current(), "terminal.background")
+        }
+    }
+
     fn color(&self, color: Color) -> Hsla {
+        let index = match color {
+            Color::Named(index) => Some(index as usize),
+            Color::Indexed(index) => Some(index as usize),
+            _ => None,
+        };
+        if let Some(index) = index
+            && index != NamedColor::Background as usize
+            && self.buffer.term.colors()[index].is_none()
+            && let Some(color) =
+                super::theme::terminal_entry(&self.appearance.theme.current(), index)
+        {
+            return rgb(color.rgb()).opacity(color.alpha()).into();
+        }
         let color = match color {
             Color::Spec(color) => color,
             Color::Named(color) => self.index_color(color as usize),
@@ -1244,13 +1275,13 @@ mod tests {
             let before = cx.update(|_, cx| console.read(cx).output());
             cx.update(|_, cx| {
                 preferences.update(cx, |preferences, cx| {
-                    preferences.theme = theme.into();
+                    preferences.theme = (&theme).into();
                     cx.notify();
                 });
             });
             cx.update(|_, cx| {
                 let console = console.read(cx);
-                let p = Palette::new(theme);
+                let p = Palette::new(&theme);
                 let expected = |color: Hsla| {
                     let color = color.to_rgb();
                     Rgb {
@@ -1283,6 +1314,63 @@ mod tests {
                 assert_eq!(console.output(), before);
             });
         }
+    }
+
+    #[gpui_test::test]
+    fn custom_terminal_colors_reach_color_queries_without_replacing_osc_overrides(
+        cx: &mut TestAppContext,
+    ) {
+        let (console, cx) = scroll_fixture(cx);
+        cx.update(|_, cx| {
+            console.update(cx, |this, cx| {
+                let mut data = super::super::theme::snapshot(&tervia::preferences::Theme::Dark);
+                for (key, color) in [
+                    ("terminal.background", "#123456"),
+                    ("terminal.foreground", "#abcdef"),
+                    ("terminal.cursor", "#fedcba"),
+                ] {
+                    data.set_color(key, tervia::themes::Color::parse(color).unwrap())
+                        .unwrap();
+                }
+                this.appearance.theme =
+                    tervia::preferences::Theme::Custom(std::sync::Arc::new(data)).into();
+                assert_eq!(
+                    this.index_color(256),
+                    Rgb {
+                        r: 0xab,
+                        g: 0xcd,
+                        b: 0xef
+                    }
+                );
+                assert_eq!(
+                    this.index_color(257),
+                    Rgb {
+                        r: 0x12,
+                        g: 0x34,
+                        b: 0x56
+                    }
+                );
+                assert_eq!(
+                    this.index_color(258),
+                    Rgb {
+                        r: 0xfe,
+                        g: 0xdc,
+                        b: 0xba
+                    }
+                );
+                this.receive_output(b"\x1b]10;#112233\x07", cx);
+                assert_eq!(
+                    this.index_color(256),
+                    Rgb {
+                        r: 0x11,
+                        g: 0x22,
+                        b: 0x33
+                    }
+                );
+                this.receive_output(b"\x1b]11;#445566\x07", cx);
+                assert_eq!(super::super::theme::hex(this.background_color()), "#445566");
+            })
+        });
     }
 
     #[gpui_test::test]
@@ -2771,11 +2859,12 @@ mod tests {
 impl Render for Console {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
-        let p = Palette::new(self.appearance.theme);
+        let p = Palette::new(&self.appearance.theme);
         let search_bar = self.search_bar(cx);
         let suggestion_bar = self.suggestion_bar(cx);
         div()
             .id("native-console")
+            .bg(self.background_color())
             .relative()
             .size_full()
             .min_w_0()
@@ -2887,7 +2976,7 @@ impl Console {
             self.cell_height,
             self.suggestions.viewport,
         );
-        let p = Palette::new(self.appearance.theme);
+        let p = Palette::new(&self.appearance.theme);
         let font_size = px(self.appearance.code_size as f32);
         let font = Font {
             family: self.appearance.font_family.clone().into(),

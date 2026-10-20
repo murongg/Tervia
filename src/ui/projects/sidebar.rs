@@ -12,7 +12,7 @@ struct ProjectDrag {
 }
 impl Render for ProjectDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let p = crate::ui::theme::Palette::new(self.theme);
+        let p = crate::ui::theme::Palette::new(&self.theme);
         div()
             .px(px(10.0))
             .py(px(6.0))

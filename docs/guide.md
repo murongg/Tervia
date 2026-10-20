@@ -209,6 +209,16 @@ Settings-window changes, the theme toggle and Restore defaults apply immediately
 
 Invalid TOML, unsupported values or read errors fall back to defaults and show a configuration error. The original file remains untouched; open Settings to view details and locate it. Failed saves leave changes active for the current session, with an error shown in Settings. Fix the file or permissions and restart.
 
+## Custom themes
+
+Open **Settings → Appearance → Create theme** to copy the currently selected theme, or right-click any theme and choose **Duplicate and edit**. The native editor groups Interface, Code and Terminal colors beside an isolated live workspace preview. Each color has a picker, HEX input and Restore original color; More colors reveals auxiliary surfaces or the sixteen ANSI colors. HEX accepts `#RRGGBB` and `#RRGGBBAA`. Invalid input keeps the last valid preview and blocks saving; low text contrast produces a warning. Closing with unsaved changes asks before discarding them.
+
+**Save and use** stores the complete palette and syntax styles, then selects it for its own dark/light appearance. The other selection and Dark/Light/System mode remain unchanged. Custom-theme menus also offer Edit and rename and Delete theme. Renaming retains its identity; deleting a selected custom theme restores the corresponding default. Reset Appearance changes the selection and typography without deleting custom-theme files.
+
+Themes live as individual `user-*.toml` files in `themes/` beside `config.toml`; `ui.dark_theme` and `ui.light_theme` reference their stable IDs. Copies are independent of future built-in palette updates. Manual file edits take effect on restart. Saving preserves comments and unknown fields and rejects external edits made since the editor loaded the theme. Broken files appear as errors in Appearance while other themes remain available; a missing or broken selected file falls back to the default for its appearance.
+
+![Native custom-theme editor with isolated workspace preview](screenshots/custom-theme-editor.jpg)
+
 ## Git management
 
 - Open real working directories, initialize repositories, or clone into new directories. The sidebar stays a flat project list; selecting a project restores its last working directory. The titlebar shows the current project and directory, with a searchable directory picker (⌘⌥O on macOS, Ctrl+Alt+O elsewhere). Add directories through the picker’s native folder chooser or Set as Working Directory in a Files folder menu. Git child repositories appear automatically alongside manually added directories, with the root always available. Each directory keeps its own terminals, drafts and selected module; workspace history remembers the list and last selection. Git discovery refreshes the picker without adding projects to the sidebar. Both `.git` directories and `.git` files are supported.

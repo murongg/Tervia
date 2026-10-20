@@ -101,7 +101,7 @@ fn switching_modes_restores_the_independent_theme_choices() {
 #[test]
 fn each_legacy_preset_initializes_only_its_own_mode() {
     for theme in Theme::ALL {
-        let themes = Themes::from(theme);
+        let themes = Themes::from(&theme);
         assert_eq!(themes.current(), theme);
         assert_eq!(themes.is_light(), theme.is_light());
         assert_eq!(
