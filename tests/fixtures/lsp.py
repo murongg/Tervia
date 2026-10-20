@@ -97,7 +97,7 @@ while True:
         if mode == "error":
             send({"id": message["id"], "error": {"code": -32801, "message": "synthetic content modified"}})
             continue
-        target = (root / "target.ts").as_uri()
+        target = (root / ("target.json" if mode == "json" else "target.ts")).as_uri()
         target_text = documents.get(target, (1, "export function mock() {}"))[1]
         line = 1 if target_text.startswith("\n") else 0
         column = 16

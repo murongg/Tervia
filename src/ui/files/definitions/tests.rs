@@ -19,7 +19,18 @@ pub(in crate::ui::files) fn mount<'a>(
         "mock()\n"
     };
     fs::write(root.path().join("mock.ts"), source).unwrap();
-    fs::write(root.path().join("target.ts"), "export function mock() {}\n").unwrap();
+    let (target_name, target_language, target_saved, target_draft) = if mode == "json" {
+        let json = "              {\"mock\": \"synthetic\"}\n";
+        ("target.json", "json", json, json)
+    } else {
+        (
+            "target.ts",
+            "typescript",
+            "export function mock() {}\n",
+            "\nexport function mock() {}\n",
+        )
+    };
+    fs::write(root.path().join(target_name), target_saved).unwrap();
     let server = Server {
         program: if cfg!(windows) { "python" } else { "python3" }.into(),
         args: vec![
@@ -43,11 +54,11 @@ pub(in crate::ui::files) fn mount<'a>(
             this.state.projects[owner].open_file(0);
             if target_open {
                 this.state.projects[owner].files.push(File {
-                    path: "target.ts".into(),
-                    disk_path: "target.ts".into(),
-                    language: "typescript".into(),
-                    saved: "export function mock() {}\n".into(),
-                    draft: "\nexport function mock() {}\n".into(),
+                    path: target_name.into(),
+                    disk_path: target_name.into(),
+                    language: target_language.into(),
+                    saved: target_saved.into(),
+                    draft: target_draft.into(),
                 });
                 this.state.projects[owner].open_file(1);
                 this.state.projects[owner].active_file = 0;
@@ -107,6 +118,99 @@ fn source_is_underlined(view: &Entity<Tervia>, cx: &mut VisualTestContext) -> bo
             line.wavy == false.into() && line.color.a > 0.0 && line.bounds.intersects(&bounds)
         })
     })
+}
+
+#[gpui_test::test]
+fn definitions_into_open_json_targets_keep_their_hover_links(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "json", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(20));
+    cx.run_until_parked();
+    assert!(source_is_underlined(&view, cx));
+    cx.simulate_click(position, modifier());
+    cx.run_until_parked();
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().active_file, 1)
+    });
+}
+
+#[gpui_test::test]
+fn dirty_json_targets_do_not_expose_positions_from_disk_as_hover_links(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "json", true);
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][1].update(cx, |editor, cx| {
+                editor.set_value("{\"edited\": true}\n", window, cx)
+            });
+        })
+    });
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    assert!(!source_is_underlined(&view, cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+}
+
+#[gpui_test::test]
+fn definition_links_appear_before_the_preview_delay(cx: &mut TestAppContext) {
+    let (root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(20));
+    cx.run_until_parked();
+    assert!(
+        source_is_underlined(&view, cx),
+        "A confirmed definition should underline without waiting for its preview"
+    );
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(180));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_some());
+    let log: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+            .unwrap();
+    assert_eq!(log["definition"], 1);
+}
+
+#[gpui_test::test]
+fn target_edits_clear_a_definition_link_before_its_preview_is_ready(cx: &mut TestAppContext) {
+    let (_root, view, cx) = mount(cx, "normal", true);
+    let position = source_point(&view, cx);
+    cx.simulate_modifiers_change(modifier());
+    cx.simulate_mouse_move(position, None, modifier());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(20));
+    cx.run_until_parked();
+    assert!(source_is_underlined(&view, cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.editors[0][1].update(cx, |editor, cx| {
+                editor.set_value("export function mock() {} // synthetic edit\n", window, cx);
+            });
+        });
+    });
+    cx.run_until_parked();
+    assert!(!source_is_underlined(&view, cx));
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(cx.debug_bounds("definition-preview").is_none());
 }
 
 #[gpui_test::test]

@@ -165,6 +165,11 @@ impl DefinitionProvider for Definitions {
                     })
                     .collect::<Vec<_>>();
                 let source = &owner.files[index];
+                let open_paths = owner
+                    .open_files
+                    .iter()
+                    .map(|file| owner.files[*file].disk_path.clone())
+                    .collect::<Vec<_>>();
                 documents.push((
                     source.disk_path.clone(),
                     source.language.clone(),
@@ -184,11 +189,11 @@ impl DefinitionProvider for Definitions {
                 let peek = &mut this.explorers[project].definition_preview;
                 let token =
                     (modifier_hover && !explicit).then(|| peek.begin(index, symbol.clone()));
-                Some((client, root, documents, origin, token))
+                Some((client, root, documents, open_paths, origin, token))
             })
             .ok()
             .flatten();
-        let Some((client, root, documents, origin, token)) = snapshot else {
+        let Some((client, root, documents, open_paths, origin, token)) = snapshot else {
             return Task::ready(Ok(Vec::new()));
         };
         let hovering = token.is_some();
@@ -207,6 +212,10 @@ impl DefinitionProvider for Definitions {
             .as_ref()
             .map(|token| (origin.clone(), symbol.clone(), token.clone()));
         let response = window.spawn(cx, async move |cx| {
+            let preview_wait = hovering.then(|| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(150))
+            });
             // The provider is called inside an editor update. Source editor
             // reads and hover-cache dismissal must wait until that borrow ends.
             let hover = view
@@ -226,8 +235,10 @@ impl DefinitionProvider for Definitions {
                 return Vec::new();
             }
             if let Some(hover) = &hover {
+                // Cancel quick pointer sweeps before service IO without making
+                // the link wait for the popup's longer dwell time.
                 cx.background_executor()
-                    .timer(std::time::Duration::from_millis(50))
+                    .timer(std::time::Duration::from_millis(16))
                     .await;
                 let current = view
                     .update_in(cx, |this, window, cx| {
@@ -291,14 +302,18 @@ impl DefinitionProvider for Definitions {
                 .background_executor()
                 .spawn(async move {
                     let locations = request?.run()?;
-                    let preview = if hovering {
+                    let target = if hovering {
                         locations
                             .first()
-                            .and_then(|location| preview::prepare(&query, location).ok())
+                            .map(|location| {
+                                preview::Target::resolve(&query, location, &open_paths)
+                                    .map(Arc::new)
+                            })
+                            .transpose()?
                     } else {
                         None
                     };
-                    Ok::<_, String>((locations, preview))
+                    Ok::<_, String>((locations, target))
                 })
                 .await;
             view.update_in(cx, |this, window, cx| {
@@ -316,11 +331,11 @@ impl DefinitionProvider for Definitions {
                     return Vec::new();
                 }
                 match result {
-                    Ok((locations, prepared)) => {
+                    Ok((locations, target)) => {
                         if hovering
-                            && prepared.as_ref().is_some_and(|prepared| {
-                                !preview::target_current(prepared, this, project, cx)
-                            })
+                            && target
+                                .as_ref()
+                                .is_some_and(|target| !target.current(this, project, cx))
                         {
                             // Do not leave an underlined link with coordinates
                             // resolved against a draft that changed during IO.
@@ -337,19 +352,23 @@ impl DefinitionProvider for Definitions {
                                 this.state.notice = "definition_not_found".into();
                             }
                         } else {
-                            if let Some(hover) = &hover {
-                                let preview = prepared.map(|prepared| {
-                                    preview::Preview::new(
-                                        origin.clone(),
-                                        symbol,
-                                        locations[0].clone(),
-                                        prepared,
-                                        hover.scroll,
-                                    )
-                                });
-                                this.explorers[project]
-                                    .definition_preview
-                                    .complete(&hover.token, preview);
+                            if let (Some(hover), Some(target), Some(wait)) =
+                                (&hover, target, preview_wait)
+                            {
+                                let preview = preview::Preview::new(
+                                    origin.clone(),
+                                    symbol,
+                                    locations[0].clone(),
+                                    target,
+                                    hover.scroll,
+                                );
+                                this.prepare_definition_preview(
+                                    hover.token.clone(),
+                                    preview,
+                                    wait,
+                                    window,
+                                    cx,
+                                );
                             }
                             ready.replace(Some(origin));
                             this.state.notice.clear();

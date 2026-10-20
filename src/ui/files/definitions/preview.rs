@@ -8,6 +8,7 @@ struct Session {
     token: Arc<()>,
     ready: bool,
     preview: Option<Preview>,
+    task: Option<Task<()>>,
 }
 
 #[derive(Default)]
@@ -25,6 +26,7 @@ impl Peek {
             token: token.clone(),
             ready: false,
             preview: None,
+            task: None,
         });
         token
     }
@@ -95,11 +97,9 @@ impl Hover {
     }
 }
 
-pub(super) struct Prepared {
+pub(super) struct Target {
     path: PathBuf,
-    text: String,
-    was_open: bool,
-    code: String,
+    text: Option<String>,
     language: String,
     line: u32,
 }
@@ -108,7 +108,8 @@ pub(in crate::ui) struct Preview {
     origin: Origin,
     range: Range<usize>,
     location: LocationLink,
-    prepared: Prepared,
+    target: Arc<Target>,
+    code: Option<String>,
     bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     scroll: Point<Pixels>,
 }
@@ -118,17 +119,29 @@ impl Preview {
         origin: Origin,
         range: Range<usize>,
         location: LocationLink,
-        prepared: Prepared,
+        target: Arc<Target>,
         scroll: Point<Pixels>,
     ) -> Self {
         Self {
             origin,
             range,
             location,
-            prepared,
+            target,
+            code: None,
             bounds: Rc::default(),
             scroll,
         }
+    }
+
+    fn current(&self, view: &Tervia, window: &Window, cx: &App) -> bool {
+        window.modifiers().secondary()
+            && !window.modifiers().alt
+            && self.origin.current(view, cx)
+            && view.editors[self.origin.project][self.origin.index]
+                .read(cx)
+                .scroll_offset()
+                == self.scroll
+            && self.target.current(view, self.origin.project, cx)
     }
 }
 
@@ -153,59 +166,144 @@ pub(super) fn resolve(
         .unwrap_or(path))
 }
 
-pub(super) fn prepare(query: &Query, location: &LocationLink) -> Result<Prepared, String> {
-    let path = resolve(
-        &query.root,
-        location.target_uri.as_str(),
-        query.documents.iter().map(|doc| doc.path.clone()),
-    )?;
-    let open = query.documents.iter().find(|doc| doc.path == path);
-    let text = match open {
-        Some(doc) => doc.text.clone(),
-        None => tervia::files::text(&query.root, &path)?,
-    };
-    let line = location.target_selection_range.start.line;
-    let start = line.saturating_sub(1) as usize;
-    let code = text
-        .lines()
-        .skip(start)
-        .take(8)
-        .map(|line| {
-            let mut clipped = line.chars().take(160).collect::<String>();
-            if line.chars().count() > 160 {
-                clipped.push('…');
-            }
-            clipped
+impl Target {
+    pub(super) fn resolve(
+        query: &Query,
+        location: &LocationLink,
+        open_paths: &[PathBuf],
+    ) -> Result<Self, String> {
+        let path = resolve(
+            &query.root,
+            location.target_uri.as_str(),
+            open_paths.iter().cloned(),
+        )?;
+        let open = query.documents.iter().find(|doc| doc.path == path);
+        // The server has not received drafts from other language families.
+        // An open JSON/etc. target must still match its disk-based positions.
+        let text = match open {
+            Some(doc) => Some(doc.text.clone()),
+            None if open_paths.contains(&path) => Some(tervia::files::text(&query.root, &path)?),
+            None => None,
+        };
+        let line = location.target_selection_range.start.line;
+        let language = open.map(|doc| doc.language.clone()).unwrap_or_else(|| {
+            gpui_kit::component::highlighter::language_for_path(&path.to_string_lossy()).to_string()
+        });
+        Ok(Self {
+            path,
+            text,
+            language,
+            line,
         })
-        .collect::<Vec<_>>()
-        .join("\n");
-    let language = open.map(|doc| doc.language.clone()).unwrap_or_else(|| {
-        gpui_kit::component::highlighter::language_for_path(&path.to_string_lossy()).to_string()
-    });
-    Ok(Prepared {
-        path,
-        text,
-        was_open: open.is_some(),
-        code,
-        language,
-        line,
-    })
-}
+    }
 
-pub(super) fn target_current(prepared: &Prepared, view: &Tervia, project: usize, cx: &App) -> bool {
-    let owner = &view.state.projects[project];
-    match owner
-        .open_files
-        .iter()
-        .copied()
-        .find(|index| owner.files[*index].disk_path == prepared.path)
-    {
-        Some(index) => view.editors[project][index].read(cx).text() == prepared.text.as_str(),
-        None => !prepared.was_open,
+    fn code(&self, root: &Path) -> Result<String, String> {
+        let disk;
+        let text = match &self.text {
+            Some(text) => text,
+            None => {
+                disk = tervia::files::text(root, &self.path)?;
+                &disk
+            }
+        };
+        let start = self.line.saturating_sub(1) as usize;
+        Ok(text
+            .lines()
+            .skip(start)
+            .take(8)
+            .map(|line| {
+                let mut clipped = line.chars().take(160).collect::<String>();
+                if line.chars().count() > 160 {
+                    clipped.push('…');
+                }
+                clipped
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
+    }
+
+    pub(super) fn current(&self, view: &Tervia, project: usize, cx: &App) -> bool {
+        let owner = &view.state.projects[project];
+        match owner
+            .open_files
+            .iter()
+            .copied()
+            .find(|index| owner.files[*index].disk_path == self.path)
+        {
+            // A newly opened target has no captured draft. Resolve again before
+            // treating positions from the earlier disk snapshot as clickable.
+            Some(index) => self
+                .text
+                .as_ref()
+                .is_some_and(|text| view.editors[project][index].read(cx).text() == text.as_str()),
+            None => self.text.is_none(),
+        }
     }
 }
 
 impl Tervia {
+    pub(super) fn prepare_definition_preview(
+        &mut self,
+        token: Arc<()>,
+        preview: Preview,
+        wait: impl std::future::Future<Output = ()> + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let project = preview.origin.project;
+        let root = self.state.projects[project].root.clone();
+        let target = preview.target.clone();
+        self.explorers[project]
+            .definition_preview
+            .complete(&token, Some(preview));
+        // The native editor can paint/click the confirmed link while preview
+        // reading waits independently. Clearing the session cancels this task.
+        let task = cx.spawn_in(window, async move |weak, cx| {
+            wait.await;
+            let current = weak
+                .update_in(cx, |this, window, cx| {
+                    this.explorers[project].definition_preview.current(&token)
+                        && this.explorers[project]
+                            .definition_preview
+                            .get()
+                            .is_some_and(|preview| preview.current(this, window, cx))
+                })
+                .unwrap_or(false);
+            if !current {
+                return;
+            }
+            let code = cx
+                .background_executor()
+                .spawn(async move { target.code(&root) })
+                .await;
+            let _ = weak.update_in(cx, |this, window, cx| {
+                if !this.explorers[project].definition_preview.current(&token) {
+                    return;
+                }
+                if !this.explorers[project]
+                    .definition_preview
+                    .get()
+                    .is_some_and(|preview| preview.current(this, window, cx))
+                {
+                    this.dismiss_definition_preview(cx);
+                    return;
+                }
+                if let Some(preview) = this.explorers[project]
+                    .definition_preview
+                    .session
+                    .as_mut()
+                    .and_then(|session| session.preview.as_mut())
+                {
+                    preview.code = code.ok();
+                }
+                cx.notify();
+            });
+        });
+        if let Some(session) = self.explorers[project].definition_preview.session.as_mut() {
+            session.task = Some(task);
+        }
+    }
+
     pub(in crate::ui) fn definition_modifiers(
         &mut self,
         event: &ModifiersChangedEvent,
@@ -389,15 +487,7 @@ impl Tervia {
     ) -> Option<AnyElement> {
         let project = self.state.active_project;
         let preview = self.explorers[project].definition_preview.get()?;
-        if !window.modifiers().secondary()
-            || window.modifiers().alt
-            || !preview.origin.current(self, cx)
-            || self.editors[project][preview.origin.index]
-                .read(cx)
-                .scroll_offset()
-                != preview.scroll
-            || !target_current(&preview.prepared, self, project, cx)
-        {
+        if !preview.current(self, window, cx) {
             let token = self.explorers[project]
                 .definition_preview
                 .session
@@ -411,6 +501,7 @@ impl Tervia {
             });
             return None;
         }
+        let code = preview.code.as_ref()?;
         let trigger = self.editors[project][preview.origin.index]
             .read(cx)
             .range_to_bounds(&preview.range)?;
@@ -445,7 +536,6 @@ impl Tervia {
             .as_ref()?
             .token
             .clone();
-        let code = &preview.prepared.code;
         // Arbitrary source can contain Markdown fences. A longer fence keeps it
         // literal code and prevents project text from becoming links or images.
         let fence = "`".repeat(
@@ -456,7 +546,7 @@ impl Tervia {
                 .max(2)
                 + 1,
         );
-        let markdown = format!("{fence}{}\n{code}\n{fence}", preview.prepared.language);
+        let markdown = format!("{fence}{}\n{code}\n{fence}", preview.target.language);
         Some(
             deferred(
                 anchored()
@@ -489,7 +579,7 @@ impl Tervia {
                                     .items_center()
                                     .gap(px(8.0))
                                     .child(file_icon(
-                                        &preview.prepared.path,
+                                        &preview.target.path,
                                         self.appearance.light_theme,
                                         None,
                                     ))
@@ -502,8 +592,8 @@ impl Tervia {
                                             .text_color(p.secondary)
                                             .child(format!(
                                                 "{}:{}",
-                                                preview.prepared.path.display(),
-                                                preview.prepared.line + 1
+                                                preview.target.path.display(),
+                                                preview.target.line + 1
                                             )),
                                     )
                                     .child(
@@ -522,12 +612,9 @@ impl Tervia {
                                                         .definition_preview
                                                         .get()
                                                         .is_some_and(|preview| {
-                                                            target_current(
-                                                                &preview.prepared,
-                                                                this,
-                                                                project,
-                                                                cx,
-                                                            )
+                                                            preview
+                                                                .target
+                                                                .current(this, project, cx)
                                                         });
                                                 if !current {
                                                     this.dismiss_definition_preview(cx);
