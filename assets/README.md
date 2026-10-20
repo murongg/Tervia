@@ -32,3 +32,7 @@ The curated set covers common programming languages, web files, configuration an
 File associations and native rendering are shared by the explorer, file tabs (including their drag preview), editor header and filename/text search results in `src/ui/icons.rs`. SVG bytes are embedded, with encoded and decoded images cached for repeated rows. At load time, a 16-by-16 intrinsic viewport bounds raster memory without changing the upstream viewBox or paths. No icon download or extension runtime is needed.
 
 The upstream MIT notice is preserved in `material-license.txt` and included in the macOS, Linux and Windows packages' third-party notices.
+
+## Classic theme palette references
+
+Darcula, Monokai, Solarized Dark/Light and Quiet Light are native Tervia adaptations. Their base colors reference [JetBrains Darcula](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-resources/src/themes/darcula.theme.json), [Darcula editor/console colors](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-resources/src/DefaultColorSchemesManager.xml), and the [VS Code built-in theme palettes](https://github.com/microsoft/vscode/tree/main/extensions). Tervia keeps its own layout and restrained workspace gradients, adjusts UI and syntax inks for readable contrast, and maps token categories to GPUI's highlighter. These presets do not import external extensions or execute theme code.

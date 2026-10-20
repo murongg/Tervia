@@ -440,7 +440,7 @@ fn assert_branch_switcher_contents_visible(cx: &mut TestAppContext, trigger: &'s
     });
     for light in [false, true] {
         view.update(cx, |view, cx| {
-            view.appearance.light_theme = light;
+            view.appearance.theme = light.into();
             crate::ui::theme::apply_palette(light, cx);
             cx.notify();
         });

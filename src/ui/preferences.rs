@@ -14,7 +14,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use tervia::locale::Language;
 use tervia::platform::Platform;
-use tervia::preferences::Preferences;
+use tervia::preferences::{Mode, Preferences, Theme as ColorTheme};
 use tervia::shell::Profile;
 
 use super::{
@@ -29,12 +29,21 @@ mod sections;
 mod startup;
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
+mod themes;
 
 const NAVIGATION_WIDTH: f32 = 176.0;
+
+pub(super) fn system_is_light(appearance: WindowAppearance) -> bool {
+    matches!(
+        appearance,
+        WindowAppearance::Light | WindowAppearance::VibrantLight
+    )
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Category {
     General,
+    Appearance,
     Workspace,
     Updates,
 }
@@ -43,6 +52,7 @@ impl Category {
     fn key(self) -> &'static str {
         match self {
             Self::General => "settings_general",
+            Self::Appearance => "appearance",
             Self::Workspace => "settings_workspace",
             Self::Updates => "updates",
         }
@@ -53,7 +63,7 @@ pub(super) fn apply(preferences: &Preferences, cx: &mut App) {
     gpui_kit::component::set_locale(preferences.language.code());
     cx.set_menus(super::menus(preferences.language));
     Theme::change(
-        if preferences.light_theme {
+        if preferences.theme.is_light() {
             ThemeMode::Light
         } else {
             ThemeMode::Dark
@@ -61,7 +71,7 @@ pub(super) fn apply(preferences: &Preferences, cx: &mut App) {
         None,
         cx,
     );
-    super::theme::apply_palette(preferences.light_theme, cx);
+    super::theme::apply_palette(preferences.theme, cx);
     Theme::update(cx, |theme| {
         theme.font_size = px(preferences.ui_size as f32);
         theme.mono_font_size = px(preferences.code_size as f32);
@@ -301,7 +311,7 @@ impl PreferencesWindow {
     }
 
     fn size_control(&self, code: bool, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         let value = if code {
             self.current.code_size
         } else {
@@ -400,12 +410,12 @@ impl PreferencesWindow {
             .mb(px(8.0))
             .text_size(px(13.0))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(Palette::new(self.current.light_theme).secondary)
+            .text_color(Palette::new(self.current.theme).secondary)
             .child(self.t(key))
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .debug_selector(|| "settings-navigation".to_owned())
             .w(px(NAVIGATION_WIDTH))
@@ -420,6 +430,11 @@ impl PreferencesWindow {
                         Category::General,
                         "settings-general-nav",
                         IconName::Settings,
+                    ),
+                    (
+                        Category::Appearance,
+                        "settings-appearance-nav",
+                        IconName::Palette,
                     ),
                     (
                         Category::Workspace,
@@ -488,46 +503,6 @@ impl PreferencesWindow {
             })
     }
 
-    fn theme_control(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
-        div()
-            .flex()
-            .w_full()
-            .h(px(32.0))
-            .p(px(2.0))
-            .gap(px(2.0))
-            .bg(p.raised)
-            .rounded(px(7.0))
-            .children([false, true].into_iter().map(|light| {
-                let selected = light == self.current.light_theme;
-                Button::new(if light {
-                    "preferences-light"
-                } else {
-                    "preferences-dark"
-                })
-                .ghost()
-                .small()
-                .flex_1()
-                .h(px(28.0))
-                .label(self.t(if light { "light" } else { "dark" }))
-                .icon(icon(
-                    if light { IconName::Sun } else { IconName::Moon },
-                    if selected { p.text } else { p.secondary },
-                ))
-                .toggled(selected)
-                .bg(if selected { p.background } else { p.raised })
-                .border_1()
-                .border_color(if selected { p.border } else { p.raised })
-                .rounded(px(5.0))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.preferences.update(cx, |prefs, cx| {
-                        prefs.light_theme = light;
-                        cx.notify();
-                    });
-                }))
-            }))
-    }
-
     fn change_size(&self, code: bool, delta: i8, cx: &mut Context<Self>) {
         self.preferences.update(cx, |prefs, cx| {
             if code {
@@ -542,11 +517,12 @@ impl PreferencesWindow {
 
 impl Render for PreferencesWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         let error = self.config_error.read(cx).clone();
         let show_footer = self.category != Category::Updates || error.is_some();
         let content = match self.category {
             Category::General => self.general_settings(cx),
+            Category::Appearance => self.appearance_settings(cx),
             Category::Workspace => self.workspace_settings(cx),
             Category::Updates => div().child(self.updater.clone()),
         };
@@ -613,12 +589,13 @@ impl Render for PreferencesWindow {
                             this.preferences.update(cx, |prefs, cx| {
                                 match this.category {
                                     Category::General => prefs.reset_general(),
+                                    Category::Appearance => prefs.reset_appearance(),
                                     Category::Workspace => prefs.reset_workspace(),
                                     Category::Updates => {}
                                 }
                                 cx.notify();
                             });
-                            if this.category == Category::Workspace {
+                            if this.category == Category::Appearance {
                                 this.font_select.update(cx, |select, cx| {
                                     select.set_selected_value(
                                         &SharedString::from(Preferences::default().font_family),

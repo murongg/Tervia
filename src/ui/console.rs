@@ -357,7 +357,8 @@ impl Console {
                     this.invalidate_suggestion();
                     this.suggestions.new_session();
                 }
-                let theme_changed = this.appearance.light_theme != appearance.light_theme;
+                // Presets in the same light/dark mode still change terminal color queries.
+                let theme_changed = this.appearance.theme.current() != appearance.theme.current();
                 this.appearance = appearance;
                 if theme_changed
                     && let Some(session) = &this.session
@@ -992,27 +993,12 @@ impl Console {
         if let Some(color) = self.buffer.term.colors()[index] {
             return color;
         }
-        let p = Palette::new(self.appearance.light_theme);
+        let p = Palette::new(self.appearance.theme);
         let color = match index {
             256 => p.text.to_rgb(),
             257 => p.background.to_rgb(),
             258 => p.text.to_rgb(),
-            0..=15 => {
-                let palette = if self.appearance.light_theme {
-                    [
-                        0x262a28, 0x92343e, 0x205f37, 0x805600, 0x31578d, 0x783d87, 0x1f626d,
-                        0x485662, 0x495763, 0x9a3747, 0x235e48, 0x875b00, 0x365b9d, 0x7a368c,
-                        0x1a6977, 0x262a28,
-                    ]
-                } else {
-                    [
-                        0x303341, 0xe69b9f, 0x99cfa6, 0xe9cd97, 0x9fbfe5, 0xcbb0e8, 0x96ccd1,
-                        0xdde1e8, 0x929cad, 0xf1a9ad, 0xa8d9b5, 0xf1d7a9, 0xb4d0f1, 0xd7bff0,
-                        0xabe0e2, 0xf4f5f7,
-                    ]
-                };
-                rgb(palette[index])
-            }
+            0..=15 => rgb(super::theme::terminal_ansi(self.appearance.theme)[index]),
             16..=231 => {
                 let cube = index - 16;
                 let channel = |value| if value == 0 { 0 } else { 55 + value * 40 };
@@ -1228,6 +1214,78 @@ mod tests {
     }
 
     #[gpui_test::test]
+    fn theme_changes_update_existing_terminal_colors_without_replacing_output(
+        cx: &mut TestAppContext,
+    ) {
+        use tervia::preferences::Theme;
+        cx.update(gpui_kit::init);
+        let preferences = cx.update(|cx| cx.new(|_| Preferences::default()));
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                Console::new(
+                    "/mock-project".into(),
+                    preferences.clone(),
+                    tervia::suggestions::Worker::new(None),
+                    Err("mock offline".into()),
+                    0,
+                    window,
+                    cx,
+                )
+            });
+            entity.update(cx, |console, cx| {
+                console.receive_output(b"mock output\r\n", cx)
+            });
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        for theme in Theme::ALL {
+            let before = cx.update(|_, cx| console.read(cx).output());
+            cx.update(|_, cx| {
+                preferences.update(cx, |preferences, cx| {
+                    preferences.theme = theme.into();
+                    cx.notify();
+                });
+            });
+            cx.update(|_, cx| {
+                let console = console.read(cx);
+                let p = Palette::new(theme);
+                let expected = |color: Hsla| {
+                    let color = color.to_rgb();
+                    Rgb {
+                        r: (color.r * 255.0) as u8,
+                        g: (color.g * 255.0) as u8,
+                        b: (color.b * 255.0) as u8,
+                    }
+                };
+                assert_eq!(console.appearance.theme.current(), theme);
+                assert_eq!(console.index_color(256), expected(p.text));
+                assert_eq!(console.index_color(257), expected(p.background));
+                let ansi = match theme {
+                    Theme::Darcula => Some((1, 0xf0524f)),
+                    Theme::Monokai => Some((9, 0xf92672)),
+                    Theme::SolarizedDark | Theme::SolarizedLight => Some((4, 0x268bd2)),
+                    Theme::QuietLight => Some((4, 0x405bb0)),
+                    _ => None,
+                };
+                if let Some((index, color)) = ansi {
+                    assert_eq!(
+                        console.index_color(index),
+                        Rgb {
+                            r: (color >> 16) as u8,
+                            g: (color >> 8) as u8,
+                            b: color as u8
+                        },
+                        "{theme:?}: ANSI color"
+                    );
+                }
+                assert_eq!(console.output(), before);
+            });
+        }
+    }
+
+    #[gpui_test::test]
     fn agent_status_stays_above_the_terminal_in_constrained_panes_and_both_themes(
         cx: &mut TestAppContext,
     ) {
@@ -1237,7 +1295,7 @@ mod tests {
         for light in [false, true] {
             console.update(cx, |this, cx| {
                 this.agent = Some(Agent::Codex);
-                this.appearance.light_theme = light;
+                this.appearance.theme = light.into();
                 this.appearance.language = Language::Chinese;
                 this.observe_activity(
                     Some(Snapshot {
@@ -1362,7 +1420,7 @@ mod tests {
             ] {
                 let (position, cursor) = cx.update(|_, cx| {
                     console.update(cx, |this, _| {
-                        this.appearance.light_theme = light;
+                        this.appearance.theme = light.into();
                         this.buffer.select(
                             CellPoint::new(Line(0), Column(0)),
                             CellPoint::new(Line(0), Column(3)),
@@ -2713,7 +2771,7 @@ mod tests {
 impl Render for Console {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let entity = cx.entity();
-        let p = Palette::new(self.appearance.light_theme);
+        let p = Palette::new(self.appearance.theme);
         let search_bar = self.search_bar(cx);
         let suggestion_bar = self.suggestion_bar(cx);
         div()
@@ -2829,7 +2887,7 @@ impl Console {
             self.cell_height,
             self.suggestions.viewport,
         );
-        let p = Palette::new(self.appearance.light_theme);
+        let p = Palette::new(self.appearance.theme);
         let font_size = px(self.appearance.code_size as f32);
         let font = Font {
             family: self.appearance.font_family.clone().into(),

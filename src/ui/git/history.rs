@@ -327,7 +327,7 @@ impl Tervia {
                         graph,
                         row,
                         selected,
-                        self.appearance.light_theme,
+                        self.appearance.theme.is_light(),
                     ))
                     .child(
                         div()
@@ -361,7 +361,7 @@ impl Tervia {
                                         reference.replace("HEAD -> ", "HEAD · "),
                                         graph::color(
                                             graph.rows[row.index].color,
-                                            self.appearance.light_theme,
+                                            self.appearance.theme.is_light(),
                                         ),
                                         p,
                                     )

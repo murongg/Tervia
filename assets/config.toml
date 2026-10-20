@@ -7,8 +7,13 @@
 [ui]
 # "system", "zh-CN", "zh-TW", "en", "ja", "ko", "fr", "de", "es", "pt", "ru"
 language = "system"
-# "dark" or "light"
+# Active appearance: "dark", "light" or "system". Older preset names remain readable.
 theme = "dark"
+# Each appearance remembers its own theme.
+# "dark", "midnight", "forest", "darcula", "monokai" or "solarized-dark"
+dark_theme = "dark"
+# "light", "paper", "rose", "solarized-light" or "quiet-light"
+light_theme = "light"
 
 # Typography shared by the terminal, editor and application interface.
 [ui.fonts]

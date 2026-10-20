@@ -29,7 +29,7 @@ impl PreferencesWindow {
     }
 
     pub(super) fn agent_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         let mut group = div()
             .flex()
             .flex_col()

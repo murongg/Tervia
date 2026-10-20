@@ -57,7 +57,7 @@ mod tests {
             cx.update(|_, cx| {
                 view.update(cx, |view, cx| {
                     view.preferences.update(cx, |preferences, cx| {
-                        preferences.light_theme = light;
+                        preferences.theme = light.into();
                         cx.notify();
                     })
                 })
@@ -171,7 +171,7 @@ impl Tervia {
                 div().ml(px(12.0)).child(
                     icon_button(
                         "theme",
-                        if self.appearance.light_theme {
+                        if self.appearance.theme.is_light() {
                             IconName::Moon
                         } else {
                             IconName::Sun
@@ -182,6 +182,18 @@ impl Tervia {
                     )
                     .debug_selector(|| "titlebar-theme".into())
                     .accessibility_label(self.t("toggle_theme"))
+                    .tooltip(format!(
+                        "{} · {} → {}",
+                        self.t("toggle_theme"),
+                        self.appearance
+                            .theme
+                            .current()
+                            .label(self.appearance.language),
+                        self.appearance
+                            .theme
+                            .selected(!self.appearance.theme.is_light())
+                            .label(self.appearance.language),
+                    ))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_theme(window, cx))),
                 ),
             )

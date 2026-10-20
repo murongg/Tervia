@@ -45,7 +45,7 @@ impl PreferencesWindow {
     }
 
     pub(super) fn startup_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()

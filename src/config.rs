@@ -8,7 +8,7 @@ use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
 
 use crate::{
     locale::Language,
-    preferences::Preferences,
+    preferences::{Preferences, Theme},
     updates::{MAX_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES, Settings},
 };
 
@@ -149,12 +149,38 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
     let files = section(document.get("files"), "files", &empty)?;
     let terminal = section(document.get("terminal"), "terminal", &empty)?;
     let agents = section(document.get("agents"), "agents", &empty)?;
-    let theme = string(ui.get("theme"), "ui.theme", "dark")?;
-    let light_theme = match theme {
-        "dark" => false,
-        "light" => true,
-        _ => return Err("ui.theme must be \"dark\" or \"light\"".into()),
+    let mode = string(ui.get("theme"), "ui.theme", "dark")?;
+    let legacy_theme = if mode == "system" {
+        Theme::Dark
+    } else {
+        Theme::from_id(mode).ok_or_else(|| {
+            format!(
+                "ui.theme must be system or one of: {}",
+                Theme::ALL.map(Theme::id).join(", ")
+            )
+        })?
     };
+    let mut theme = crate::preferences::Themes::from(legacy_theme);
+    if mode == "system" {
+        theme.set_mode(crate::preferences::Mode::System);
+    }
+    for (key, light) in [("dark_theme", false), ("light_theme", true)] {
+        let name = format!("ui.{key}");
+        let selected = Theme::from_id(string(ui.get(key), &name, theme.selected(light).id())?)
+            .filter(|theme| theme.is_light() == light)
+            .ok_or_else(|| {
+                format!(
+                    "{name} must be {}",
+                    Theme::ALL
+                        .into_iter()
+                        .filter(|theme| theme.is_light() == light)
+                        .map(Theme::id)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })?;
+        theme.select(selected);
+    }
     let code = string(ui.get("language"), "ui.language", "system")?;
     let language = Language::ALL
         .into_iter()
@@ -184,7 +210,7 @@ fn read(document: &DocumentMut) -> Result<Preferences, String> {
             defaults.ui_size,
             11..=16,
         )?,
-        light_theme,
+        theme,
         language,
         file_nesting: boolean(files.get("nesting"), "files.nesting", defaults.file_nesting)?,
         command_suggestions: boolean(
@@ -300,12 +326,14 @@ fn write(document: &mut DocumentMut, preferences: &Preferences) {
     );
     set(
         &mut document["ui"]["theme"],
-        Value::from(if preferences.light_theme {
-            "light"
-        } else {
-            "dark"
-        }),
+        Value::from(preferences.theme.mode().id()),
     );
+    for (key, light) in [("dark_theme", false), ("light_theme", true)] {
+        set(
+            &mut document["ui"][key],
+            Value::from(preferences.theme.selected(light).id()),
+        );
+    }
     set(
         &mut document["ui"]["language"],
         Value::from(language_code(preferences.language)),

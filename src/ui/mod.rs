@@ -183,6 +183,10 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let mut appearance = appearance;
+        appearance
+            .theme
+            .sync_system(preferences::system_is_light(window.appearance()));
         preferences::apply(&appearance, cx);
         projects::init(cx);
         git::init(cx);
@@ -319,6 +323,15 @@ impl Tervia {
                     this.state.window_maximized = maximized;
                     this.schedule_workspace_save(cx);
                 }
+            }));
+        view.subscriptions
+            .push(cx.observe_window_appearance(window, |this, window, cx| {
+                let light = preferences::system_is_light(window.appearance());
+                this.preferences.update(cx, |preferences, cx| {
+                    if preferences.theme.sync_system(light) {
+                        cx.notify();
+                    }
+                });
             }));
         view.subscriptions.push(cx.observe_in(
             &view.preferences,
@@ -619,7 +632,7 @@ impl Tervia {
 
     fn toggle_theme(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.preferences.update(cx, |prefs, cx| {
-            prefs.light_theme = !prefs.light_theme;
+            prefs.theme.toggle();
             cx.notify();
         });
     }
@@ -674,7 +687,7 @@ impl Tervia {
     }
 
     fn p(&self) -> Palette {
-        Palette::new(self.appearance.light_theme)
+        Palette::new(self.appearance.theme)
     }
 }
 
@@ -696,7 +709,7 @@ impl Render for Tervia {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme::workspace_background(self.appearance.light_theme))
+            .bg(theme::workspace_background(self.appearance.theme))
             .text_color(p.text)
             .font_family(Platform::CURRENT.ui_font())
             .text_size(px(self.appearance.ui_size as f32))

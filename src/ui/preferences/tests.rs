@@ -7,6 +7,328 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 
 use super::super::Tervia;
 
+fn reveal_setting(
+    settings: &Entity<super::PreferencesWindow>,
+    selector: &'static str,
+    cx: &mut VisualTestContext,
+) -> Bounds<Pixels> {
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = cx.debug_bounds(selector).expect("Setting exists");
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| {
+            let viewport = this.scroll.bounds();
+            let offset = this.scroll.offset();
+            this.scroll.set_offset(point(
+                px(0.0),
+                offset.y - (bounds.center().y - viewport.center().y),
+            ));
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let bounds = cx.debug_bounds(selector).unwrap();
+    let viewport = cx.update(|_, cx| settings.read(cx).scroll.bounds());
+    assert!(
+        bounds.center().y >= viewport.top() && bounds.center().y <= viewport.bottom(),
+        "{selector}: {bounds:?} outside {viewport:?}"
+    );
+    bounds
+}
+
+#[gpui_test::test]
+fn system_appearance_follows_os_events_and_manual_override_stays_fixed(cx: &mut TestAppContext) {
+    use tervia::preferences::{Mode, Theme};
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("mock-config.toml");
+    fs::write(
+        &path,
+        "[ui]\ntheme = 'system'\ndark_theme = 'monokai'\nlight_theme = 'quiet-light'\n",
+    )
+    .unwrap();
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::configured(Ok(Config::new(path.clone())), window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    let handle = cx.update(|window, _| window.window_handle());
+    cx.update(|window, cx| {
+        let theme = view.read(cx).appearance.theme;
+        assert_eq!(theme.mode(), Mode::System);
+        assert_eq!(
+            theme.is_light(),
+            super::system_is_light(window.appearance())
+        );
+    });
+    for (appearance, expected) in [
+        (WindowAppearance::Dark, Theme::Monokai),
+        (WindowAppearance::VibrantLight, Theme::QuietLight),
+        (WindowAppearance::VibrantDark, Theme::Monokai),
+        (WindowAppearance::Light, Theme::QuietLight),
+    ] {
+        cx.simulate_window_appearance_change(handle, appearance);
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            assert_eq!(view.read(cx).appearance.theme.current(), expected);
+            assert_eq!(view.read(cx).appearance.theme.mode(), Mode::System);
+            assert_eq!(
+                cx.theme().mode,
+                if expected.is_light() {
+                    ThemeMode::Light
+                } else {
+                    ThemeMode::Dark
+                }
+            );
+        });
+        assert_eq!(
+            Config::new(path.clone()).load().unwrap().theme.mode(),
+            Mode::System
+        );
+    }
+    cx.update(|window, cx| view.update(cx, |this, cx| this.toggle_theme(window, cx)));
+    cx.run_until_parked();
+    cx.simulate_window_appearance_change(handle, WindowAppearance::VibrantLight);
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        assert_eq!(view.read(cx).appearance.theme.mode(), Mode::Dark);
+        assert_eq!(view.read(cx).appearance.theme.current(), Theme::Monokai);
+    });
+}
+
+#[gpui_test::test]
+fn theme_previews_configure_both_modes_without_switching_the_active_mode(cx: &mut TestAppContext) {
+    use tervia::preferences::Theme;
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences::default());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let appearance = cx
+        .debug_bounds("settings-appearance-nav")
+        .expect("Appearance has its own settings category");
+    cx.simulate_click(appearance.center(), Modifiers::default());
+    let choices = [
+        (Theme::Dark, "theme-choice-dark", "theme-preview-dark"),
+        (Theme::Light, "theme-choice-light", "theme-preview-light"),
+        (
+            Theme::Midnight,
+            "theme-choice-midnight",
+            "theme-preview-midnight",
+        ),
+        (Theme::Forest, "theme-choice-forest", "theme-preview-forest"),
+        (Theme::Paper, "theme-choice-paper", "theme-preview-paper"),
+        (Theme::Rose, "theme-choice-rose", "theme-preview-rose"),
+        (
+            Theme::Darcula,
+            "theme-choice-darcula",
+            "theme-preview-darcula",
+        ),
+        (
+            Theme::Monokai,
+            "theme-choice-monokai",
+            "theme-preview-monokai",
+        ),
+        (
+            Theme::SolarizedDark,
+            "theme-choice-solarized-dark",
+            "theme-preview-solarized-dark",
+        ),
+        (
+            Theme::SolarizedLight,
+            "theme-choice-solarized-light",
+            "theme-preview-solarized-light",
+        ),
+        (
+            Theme::QuietLight,
+            "theme-choice-quiet-light",
+            "theme-preview-quiet-light",
+        ),
+    ];
+    for (width, height) in [(700.0, 580.0), (760.0, 640.0)] {
+        cx.simulate_resize(size(px(width), px(height)));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let first = cx.debug_bounds("theme-choice-dark").unwrap();
+        let second = cx.debug_bounds("theme-choice-midnight").unwrap();
+        let third = cx.debug_bounds("theme-choice-forest").unwrap();
+        assert_eq!(first.top(), second.top());
+        assert_eq!(second.top(), third.top(), "Each row shows three themes");
+        assert!(first.right() <= second.left() && second.right() <= third.left());
+        let mut last = None;
+        for (theme, choice, selector) in choices {
+            let preview = cx
+                .debug_bounds(selector)
+                .expect("Every theme has a preview");
+            assert!(
+                preview.size.width >= px(50.0) && preview.size.width <= px(64.0),
+                "{theme:?}: use a small landscape preview beside the name"
+            );
+            assert!(
+                preview.size.height >= px(32.0) && preview.size.height <= px(40.0),
+                "{theme:?}: keep thumbnails compact but visible"
+            );
+            let choice = cx.debug_bounds(choice).unwrap();
+            assert!(
+                choice.size.height >= px(44.0) && choice.size.height <= px(48.0),
+                "{theme:?}: compact rows keep a comfortable click target"
+            );
+            if let Some(previous) = last {
+                assert_ne!(previous, preview);
+            }
+            last = Some(preview);
+        }
+    }
+    for (theme, selector, _) in choices {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let choice = cx.debug_bounds(selector).unwrap();
+        cx.update(|_, cx| {
+            settings.update(cx, |this, cx| {
+                let viewport = this.scroll.bounds();
+                let offset = this.scroll.offset();
+                this.scroll.set_offset(point(
+                    px(0.0),
+                    offset.y - (choice.center().y - viewport.center().y),
+                ));
+                cx.notify();
+            })
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let choice = cx.debug_bounds(selector).unwrap();
+        cx.simulate_click(choice.center(), Modifiers::default());
+        cx.update(|_, cx| {
+            let settings = settings.read(cx);
+            assert_eq!(
+                settings
+                    .preferences
+                    .read(cx)
+                    .theme
+                    .selected(theme.is_light()),
+                theme
+            );
+            assert!(
+                !settings.current.theme.is_light(),
+                "Configuring a light preset must keep dark mode active"
+            );
+        });
+    }
+    cx.update(|_, cx| {
+        settings.update(cx, |this, cx| {
+            this.scroll.set_offset(point(px(0.0), px(0.0)));
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let light = cx.debug_bounds("theme-mode-light").unwrap();
+    cx.simulate_click(light.center(), Modifiers::default());
+    cx.update(|_, cx| assert_eq!(settings.read(cx).current.theme.current(), Theme::QuietLight));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let dark = cx.debug_bounds("theme-mode-dark").unwrap();
+    cx.simulate_click(dark.center(), Modifiers::default());
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).current.theme.current(),
+            Theme::SolarizedDark
+        )
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let system = cx
+        .debug_bounds("theme-mode-system")
+        .expect("System mode is visible beside dark and light");
+    assert!(system.size.width >= px(60.0));
+    cx.simulate_click(system.center(), Modifiers::default());
+    cx.update(|window, cx| {
+        let theme = settings.read(cx).current.theme;
+        assert_eq!(theme.mode(), tervia::preferences::Mode::System);
+        assert_eq!(
+            theme.is_light(),
+            super::system_is_light(window.appearance())
+        );
+    });
+    cx.update(|_, cx| {
+        let preferences = settings.read(cx).preferences.clone();
+        preferences.update(cx, |preferences, cx| {
+            preferences.reset_appearance();
+            cx.notify();
+        });
+    });
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).current.theme,
+            tervia::preferences::Themes::default()
+        )
+    });
+}
+
+#[gpui_test::test]
+fn theme_switching_applies_and_persists_every_preset(cx: &mut TestAppContext) {
+    use tervia::preferences::Theme;
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("mock-config.toml");
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::configured(Ok(Config::new(path.clone())), window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    for theme in Theme::ALL {
+        cx.update(|_, cx| {
+            view.update(cx, |this, cx| {
+                this.preferences.update(cx, |preferences, cx| {
+                    preferences.theme.select(theme);
+                    preferences.theme.set_light(theme.is_light());
+                    cx.notify();
+                });
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|_, cx| {
+            assert_eq!(view.read(cx).appearance.theme.current(), theme);
+            assert_eq!(
+                cx.theme().mode,
+                if theme.is_light() {
+                    ThemeMode::Light
+                } else {
+                    ThemeMode::Dark
+                }
+            );
+            assert_eq!(
+                cx.theme().primary,
+                super::super::theme::Palette::new(theme).accent
+            );
+            assert_eq!(
+                cx.theme()
+                    .highlight_theme
+                    .style
+                    .editor_background
+                    .unwrap()
+                    .a,
+                0.0
+            );
+        });
+        assert_eq!(
+            Config::new(path.clone()).load().unwrap().theme.current(),
+            theme
+        );
+    }
+    cx.update(|window, cx| view.update(cx, |this, cx| this.toggle_theme(window, cx)));
+    cx.run_until_parked();
+    assert_eq!(
+        Config::new(path).load().unwrap().theme.current(),
+        Theme::SolarizedDark
+    );
+}
+
 #[gpui_test::test]
 fn agent_settings_apply_only_explicit_actions_and_surface_failures(cx: &mut TestAppContext) {
     use std::sync::{Arc, Mutex};
@@ -135,9 +457,7 @@ fn autostart_reads_system_state_and_toggles_without_changing_interface_preferenc
     );
     for enabled in [false, true] {
         cx.update(|window, cx| window.draw(cx).clear(cx));
-        let switch = cx
-            .debug_bounds("autostart-switch")
-            .expect("Autostart is discoverable in settings");
+        let switch = reveal_setting(&settings, "autostart-switch", cx);
         cx.simulate_click(switch.center(), Modifiers::default());
         cx.run_until_parked();
         assert_eq!(system.load(Ordering::SeqCst), enabled);
@@ -182,7 +502,7 @@ fn autostart_failure_keeps_the_last_state_and_shows_a_retry(cx: &mut TestAppCont
     cx.simulate_resize(size(px(800.0), px(900.0)));
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    let switch = cx.debug_bounds("autostart-switch").unwrap();
+    let switch = reveal_setting(&settings, "autostart-switch", cx);
     cx.simulate_click(switch.center(), Modifiers::default());
     cx.run_until_parked();
     cx.update(|window, cx| {
@@ -194,9 +514,7 @@ fn autostart_failure_keeps_the_last_state_and_shows_a_retry(cx: &mut TestAppCont
         );
         window.draw(cx).clear(cx);
     });
-    let retry = cx
-        .debug_bounds("autostart-retry")
-        .expect("Registration failures offer a status refresh");
+    let retry = reveal_setting(&settings, "autostart-retry", cx);
     cx.simulate_click(retry.center(), Modifiers::default());
     cx.run_until_parked();
     cx.update(|_, cx| assert!(settings.read(cx).startup_error.is_none()));
@@ -244,12 +562,12 @@ fn autostart_read_failure_disables_the_switch_until_a_successful_retry(cx: &mut 
     assert_eq!(cx.update(|_, cx| settings.read(cx).startup_enabled), None);
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let before = reads.load(Ordering::SeqCst);
-    let switch = cx.debug_bounds("autostart-switch").unwrap();
+    let switch = reveal_setting(&settings, "autostart-switch", cx);
     cx.simulate_click(switch.center(), Modifiers::default());
     cx.run_until_parked();
     assert_eq!(reads.load(Ordering::SeqCst), before);
     failing.store(false, Ordering::SeqCst);
-    let retry = cx.debug_bounds("autostart-retry").unwrap();
+    let retry = reveal_setting(&settings, "autostart-retry", cx);
     cx.simulate_click(retry.center(), Modifiers::default());
     cx.run_until_parked();
     cx.update(|_, cx| {
@@ -310,7 +628,7 @@ fn workspace_scrollbars_auto_hide_in_both_themes(cx: &mut TestAppContext) {
         for light in [false, true] {
             super::apply(
                 &Preferences {
-                    light_theme: light,
+                    theme: light.into(),
                     ..Preferences::default()
                 },
                 cx,
@@ -343,7 +661,7 @@ fn settings_scrollbar_drags_the_overflowing_form(cx: &mut TestAppContext) {
     let settings = settings.unwrap();
     cx.simulate_resize(size(px(700.0), px(580.0)));
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    let workspace = cx.debug_bounds("settings-appearance-nav").unwrap();
     cx.simulate_click(workspace.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let bar = cx
@@ -369,7 +687,7 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
     let initial = Preferences {
         agent_notifications: true,
         language: Language::German,
-        light_theme: true,
+        theme: tervia::preferences::Theme::Light.into(),
         ui_size: 15,
         font_family: "Synthetic Mono".into(),
         code_size: 19,
@@ -400,72 +718,77 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
     cx.simulate_resize(size(px(700.0), px(580.0)));
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    let workspace = cx
-        .debug_bounds("settings-workspace-nav")
-        .expect("Workspace settings have their own category");
-    for selector in [
-        "theme-control",
-        "language-control",
-        "ui-size-control",
-        "autostart-switch",
-    ] {
+    for selector in ["language-control", "autostart-switch"] {
         assert!(
             cx.debug_bounds(selector).is_some(),
             "General contains {selector}"
         );
     }
-    for selector in [
-        "font-control",
-        "code-size-control",
-        "file-nesting-switch",
-        "command-suggestions-switch",
-    ] {
-        assert!(
-            cx.debug_bounds(selector).is_none(),
-            "General excludes {selector}"
-        );
-    }
-    cx.simulate_click(workspace.center(), Modifiers::default());
+    assert!(cx.debug_bounds("theme-control").is_none());
+    assert!(cx.debug_bounds("font-control").is_none());
+    let appearance = cx
+        .debug_bounds("settings-appearance-nav")
+        .expect("Appearance navigation");
+    cx.simulate_click(appearance.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     for selector in [
+        "theme-control",
+        "ui-size-control",
         "font-control",
         "code-size-control",
-        "file-nesting-switch",
-        "command-suggestions-switch",
     ] {
+        assert!(
+            cx.debug_bounds(selector).is_some(),
+            "Appearance contains {selector}"
+        );
+    }
+    assert!(cx.debug_bounds("language-control").is_none());
+    assert!(cx.debug_bounds("file-nesting-switch").is_none());
+    let reset = cx.debug_bounds("settings-reset-defaults").unwrap();
+    cx.simulate_click(reset.center(), Modifiers::default());
+    cx.update(|_, cx| {
+        let defaults = Preferences::default();
+        assert_eq!(
+            settings.read(cx).preferences.read(cx),
+            &Preferences {
+                theme: defaults.theme,
+                font_family: defaults.font_family,
+                code_size: defaults.code_size,
+                ui_size: defaults.ui_size,
+                ..initial.clone()
+            }
+        );
+        let preferences = settings.read(cx).preferences.clone();
+        preferences.update(cx, |preferences, cx| {
+            *preferences = initial.clone();
+            cx.notify();
+        });
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    cx.simulate_click(workspace.center(), Modifiers::default());
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    for selector in ["file-nesting-switch", "command-suggestions-switch"] {
         assert!(
             cx.debug_bounds(selector).is_some(),
             "Workspace contains {selector}"
         );
     }
-    for selector in [
-        "theme-control",
-        "language-control",
-        "ui-size-control",
-        "autostart-switch",
-    ] {
-        assert!(
-            cx.debug_bounds(selector).is_none(),
-            "Workspace excludes {selector}"
-        );
-    }
+    assert!(cx.debug_bounds("font-control").is_none());
+    assert!(cx.debug_bounds("theme-control").is_none());
     let reset = cx.debug_bounds("settings-reset-defaults").unwrap();
     cx.simulate_click(reset.center(), Modifiers::default());
     cx.update(|_, cx| {
         assert_eq!(
             settings.read(cx).preferences.read(cx),
             &Preferences {
-                font_family: Preferences::default().font_family,
-                code_size: Preferences::default().code_size,
                 file_nesting: false,
                 ..initial.clone()
             }
         );
         let preferences = settings.read(cx).preferences.clone();
         preferences.update(cx, |preferences, cx| {
-            preferences.font_family = initial.font_family.clone();
-            preferences.code_size = initial.code_size;
-            preferences.file_nesting = initial.file_nesting;
+            *preferences = initial.clone();
             cx.notify();
         });
     });
@@ -479,13 +802,8 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
         assert_eq!(
             settings.read(cx).preferences.read(cx),
             &Preferences {
-                font_family: initial.font_family.clone(),
-                code_size: initial.code_size,
-                file_nesting: initial.file_nesting,
-                command_suggestions: false,
-                agent_notifications: initial.agent_notifications,
-                updates: initial.updates,
-                ..Preferences::default()
+                language: Preferences::default().language,
+                ..initial.clone()
             }
         );
         assert_eq!(settings.read(cx).startup_enabled, Some(false));
@@ -708,12 +1026,10 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
         .debug_bounds("language-control")
         .expect("Language control bounds");
     let language_label = cx.debug_bounds("language").unwrap();
-    let workspace = cx.debug_bounds("settings-workspace-nav").unwrap();
+    let workspace = cx.debug_bounds("settings-appearance-nav").unwrap();
     cx.simulate_click(workspace.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
-    let font = cx
-        .debug_bounds("font-control")
-        .expect("Font control bounds");
+    let font = reveal_setting(&settings, "font-control", cx);
     let navigation = cx
         .debug_bounds("settings-navigation")
         .expect("Category navigation");
@@ -740,7 +1056,7 @@ fn settings_controls_align_without_overlapping_long_labels_at_minimum_size(
     });
     cx.update(|window, cx| window.draw(cx).clear(cx));
     assert!(cx.update(|_, cx| settings.read(cx).scroll.offset().y) < px(0.0));
-    let category = cx.debug_bounds("settings-workspace-nav").unwrap();
+    let category = cx.debug_bounds("settings-appearance-nav").unwrap();
     cx.simulate_click(category.center(), Modifiers::default());
     cx.update(|window, cx| window.draw(cx).clear(cx));
     assert_eq!(
@@ -987,7 +1303,7 @@ fn configured_preferences_apply_at_startup_and_ui_edits_persist(cx: &mut TestApp
     let view = view.unwrap();
     cx.update(|_, cx| {
         view.update(cx, |this, cx| {
-            assert!(this.appearance.light_theme);
+            assert!(this.appearance.theme.is_light());
             assert_eq!(this.appearance.language, Language::Japanese);
             assert_eq!(cx.theme().mode, ThemeMode::Light);
             assert_eq!(cx.theme().font_size, px(15.0));

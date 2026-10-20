@@ -1815,7 +1815,7 @@ fn composite_rows_share_hover_across_content_actions_and_padding(cx: &mut TestAp
         ] {
             for selected in [false, true] {
                 view.update(cx, |this, cx| {
-                    this.appearance.light_theme = light;
+                    this.appearance.theme = light.into();
                     super::super::theme::apply_palette(light, cx);
                     this.git_states[0].mode = mode;
                     this.git_states[0].selected = selected.then(|| detail.clone());
@@ -1897,7 +1897,7 @@ fn sections_commit_separator_is_painted_once_in_both_themes(cx: &mut TestAppCont
     for light in [false, true] {
         for collapsed in [vec![3, 2], vec![1, 3, 2], vec![]] {
             view.update(cx, |this, cx| {
-                this.appearance.light_theme = light;
+                this.appearance.theme = light.into();
                 super::super::theme::apply_palette(light, cx);
                 let ui = &mut this.git_states[0];
                 ui.collapsed_changes = collapsed.iter().copied().collect();
@@ -2063,7 +2063,7 @@ fn sections_headers_and_drag_handles_share_one_hairline(cx: &mut TestAppContext)
                     .map(|(_, key)| *key)
                     .collect();
                 view.update(cx, |this, cx| {
-                    this.appearance.light_theme = light;
+                    this.appearance.theme = light.into();
                     super::super::theme::apply_palette(light, cx);
                     let ui = &mut this.git_states[0];
                     if sidebar {
@@ -2733,7 +2733,7 @@ fn corrupt_project_history_preserves_preferences_and_reports_the_state_file(
     });
     cx.update(|window, cx| {
         view.unwrap().update(cx, |this, cx| {
-            assert!(this.appearance.light_theme);
+            assert!(this.appearance.theme.is_light());
             assert_eq!(this.appearance.language, tervia::locale::Language::Chinese);
             assert!(this.config_error.read(cx).is_none());
             assert!(this.state.notice.contains("workspace.json"));

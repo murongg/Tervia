@@ -109,7 +109,7 @@ macOS 使用用户 LaunchAgent，Windows 使用当前用户的 Run 启动项，L
 - 文件标签支持关闭按钮、中键关闭、右键关闭其他 / 右侧 / 全部、拖动排序、Ctrl+Tab 切换和重新打开关闭的标签；关闭未保存文件前确认。
 - 在文件源码或 Git Diff 中选中代码，点击**复制上下文**或按 ⌘⇧C / Ctrl+Shift+C，可复制项目相对路径、起止行号和代码。文件页使用当前草稿；Diff 使用画面中的源码，标明 `original` / `modified`，并分别输出不同版本和不连续的片段，支持拖选文字和通过行号选择整行。Markdown 需切换到源码视图；图片预览不提供代码上下文。
 - 欢迎页提供“打开项目”和“直接使用终端”，并显示最近项目；克隆仓库作为次级入口保留。
-- 带功能分类侧栏的独立原生设置窗口：选择已安装的常用等宽字体、调整终端 / 代码字号与界面字号、即时预览、恢复默认。
+- 独立原生设置窗口按“通用 / 外观 / 工作区 / 在线更新”分类。主题、深浅及跟随系统模式、常用等宽字体、终端 / 代码字号与界面字号集中在“外观”，即时生效；“恢复默认”只重置当前分类。
 
 启动时恢复上次的项目、本地终端或欢迎页，同时恢复项目列表、顺序、当前工作目录和项目栏状态。首次使用时显示双入口欢迎页；上次的项目不可用时回到欢迎页并说明原因。模块、底部终端布局、终端标签数量与选中项、打开文件顺序和源码编辑位置也会恢复。未保存草稿连同原来的磁盘版本一并保留；干净文件在后台读取最新内容。退出应用只断开终端界面，后台会话继续运行；重开或应用更新后会接回原来的 Shell、运行中程序与 AI 对话，并恢复输出、终端模式和滚动位置。首次创建的项目终端在所属目录、本地终端在主目录启动。Git 使用本机 Git CLI，保存文件会写入磁盘。
 
@@ -184,7 +184,9 @@ macOS 使用用户 LaunchAgent，Windows 使用当前用户的 Run 启动项，L
 ```toml
 [ui]
 language = "system" # system、zh-CN、zh-TW、en、ja、ko、fr、de、es、pt、ru
-theme = "dark"      # dark 或 light
+theme = "dark"      # 当前外观：dark、light、system（跟随系统）
+dark_theme = "dark" # 深色配色：dark、midnight、forest、darcula、monokai、solarized-dark
+light_theme = "light" # 浅色配色：light、paper、rose、solarized-light、quiet-light
 
 [ui.fonts]
 code_family = "Menlo" # 终端与编辑器共用的已安装字体

@@ -314,7 +314,7 @@ impl Updater {
         let preferences = self.preferences.read(cx);
         let (percentage, progress) = self.progress_status();
         ProgressCircle::new("workspace-update-progress-circle")
-            .color(Palette::new(preferences.light_theme).accent)
+            .color(Palette::new(preferences.theme).accent)
             .w(px(18.0))
             .h(px(18.0))
             .value(percentage.unwrap_or(0.0))
@@ -332,7 +332,7 @@ impl Render for Updater {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let preferences = self.preferences.read(cx);
         let language = preferences.language;
-        let p = Palette::new(preferences.light_theme);
+        let p = Palette::new(preferences.theme);
         let candidate = self.state.candidate().cloned();
         let status = match &self.state {
             State::Idle => String::new(),

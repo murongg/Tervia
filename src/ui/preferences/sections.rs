@@ -2,7 +2,26 @@ use super::*;
 
 impl PreferencesWindow {
     pub(super) fn general_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(24.0))
+            .child(
+                self.row(
+                    "language",
+                    "language-control",
+                    Select::new(&self.language_select)
+                        .w_full()
+                        .accessibility_label(self.t("language")),
+                ),
+            )
+            .child(div().h(px(1.0)).bg(p.border))
+            .child(self.startup_settings(cx))
+    }
+
+    pub(super) fn appearance_settings(&self, cx: &mut Context<Self>) -> Div {
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -12,29 +31,18 @@ impl PreferencesWindow {
                     .flex()
                     .flex_col()
                     .child(self.row("theme", "theme-control", self.theme_control(cx)))
-                    .child(
-                        self.row(
-                            "language",
-                            "language-control",
-                            Select::new(&self.language_select)
-                                .w_full()
-                                .accessibility_label(self.t("language")),
-                        ),
-                    )
-                    .child(self.row("ui_size", "ui-size-control", self.size_control(false, cx))),
+                    .child(self.theme_settings(cx)),
             )
             .child(div().h(px(1.0)).bg(p.border))
-            .child(self.startup_settings(cx))
+            .child(self.font_settings(cx))
     }
 
     pub(super) fn workspace_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()
             .gap(px(24.0))
-            .child(self.font_settings(cx))
-            .child(div().h(px(1.0)).bg(p.border))
             .child(self.file_settings(cx))
             .child(div().h(px(1.0)).bg(p.border))
             .child(self.terminal_settings(cx))
@@ -43,11 +51,12 @@ impl PreferencesWindow {
     }
 
     fn font_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()
             .child(self.heading("settings_fonts"))
+            .child(self.row("ui_size", "ui-size-control", self.size_control(false, cx)))
             .child(
                 self.row(
                     "code_font",
@@ -90,7 +99,7 @@ impl PreferencesWindow {
     }
 
     fn file_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()
@@ -126,7 +135,7 @@ impl PreferencesWindow {
     }
 
     fn terminal_settings(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.light_theme);
+        let p = Palette::new(self.current.theme);
         div()
             .flex()
             .flex_col()

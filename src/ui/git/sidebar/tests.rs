@@ -263,7 +263,7 @@ fn sidebar_divider_uses_one_workbench_hairline_in_both_themes(cx: &mut TestAppCo
     let (view, cx) = mount(cx, &repo);
     for (light, scale) in [(false, 1.0), (true, 1.0), (false, 2.0), (true, 2.0)] {
         view.update(cx, |this, cx| {
-            this.appearance.light_theme = light;
+            this.appearance.theme = light.into();
             super::super::super::theme::apply_palette(light, cx);
             cx.notify();
         });
@@ -329,7 +329,7 @@ fn primary_worktree_badge_stays_visible_beside_long_names_in_both_themes(cx: &mu
             view.update(cx, |view, cx| {
                 view.preferences.update(cx, |preferences, cx| {
                     preferences.language = language;
-                    preferences.light_theme = light;
+                    preferences.theme = light.into();
                     cx.notify();
                 })
             });
