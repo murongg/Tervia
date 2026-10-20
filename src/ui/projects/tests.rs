@@ -3,6 +3,379 @@ use core::prelude::v1::test;
 use gpui_test::TestAppContext;
 
 #[gpui_test::test]
+fn sidebar_long_project_lists_scroll_without_covering_global_tools(cx: &mut TestAppContext) {
+    let (root, view, cx) = project_window(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            for index in 2..32 {
+                let directory = root.path().join(format!("mock-project-{index}"));
+                std::fs::create_dir(&directory).unwrap();
+                let project = view.state.open_directory(directory);
+                view.init_project(project, window, cx);
+                view.state.projects[project].tab = tervia::state::Tab::Files;
+            }
+            view.state.switch_project(0);
+            cx.notify();
+        });
+    });
+    cx.simulate_resize(size(px(880.0), px(560.0)));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let panel = cx.debug_bounds("project-navigation").unwrap();
+    let tools = cx.debug_bounds("open-welcome").unwrap();
+    assert!(
+        panel.bottom() <= tools.top(),
+        "The project panel stays above global tools"
+    );
+    cx.simulate_event(ScrollWheelEvent {
+        position: panel.center(),
+        delta: ScrollDelta::Pixels(point(px(0.0), px(-1600.0))),
+        ..Default::default()
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let last = cx
+        .debug_bounds("project-row-31")
+        .expect("The last project remains reachable by scrolling");
+    assert!(last.center().y < panel.bottom());
+    assert_eq!(cx.debug_bounds("open-welcome").unwrap(), tools);
+}
+
+#[gpui_test::test]
+fn sidebar_expansion_is_a_compact_project_panel_and_keeps_global_controls_in_the_rail(
+    cx: &mut TestAppContext,
+) {
+    let (_root, _view, cx) = project_window(cx);
+    let local = cx.debug_bounds("local-terminal-entry").unwrap();
+    assert_eq!(
+        local.size.width,
+        px(39.0),
+        "Global controls stay in their original narrow rail"
+    );
+    let panel = cx.debug_bounds("project-navigation").unwrap();
+    assert!(panel.top() > local.bottom());
+    assert!(
+        panel.size.height < px(160.0),
+        "A short project list must not become a full-height sheet"
+    );
+    assert!(cx.debug_bounds("project-row-0").unwrap().size.width > px(200.0));
+}
+
+#[gpui_test::test]
+fn sidebar_navigation_clears_temporary_expansion_but_keeps_pinning(cx: &mut TestAppContext) {
+    let (_root, view, cx) = project_window(cx);
+    for pinned in [false, true] {
+        view.update(cx, |view, cx| {
+            view.state.sidebar_expanded = pinned;
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let row = cx.debug_bounds("project-row-0").unwrap();
+        cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+        cx.run_until_parked();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(200));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            cx.debug_bounds("project-row-0").unwrap().size.width,
+            px(216.0)
+        );
+        cx.update(|window, cx| view.update(cx, |view, cx| view.open_welcome(window, cx)));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_mouse_move(point(px(500.0), px(400.0)), None, Modifiers::default());
+        cx.update(|window, cx| view.update(cx, |view, cx| view.change_project(0, window, cx)));
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(
+            cx.debug_bounds("project-row-0").unwrap().size.width,
+            px(if pinned { 216.0 } else { 39.0 }),
+            "Returning to a workspace restores only an explicitly pinned panel"
+        );
+        view.update(cx, |view, _| {
+            assert_eq!(view.state.sidebar_expanded, pinned)
+        });
+    }
+}
+
+#[gpui_test::test]
+fn sidebar_hover_stays_expanded_while_reordering_projects(cx: &mut TestAppContext) {
+    let (_root, view, cx) = project_window(cx);
+    view.update(cx, |view, cx| {
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let row = cx.debug_bounds("project-row-0").unwrap();
+    cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let from = cx.debug_bounds("project-row-0").unwrap();
+    let to = cx.debug_bounds("project-row-1").unwrap();
+    cx.simulate_mouse_down(from.center(), MouseButton::Left, Modifiers::default());
+    cx.simulate_mouse_move(
+        from.center() + point(px(0.0), px(10.0)),
+        MouseButton::Left,
+        Modifiers::default(),
+    );
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.simulate_mouse_move(to.center(), MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(400));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        from.size.width,
+        "Dragging must not collapse the drop target"
+    );
+    cx.simulate_mouse_up(to.center(), MouseButton::Left, Modifiers::default());
+    cx.run_until_parked();
+    view.update(cx, |view, _| {
+        assert_eq!(view.state.project_rows(), vec![1, 0])
+    });
+    cx.simulate_mouse_move(point(px(500.0), to.center().y), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(150));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        row.size.width
+    );
+}
+
+#[gpui_test::test]
+fn sidebar_overlay_keeps_terminal_bounds_and_escape_only_dismisses_the_peek(
+    cx: &mut TestAppContext,
+) {
+    let (_root, view, cx) = project_window(cx);
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            view.change_tab(tervia::state::Tab::Terminal, window, cx)
+        });
+        window.draw(cx).clear(cx);
+    });
+    let terminal = cx.debug_bounds("terminal-scrollbar").unwrap();
+    view.update(cx, |view, cx| {
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("terminal-scrollbar").unwrap(),
+        terminal,
+        "Pinning or collapsing the sidebar must not resize the terminal"
+    );
+    let row = cx.debug_bounds("project-row-0").unwrap();
+    cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        px(216.0)
+    );
+    assert_eq!(cx.debug_bounds("terminal-scrollbar").unwrap(), terminal);
+    cx.dispatch_action(gpui_kit::base::actions::Cancel);
+    cx.run_until_parked();
+    assert_eq!(
+        cx.windows().len(),
+        1,
+        "Escape closes the transient sidebar without closing the workspace"
+    );
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        px(39.0)
+    );
+    assert_eq!(cx.debug_bounds("terminal-scrollbar").unwrap(), terminal);
+}
+
+#[gpui_test::test]
+fn sidebar_hover_immediately_overlays_content_and_closes_after_leaving(cx: &mut TestAppContext) {
+    let (_root, view, cx) = project_window(cx);
+    view.update(cx, |view, cx| {
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let collapsed = cx.debug_bounds("project-row-0").unwrap();
+    let content = cx.debug_bounds("find-in-file").unwrap();
+    assert_eq!(collapsed.size.width, px(39.0));
+
+    cx.simulate_mouse_move(collapsed.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let expanded = cx.debug_bounds("project-row-0").unwrap();
+    assert_eq!(
+        expanded.size.width,
+        px(216.0),
+        "Hover reveals all project names without advancing the clock"
+    );
+    assert_eq!(
+        cx.debug_bounds("find-in-file").unwrap(),
+        content,
+        "The content never moves or resizes"
+    );
+    view.update(cx, |view, _| {
+        assert!(
+            !view.state.sidebar_expanded,
+            "Hover is never persisted as pinned"
+        )
+    });
+
+    let other = cx.debug_bounds("project-row-1").unwrap();
+    let target = point(other.right() - px(36.0), other.center().y);
+    cx.simulate_mouse_move(target, None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(250));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap(),
+        expanded,
+        "The whole overlay remains hoverable"
+    );
+    cx.simulate_click(target, Modifiers::default());
+    view.update(cx, |view, _| {
+        assert_eq!(
+            view.state.active_project, 1,
+            "Overlay clicks reach the project, not the covered content"
+        )
+    });
+
+    cx.simulate_mouse_move(point(px(500.0), target.y), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(150));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        collapsed.size.width
+    );
+}
+
+#[gpui_test::test]
+fn sidebar_immediate_hover_cancels_pending_close_on_reentry(cx: &mut TestAppContext) {
+    let (_root, view, cx) = project_window(cx);
+    view.update(cx, |view, cx| {
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let row = cx.debug_bounds("project-row-0").unwrap();
+    let outside = point(px(500.0), row.center().y);
+    cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let expanded = cx.debug_bounds("project-row-0").unwrap();
+    assert_eq!(expanded.size.width, px(216.0));
+    cx.simulate_mouse_move(outside, None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(100));
+    cx.simulate_mouse_move(expanded.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(250));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap(),
+        expanded,
+        "Reentry cancels an earlier close timer"
+    );
+}
+
+#[gpui_test::test]
+fn sidebar_pin_and_keyboard_toggle_keep_content_bounds_and_persist_only_pinning(
+    cx: &mut TestAppContext,
+) {
+    let (root, view, cx) = project_window(cx);
+    let path = root.path().join("workspace.json");
+    view.update(cx, |view, cx| {
+        let mut store = tervia::workspace::Store::new(path.clone());
+        store.load().unwrap();
+        view.workspace = Some(store);
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let content = cx.debug_bounds("find-in-file").unwrap();
+    let row = cx.debug_bounds("project-row-0").unwrap();
+    cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(200));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    let pin = cx
+        .debug_bounds("pin-project-sidebar")
+        .expect("The expanded sidebar exposes a pin control");
+    let search = cx.debug_bounds("project-search").unwrap();
+    assert!(
+        search.right() <= pin.left(),
+        "Search and pin controls have separate click targets"
+    );
+    cx.simulate_click(pin.center(), Modifiers::default());
+    cx.run_until_parked();
+    view.update(cx, |view, _| {
+        assert!(view.state.sidebar_expanded);
+        assert!(
+            !view.navigation.switcher.open,
+            "Pinning must not invoke project search underneath the control"
+        );
+    });
+    assert!(
+        tervia::workspace::Store::new(path.clone())
+            .load()
+            .unwrap()
+            .sidebar_expanded
+    );
+    cx.simulate_mouse_move(point(px(500.0), row.center().y), None, Modifiers::default());
+    cx.run_until_parked();
+    cx.executor()
+        .advance_clock(std::time::Duration::from_millis(500));
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        px(216.0)
+    );
+    assert_eq!(cx.debug_bounds("find-in-file").unwrap(), content);
+
+    cx.dispatch_action(crate::ui::ToggleSidebar);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    view.update(cx, |view, _| assert!(!view.state.sidebar_expanded));
+    assert_eq!(cx.debug_bounds("project-row-0").unwrap(), row);
+    assert!(
+        !tervia::workspace::Store::new(path)
+            .load()
+            .unwrap()
+            .sidebar_expanded
+    );
+    assert_eq!(cx.debug_bounds("find-in-file").unwrap(), content);
+
+    cx.dispatch_action(crate::ui::ToggleSidebar);
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("project-row-0").unwrap().size.width,
+        px(216.0)
+    );
+    assert_eq!(cx.debug_bounds("find-in-file").unwrap(), content);
+}
+
+#[gpui_test::test]
 fn closing_and_reopening_a_task_project_does_not_restore_a_task_without_its_host(
     cx: &mut TestAppContext,
 ) {

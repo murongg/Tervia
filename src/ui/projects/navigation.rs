@@ -6,7 +6,7 @@ pub(in crate::ui) struct Navigation {
     pub open: bool,
     pub selected: usize,
     pub scroll: UniformListScrollHandle,
-    pub sidebar_scroll: UniformListScrollHandle,
+    pub(super) sidebar: super::sidebar::Sidebar,
     pub(super) generation: u64,
     pub(in crate::ui) switcher: super::switcher::Switcher,
     pub(super) closing: bool,
@@ -19,7 +19,7 @@ impl Navigation {
             open: false,
             selected: 0,
             scroll: UniformListScrollHandle::new(),
-            sidebar_scroll: UniformListScrollHandle::new(),
+            sidebar: super::sidebar::Sidebar::default(),
             generation: 0,
             switcher: super::switcher::Switcher::new(window, cx),
             closing: false,
@@ -28,6 +28,8 @@ impl Navigation {
     pub fn cancel(&mut self) {
         self.generation += 1;
         self.open = false;
+        // A temporary overlay belongs to this navigation, not the next screen or project.
+        self.sidebar.collapse();
     }
 
     pub fn generation(&self) -> u64 {

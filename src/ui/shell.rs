@@ -122,8 +122,7 @@ impl Tervia {
                 )
                 .accessibility_label(self.t("toggle_projects_label"))
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.state.toggle_sidebar();
-                    cx.notify();
+                    this.toggle_project_sidebar(cx);
                 })),
             )
             .child(separator(p))
@@ -504,9 +503,8 @@ impl Tervia {
                     .compact()
                     .label(self.t("toggle_projects"))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.state.toggle_sidebar();
+                        this.toggle_project_sidebar(cx);
                         this.state.palette_open = false;
-                        cx.notify();
                     })),
             )
             .child(
