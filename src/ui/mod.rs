@@ -687,7 +687,7 @@ impl Tervia {
     }
 
     fn p(&self) -> Palette {
-        Palette::new(self.appearance.theme)
+        Palette::new(&self.appearance.theme)
     }
 }
 
@@ -709,7 +709,7 @@ impl Render for Tervia {
             .size_full()
             .flex()
             .flex_col()
-            .bg(theme::workspace_background(self.appearance.theme))
+            .bg(theme::workspace_background(&self.appearance.theme))
             .text_color(p.text)
             .font_family(Platform::CURRENT.ui_font())
             .text_size(px(self.appearance.ui_size as f32))

@@ -25,11 +25,19 @@ use super::{
 };
 
 mod agents;
+mod editor;
 mod sections;
 mod startup;
 #[cfg(all(test, feature = "ui-tests"))]
 mod tests;
 mod themes;
+
+pub(super) fn allow_quit(cx: &mut App) -> bool {
+    editor::guard_quit(cx)
+}
+pub(super) fn has_pending_theme_edits(cx: &App) -> bool {
+    editor::has_pending_edits(cx)
+}
 
 const NAVIGATION_WIDTH: f32 = 176.0;
 
@@ -71,7 +79,7 @@ pub(super) fn apply(preferences: &Preferences, cx: &mut App) {
         None,
         cx,
     );
-    super::theme::apply_palette(preferences.theme, cx);
+    super::theme::apply_palette(&preferences.theme, cx);
     Theme::update(cx, |theme| {
         theme.font_size = px(preferences.ui_size as f32);
         theme.mono_font_size = px(preferences.code_size as f32);
@@ -99,6 +107,11 @@ pub struct PreferencesWindow {
     agent_action: agents::Action,
     agent_busy: Option<tervia::agent::Agent>,
     agent_result: Option<Result<(tervia::agent::Agent, bool, PathBuf), String>>,
+    custom_themes: Vec<tervia::themes::Document>,
+    theme_loading: bool,
+    theme_deleting: bool,
+    theme_error: Option<String>,
+    theme_task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -274,7 +287,12 @@ impl PreferencesWindow {
         focus.focus(window, cx);
         let config_observer = cx.observe(&config_error, |_, _, cx| cx.notify());
         let entity = cx.entity();
-        cx.defer(move |cx| entity.update(cx, |this, cx| this.configure_startup(None, cx)));
+        cx.defer(move |cx| {
+            entity.update(cx, |this, cx| {
+                this.configure_startup(None, cx);
+                this.reload_themes(cx);
+            })
+        });
         Self {
             focus,
             scroll: ScrollHandle::new(),
@@ -300,6 +318,11 @@ impl PreferencesWindow {
             }),
             agent_busy: None,
             agent_result: None,
+            custom_themes: Vec::new(),
+            theme_loading: false,
+            theme_deleting: false,
+            theme_error: None,
+            theme_task: None,
             _subscriptions: vec![
                 subscription,
                 language_subscription,
@@ -311,7 +334,7 @@ impl PreferencesWindow {
     }
 
     fn size_control(&self, code: bool, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         let value = if code {
             self.current.code_size
         } else {
@@ -410,12 +433,12 @@ impl PreferencesWindow {
             .mb(px(8.0))
             .text_size(px(13.0))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(Palette::new(self.current.theme).secondary)
+            .text_color(Palette::new(&self.current.theme).secondary)
             .child(self.t(key))
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         div()
             .debug_selector(|| "settings-navigation".to_owned())
             .w(px(NAVIGATION_WIDTH))
@@ -517,7 +540,7 @@ impl PreferencesWindow {
 
 impl Render for PreferencesWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = Palette::new(self.current.theme);
+        let p = Palette::new(&self.current.theme);
         let error = self.config_error.read(cx).clone();
         let show_footer = self.category != Category::Updates || error.is_some();
         let content = match self.category {

@@ -11,7 +11,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 
 impl Tervia {
     pub(super) fn git_p(&self) -> Palette {
-        Palette::workbench(self.appearance.theme)
+        Palette::workbench(&self.appearance.theme)
     }
 
     pub(crate) fn git(&self, _window: &mut Window, cx: &mut Context<Self>) -> Div {

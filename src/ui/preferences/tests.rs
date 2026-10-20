@@ -7,6 +7,56 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 
 use super::super::Tervia;
 
+#[gpui_test::test]
+fn custom_themes_appear_in_their_mode_and_deletion_restores_only_that_choice(
+    cx: &mut TestAppContext,
+) {
+    use tervia::preferences::{Mode, Theme};
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let store = tervia::themes::Store::new(path.clone());
+    let data = super::super::theme::snapshot(&Theme::Dark);
+    let document = store.create(&data).unwrap();
+    let mut settings = None;
+    let mut preferences = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let prefs = cx.new(|_| {
+            let mut prefs = Preferences::default();
+            prefs.theme.select(Theme::Custom(document.data.clone()));
+            prefs.theme.select(Theme::Paper);
+            prefs.theme.set_mode(Mode::System);
+            prefs
+        });
+        preferences = Some(prefs.clone());
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(prefs.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(prefs, Some(path), error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.run_until_parked();
+    cx.update(|window, cx| {
+        settings.update(cx, |this, cx| {
+            assert_eq!(this.custom_themes.len(), 1);
+            this.category = super::Category::Appearance;
+            this.delete_theme(Theme::Custom(document.data.clone()), window, cx);
+        })
+    });
+    assert!(cx.has_pending_prompt());
+    cx.simulate_prompt_answer(tervia::locale::Language::System.text("theme_delete"));
+    cx.run_until_parked();
+    cx.update(|_, cx| {
+        let prefs = preferences.as_ref().unwrap().read(cx);
+        assert_eq!(prefs.theme.selected(false), Theme::Dark);
+        assert_eq!(prefs.theme.selected(true), Theme::Paper);
+        assert_eq!(prefs.theme.mode(), Mode::System);
+    });
+    assert!(store.list().unwrap().themes.is_empty());
+}
+
 fn reveal_setting(
     settings: &Entity<super::PreferencesWindow>,
     selector: &'static str,
@@ -55,7 +105,7 @@ fn system_appearance_follows_os_events_and_manual_override_stays_fixed(cx: &mut 
     let view = view.unwrap();
     let handle = cx.update(|window, _| window.window_handle());
     cx.update(|window, cx| {
-        let theme = view.read(cx).appearance.theme;
+        let theme = view.read(cx).appearance.theme.clone();
         assert_eq!(theme.mode(), Mode::System);
         assert_eq!(
             theme.is_light(),
@@ -164,7 +214,7 @@ fn theme_previews_configure_both_modes_without_switching_the_active_mode(cx: &mu
         assert_eq!(second.top(), third.top(), "Each row shows three themes");
         assert!(first.right() <= second.left() && second.right() <= third.left());
         let mut last = None;
-        for (theme, choice, selector) in choices {
+        for (theme, choice, selector) in choices.clone() {
             let preview = cx
                 .debug_bounds(selector)
                 .expect("Every theme has a preview");
@@ -187,7 +237,7 @@ fn theme_previews_configure_both_modes_without_switching_the_active_mode(cx: &mu
             last = Some(preview);
         }
     }
-    for (theme, selector, _) in choices {
+    for (theme, selector, _) in choices.clone() {
         cx.update(|window, cx| window.draw(cx).clear(cx));
         let choice = cx.debug_bounds(selector).unwrap();
         cx.update(|_, cx| {
@@ -246,7 +296,7 @@ fn theme_previews_configure_both_modes_without_switching_the_active_mode(cx: &mu
     assert!(system.size.width >= px(60.0));
     cx.simulate_click(system.center(), Modifiers::default());
     cx.update(|window, cx| {
-        let theme = settings.read(cx).current.theme;
+        let theme = settings.read(cx).current.theme.clone();
         assert_eq!(theme.mode(), tervia::preferences::Mode::System);
         assert_eq!(
             theme.is_light(),
@@ -285,7 +335,7 @@ fn theme_switching_applies_and_persists_every_preset(cx: &mut TestAppContext) {
         cx.update(|_, cx| {
             view.update(cx, |this, cx| {
                 this.preferences.update(cx, |preferences, cx| {
-                    preferences.theme.select(theme);
+                    preferences.theme.select(theme.clone());
                     preferences.theme.set_light(theme.is_light());
                     cx.notify();
                 });
@@ -304,7 +354,7 @@ fn theme_switching_applies_and_persists_every_preset(cx: &mut TestAppContext) {
             );
             assert_eq!(
                 cx.theme().primary,
-                super::super::theme::Palette::new(theme).accent
+                super::super::theme::Palette::new(&theme).accent
             );
             assert_eq!(
                 cx.theme()

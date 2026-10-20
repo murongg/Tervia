@@ -2,9 +2,22 @@ use gpui_kit::component::Theme;
 use gpui_kit::*;
 use tervia::preferences::Theme as ColorTheme;
 
+mod custom;
 mod presets;
+use custom::syntax;
+pub(super) use custom::{color, hex, snapshot, terminal_color, terminal_entry};
 
-fn workspace_colors(theme: ColorTheme) -> [u32; 2] {
+fn workspace_colors(theme: &ColorTheme) -> [u32; 2] {
+    if let Some(data) = theme.custom() {
+        return [
+            data.color("ui.workspace_start")
+                .expect("Validated color")
+                .rgb(),
+            data.color("ui.workspace_end")
+                .expect("Validated color")
+                .rgb(),
+        ];
+    }
     if let Some(preset) = presets::get(theme) {
         return preset.workspace;
     }
@@ -20,19 +33,27 @@ fn workspace_colors(theme: ColorTheme) -> [u32; 2] {
 }
 
 pub fn workspace_background(theme: impl Into<ColorTheme>) -> Background {
-    let [start, end] = workspace_colors(theme.into());
+    let theme = theme.into();
+    let [start, end] = if let Some(data) = theme.custom() {
+        [
+            color(data, "ui.workspace_start"),
+            color(data, "ui.workspace_end"),
+        ]
+    } else {
+        workspace_colors(&theme).map(|value| rgb(value).into())
+    };
     linear_gradient(
         135.0,
-        linear_color_stop(rgb(start), 0.0),
-        linear_color_stop(rgb(end), 1.0),
+        linear_color_stop(start, 0.0),
+        linear_color_stop(end, 1.0),
     )
 }
 
 pub fn apply_palette(theme: impl Into<ColorTheme>, cx: &mut App) {
     let theme = theme.into();
     let light = theme.is_light();
-    let preset = presets::get(theme);
-    let p = Palette::new(theme);
+    let selected = theme.clone();
+    let p = Palette::new(&theme);
     Theme::update(cx, |theme| {
         theme.scrollbar_mode = gpui_kit::component::scroll::ScrollbarMode::Scrolling;
         theme.colors.scrollbar = p.background.opacity(0.0);
@@ -60,10 +81,12 @@ pub fn apply_palette(theme: impl Into<ColorTheme>, cx: &mut App) {
             gpui_kit::component::highlighter::HighlightTheme::default_dark()
         };
         let highlight = std::sync::Arc::make_mut(&mut theme.highlight_theme);
-        if let Some(preset) = preset {
+        if let Some(data) = selected.custom() {
+            highlight.name = data.name().to_owned();
+        } else if let Some(preset) = presets::get(&selected) {
             highlight.name = preset.name.into();
-            highlight.style.syntax = preset.syntax.clone();
         }
+        highlight.style.syntax = syntax(&selected);
         highlight.style.editor_background = Some(p.background.opacity(0.0));
         highlight.style.editor_gutter_background = Some(p.sidebar.opacity(0.12));
         highlight.style.editor_active_line = Some(p.raised.opacity(0.25));
@@ -73,32 +96,31 @@ pub fn apply_palette(theme: impl Into<ColorTheme>, cx: &mut App) {
     });
 }
 
-pub fn terminal_ansi(theme: impl Into<ColorTheme>) -> &'static [u32; 16] {
+pub fn terminal_ansi(theme: impl Into<ColorTheme>) -> [u32; 16] {
     let theme = theme.into();
-    if let Some(preset) = presets::get(theme) {
-        return &preset.ansi;
+    if let Some(data) = theme.custom() {
+        return std::array::from_fn(|index| {
+            data.color(&format!("terminal.ansi{index}"))
+                .expect("Validated ANSI color")
+                .rgb()
+        });
+    }
+    if let Some(preset) = presets::get(&theme) {
+        return preset.ansi;
     }
     if theme.is_light() {
-        &LIGHT_ANSI
+        LIGHT_ANSI
     } else {
-        &DARK_ANSI
+        DARK_ANSI
     }
 }
 
-pub fn syntax_color(theme: ColorTheme, capture: &str) -> Hsla {
-    let syntax = if let Some(preset) = presets::get(theme) {
-        preset.syntax.style(capture)
-    } else {
-        let base = if theme.is_light() {
-            gpui_kit::component::highlighter::HighlightTheme::default_light()
-        } else {
-            gpui_kit::component::highlighter::HighlightTheme::default_dark()
-        };
-        base.style.syntax.style(capture)
-    };
-    syntax
+pub fn syntax_color(theme: impl Into<ColorTheme>, capture: &str) -> Hsla {
+    let theme = theme.into();
+    syntax(&theme)
+        .style(capture)
         .and_then(|style| style.color)
-        .unwrap_or_else(|| Palette::new(theme).text)
+        .unwrap_or_else(|| Palette::new(&theme).text)
 }
 
 const LIGHT_ANSI: [u32; 16] = [
@@ -132,7 +154,7 @@ pub struct Palette {
 impl Palette {
     pub fn workbench(theme: impl Into<ColorTheme>) -> Self {
         let theme = theme.into();
-        let mut p = Self::new(theme);
+        let mut p = Self::new(&theme);
         // The workspace owns one window-sized gradient. Panes must reveal it;
         // button ink remains opaque even though their surrounding surfaces do not.
         p.background = p.background.opacity(0.0);
@@ -149,6 +171,11 @@ impl Palette {
             _ => p.accent,
         };
         p.selected = p.accent.opacity(if theme.is_light() { 0.10 } else { 0.13 });
+        if let Some(data) = theme.custom() {
+            p.accent = color(data, "ui.workspace_accent");
+            p.selected = color(data, "ui.workspace_selected");
+            p.border = color(data, "ui.workspace_border");
+        }
         p
     }
 
@@ -158,8 +185,11 @@ impl Palette {
 
     pub fn new(theme: impl Into<ColorTheme>) -> Self {
         let theme = theme.into();
-        if let Some(preset) = presets::get(theme) {
+        if let Some(preset) = presets::get(&theme) {
             return preset.palette;
+        }
+        if let Some(data) = theme.custom() {
+            return custom::palette(data);
         }
         match theme {
             ColorTheme::Midnight => Self {
@@ -326,7 +356,7 @@ mod tests {
             for theme in [ColorTheme::Dark, ColorTheme::Light] {
                 super::super::preferences::apply(
                     &Preferences {
-                        theme: theme.into(),
+                        theme: (&theme).into(),
                         ..Preferences::default()
                     },
                     cx,
@@ -371,8 +401,8 @@ mod tests {
             ColorTheme::SolarizedLight,
             ColorTheme::QuietLight,
         ] {
-            let p = Palette::new(theme);
-            let [start, end] = workspace_colors(theme);
+            let p = Palette::new(&theme);
+            let [start, end] = workspace_colors(&theme);
             for background in [
                 p.background,
                 p.sidebar,

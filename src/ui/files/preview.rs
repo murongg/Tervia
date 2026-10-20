@@ -77,7 +77,7 @@ impl Tervia {
             } else {
                 "files_source"
             }),
-            super::super::theme::Palette::workbench(self.appearance.theme),
+            super::super::theme::Palette::workbench(&self.appearance.theme),
         )
         .debug_selector(|| "files-source-toggle".into())
         .on_click(cx.listener(move |this, _, window, cx| {
@@ -95,7 +95,7 @@ impl Tervia {
     pub(super) fn file_preview(&self, project: usize, index: usize) -> Option<AnyElement> {
         let file = &self.state.projects[project].files[index];
         let previews = &self.explorers[project].previews;
-        let p = super::super::theme::Palette::workbench(self.appearance.theme);
+        let p = super::super::theme::Palette::workbench(&self.appearance.theme);
         if let Some(image) = previews.images.get(&index) {
             let failed = self.t("files_image_failed");
             return Some(

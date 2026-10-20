@@ -29,7 +29,7 @@ Tervia brings the terminal, Git, and lightweight file editing into one desktop w
 - **File management and editing**: Create, rename, copy, and move files and folders, or send them to Trash. Find files, search project contents, and edit with syntax highlighting, Markdown reading, and image previews.
 - **Multiple projects**: Favorite projects and switch between their own terminals, files, and drafts. Use Git worktrees to work on tasks in parallel.
 - **Copy code context**: Copy selected code with its file path and line numbers, ready to share with an AI tool or another person.
-- **Appearance and language**: Choose from eleven themes, including Darcula, Monokai, Solarized, and Quiet Light, with separate light/dark choices and a system appearance mode, adjust fonts and text sizes, and use the interface in ten languages, including English and Chinese.
+- **Appearance and language**: Choose from eleven themes, including Darcula, Monokai, Solarized, and Quiet Light, with separate light/dark choices and a system appearance mode, copy a theme and customize its colors with live preview, adjust fonts and text sizes, and use the interface in ten languages, including English and Chinese.
 
 ## Get started
 

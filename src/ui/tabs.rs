@@ -29,7 +29,7 @@ struct FileDrag {
 }
 impl Render for FileDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let p = Palette::new(self.theme);
+        let p = Palette::new(&self.theme);
         div()
             .flex()
             .items_center()
@@ -50,7 +50,7 @@ impl Tervia {
     pub(super) fn file_tabs(&self, cx: &mut Context<Self>) -> Div {
         let project = self.state.active_project;
         let owner = &self.state.projects[project];
-        let p = Palette::workbench(self.appearance.theme);
+        let p = Palette::workbench(&self.appearance.theme);
         let mut strip = div()
             .id(("file-tabs-strip", project))
             .size_full()

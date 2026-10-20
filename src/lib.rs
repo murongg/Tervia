@@ -17,5 +17,6 @@ pub mod state;
 pub mod suggestions;
 pub mod tasks;
 pub mod terminal;
+pub mod themes;
 pub mod updates;
 pub mod workspace;
