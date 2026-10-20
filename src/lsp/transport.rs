@@ -1,4 +1,4 @@
-use super::{Server, process};
+use super::{Server, process, tools::Service};
 use serde_json::Value;
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -29,6 +29,7 @@ impl Connection {
         deadline: Instant,
         stop: Arc<AtomicBool>,
         paths: &[std::path::PathBuf],
+        service: Option<Service>,
     ) -> Result<Self, String> {
         #[cfg(windows)]
         let program = windows_program(
@@ -47,6 +48,12 @@ impl Connection {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         process::configure(&mut command);
+        if service == Some(Service::TypeScript) {
+            command.env(
+                "NODE_OPTIONS",
+                process::node_options(std::env::var_os("NODE_OPTIONS")),
+            );
+        }
         if !paths.is_empty() {
             process::with_paths(&mut command, paths)?;
         }

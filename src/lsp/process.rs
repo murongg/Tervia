@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsString,
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
@@ -7,6 +8,26 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+
+pub(super) fn node_options(existing: Option<OsString>) -> OsString {
+    let mut options = existing.unwrap_or_default();
+    let supplied = options.to_str().and_then(shlex::split).is_none_or(|args| {
+        args.iter().any(|arg| {
+            let normalized = arg.replace('_', "-");
+            normalized == "--max-semi-space-size"
+                || normalized.starts_with("--max-semi-space-size=")
+        })
+    });
+    // Preserve explicit user tuning and quoting. Smaller temporary allocation
+    // pools save memory without imposing a limit on persistent project data.
+    if !supplied {
+        if !options.is_empty() {
+            options.push(" ");
+        }
+        options.push("--max-semi-space-size=8");
+    }
+    options
+}
 
 pub(super) fn configure(command: &mut Command) {
     // Even `go version` and gopls project analysis can download an SDK in auto
@@ -144,4 +165,29 @@ pub(super) fn with_paths(command: &mut Command, paths: &[PathBuf]) -> Result<(),
             .map_err(|error| error.to_string())?,
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigation_node_options_preserve_user_flags_and_explicit_memory_tuning() {
+        assert_eq!(node_options(None), "--max-semi-space-size=8");
+        for (existing, expected) in [
+            (
+                "--enable-source-maps",
+                "--enable-source-maps --max-semi-space-size=8",
+            ),
+            (
+                "--require \"/synthetic/preload module.js\"",
+                "--require \"/synthetic/preload module.js\" --max-semi-space-size=8",
+            ),
+            ("--max-semi-space-size=16", "--max-semi-space-size=16"),
+            ("--max_semi_space_size 16", "--max_semi_space_size 16"),
+            ("--require \"synthetic", "--require \"synthetic"),
+        ] {
+            assert_eq!(node_options(Some(existing.into())), expected);
+        }
+    }
 }

@@ -273,6 +273,7 @@ impl Client {
                             let key = (job.query.root.clone(), job.server.clone());
                             if !sessions.contains_key(&key) {
                                 match Session::start(
+                                    &job.server,
                                     &job.launch,
                                     &job.query.root,
                                     job.deadline,
@@ -365,6 +366,7 @@ struct Session {
 }
 impl Session {
     fn start(
+        requested: &Server,
         launch: &Launch,
         root: &Path,
         deadline: Instant,
@@ -372,9 +374,17 @@ impl Session {
     ) -> Result<Self, String> {
         let root = root.canonicalize().map_err(|error| error.to_string())?;
         let server = &launch.server;
+        let service = Service::from_server(requested);
         let root_uri = uri(&root)?;
         let mut session = Self {
-            connection: Connection::start(server, &root, deadline, stop.clone(), &launch.paths)?,
+            connection: Connection::start(
+                server,
+                &root,
+                deadline,
+                stop.clone(),
+                &launch.paths,
+                service,
+            )?,
             root,
             root_uri,
             documents: HashMap::new(),
@@ -382,7 +392,7 @@ impl Session {
             last_used: Instant::now(),
             rust_ready: None,
         };
-        let initialized = session.request("initialize", json!({
+        let mut params = json!({
             "processId": std::process::id(),
             "clientInfo": {"name": "Tervia", "version": env!("CARGO_PKG_VERSION")},
             "rootUri": session.root_uri,
@@ -393,7 +403,17 @@ impl Session {
                 "workspace": {"configuration": true, "workspaceFolders": true, "applyEdit": false},
                 "textDocument": {"definition": {"linkSupport": true}, "synchronization": {"dynamicRegistration": false}}
             }
-        }), deadline, stop)?;
+        });
+        if service == Some(Service::TypeScript) {
+            // Navigation uses semantic requests. A second syntax worker and
+            // automatic type downloads add memory without serving this feature;
+            // project-installed declarations still resolve normally.
+            params["initializationOptions"] = json!({
+                "disableAutomaticTypingAcquisition": true,
+                "tsserver": {"useSyntaxServer": "never"}
+            });
+        }
+        let initialized = session.request("initialize", params, deadline, stop)?;
         session.rust_ready = (initialized["serverInfo"]["name"] == "rust-analyzer")
             .then_some(session.rust_ready.unwrap_or(false));
         let capabilities = &initialized["capabilities"];

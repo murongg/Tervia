@@ -39,6 +39,8 @@ while True:
         if mode == "local-toolchain":
             assert os.environ.get("GOTOOLCHAIN") == "local"
         counts["initialize"] += 1
+        counts["initialization_options"] = params.get("initializationOptions")
+        counts["small_node_allocation"] = "--max-semi-space-size=8" in os.environ.get("NODE_OPTIONS", "")
         assert params["capabilities"]["general"]["positionEncodings"] == ["utf-16"]
         assert params["processId"] > 0
         uri = urllib.parse.urlparse(params["rootUri"])

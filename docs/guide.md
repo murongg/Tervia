@@ -136,6 +136,8 @@ Services live in `tervia/language-services` under the user data directory, witho
 
 Each project shares services by language family. Idle services exit after five minutes; the next jump restarts them using the cached installation. Closing a project or the app stops its services. Open buffers, including drafts, are synchronized before each request. The first Rust lookup waits for workspace indexing. Tervia also searches common tool installation directories; custom locations should be available on Tervia's inherited `PATH`.
 
+JavaScript/TypeScript navigation uses one semantic worker and resolves declarations already installed in the project; it does not automatically download type packages. Owned JS/TS processes use a smaller temporary allocation pool (`--max-semi-space-size=8`), while preserving an explicit value in `NODE_OPTIONS`. This tuning does not impose a total memory limit: semantic-analysis memory still depends on the workspace.
+
 The first definition returned by the language service opens at its source position. Open target files keep their drafts. This first version opens local files inside the selected project directory; external dependencies, standard-library sources outside that directory, and virtual documents report a message. It does not enable completion, diagnostics, or workspace edits.
 
 ## Local terminal

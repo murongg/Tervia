@@ -283,6 +283,75 @@ fn closing_a_client_cancels_preparation_without_waiting_for_the_download() {
 
 #[cfg(unix)]
 #[test]
+fn typescript_navigation_does_not_start_extra_workers_or_type_downloads() {
+    use std::os::unix::fs::PermissionsExt;
+    for language in ["typescript", "rust"] {
+        let root = tempfile::tempdir().unwrap();
+        let bin = root.path().join("bin");
+        fs::create_dir(&bin).unwrap();
+        let server = Server::for_language(language).unwrap();
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = '--version' ]; then printf 'synthetic version'; exit 0; fi\nexec python3 '{}/tests/fixtures/lsp.py' normal\n",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let program = bin.join(&server.program);
+        fs::write(&program, script).unwrap();
+        fs::set_permissions(program, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(root.path().join("target.ts"), "synthetic").unwrap();
+        let client = crate::lsp::Client::with_tools(Arc::new(Tools::with_paths(
+            root.path().join("services"),
+            vec![bin],
+        )));
+        let found = client
+            .definitions(
+                &server,
+                crate::lsp::Query {
+                    root: root.path().into(),
+                    path: "mock.ts".into(),
+                    offset: 0,
+                    documents: vec![crate::lsp::Document {
+                        path: "mock.ts".into(),
+                        language: language.into(),
+                        text: "mock()".into(),
+                    }],
+                },
+            )
+            .unwrap();
+        assert_eq!(found.len(), 1);
+        client.shutdown();
+        let log: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(root.path().join("mock-log.json")).unwrap())
+                .unwrap();
+        if language == "typescript" {
+            let options = crate::lsp::process::node_options(std::env::var_os("NODE_OPTIONS"));
+            assert_eq!(
+                log["small_node_allocation"],
+                options
+                    .to_string_lossy()
+                    .contains("--max-semi-space-size=8")
+            );
+            assert_eq!(
+                log["initialization_options"]["tsserver"]["useSyntaxServer"],
+                "never"
+            );
+            assert_eq!(
+                log["initialization_options"]["disableAutomaticTypingAcquisition"],
+                true
+            );
+        } else {
+            assert!(log["initialization_options"].is_null());
+            assert_eq!(
+                log["small_node_allocation"],
+                std::env::var("NODE_OPTIONS")
+                    .unwrap_or_default()
+                    .contains("--max-semi-space-size=8")
+            );
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn repeated_queries_do_not_reprobe_an_already_running_service() {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
