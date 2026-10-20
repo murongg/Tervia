@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.16.0 (2026-10-20)
+
+### Features
+
+- **appearance:** add theme presets and system mode (cedb5540)
+- **projects:** add an instant hover project panel (6c08f2b7)
+
+### Fixes
+
+- **projects:** separate pin and search click targets (4e49ab6c)
+
 ## v0.15.1 (2026-10-19)
 
 ### Performance
