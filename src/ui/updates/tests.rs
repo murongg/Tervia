@@ -34,7 +34,7 @@ fn install_button_uses_the_workspace_accent_in_both_themes(cx: &mut TestAppConte
     });
     for light in [true, false] {
         displayed.update(cx, |preferences, cx| {
-            preferences.light_theme = light;
+            preferences.theme = light.into();
             super::super::preferences::apply(preferences, cx);
             cx.notify();
         });

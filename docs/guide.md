@@ -109,7 +109,7 @@ Save all edited files across projects and worktrees and wait for pending writes/
 - File tabs support close buttons, middle-click close, context menus for closing other/right/all tabs, drag reordering, Ctrl+Tab navigation and reopening closed tabs. Unsaved files are confirmed before closing.
 - Select source in Files or Git Diff and choose **Copy Context**, or press Cmd/Ctrl+Shift+C, to copy the project-relative path, inclusive line numbers and selected code. Files uses the current draft. Diff uses its displayed source, marks `original` / `modified`, and separates versions or gaps between supplied patch lines; it also supports native text selection and gutter line selection. Markdown must be in Source view; image previews have no code context.
 - The welcome page offers Open Project and Use Terminal, recent projects, and a secondary Clone Repository action.
-- A separate native settings window with a feature-category sidebar to select installed common monospaced fonts, adjust terminal / code and interface font sizes, preview changes immediately, and restore defaults.
+- A separate native settings window groups General, Appearance, Workspace, and Online Updates. Appearance contains themes, light/dark/system mode, installed common monospaced fonts, and terminal / code and interface font sizes, with immediate preview and a reset scoped to that category.
 
 On startup, Tervia restores the last project, local terminal, or welcome screen, together with the project list, its order and the expanded/collapsed sidebar. A project with linked worktrees remembers its last working directory and falls back to its main directory if that worktree is unavailable. First launch opens the welcome page with project and terminal entry points. An unavailable last project returns to the welcome page with an explanation. Terminals start in the project directory, Git operations use your local Git CLI, and saving files writes to disk. Switching projects preserves each project's terminals, commit message, and editing drafts during the current run. Module selection, the bottom dock, shell-tab count/selection, open-file order and source cursor/scroll positions restore after quitting. Unsaved drafts recover with their original saved base, while clean files reload current disk content in the background. Quitting disconnects the UI while terminal hosts keep running. Reopening or updating reconnects to the same shells, running programs and AI conversations, with output, terminal modes and scroll positions restored. New project shells start in their working directory and new local shells start in the home directory.
 
@@ -184,7 +184,9 @@ Top-level tables represent feature domains: `ui` contains appearance and its `fo
 ```toml
 [ui]
 language = "system" # system, zh-CN, zh-TW, en, ja, ko, fr, de, es, pt, ru
-theme = "dark"      # dark or light
+theme = "dark"      # active appearance: dark, light, system
+dark_theme = "dark" # dark, midnight, forest, darcula, monokai, solarized-dark
+light_theme = "light" # light, paper, rose, solarized-light, quiet-light
 
 [ui.fonts]
 code_family = "Menlo" # Installed font shared by terminal and editor

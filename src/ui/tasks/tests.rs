@@ -61,7 +61,7 @@ fn task_picker_with_warnings_fits_the_minimum_window_in_both_themes(cx: &mut Tes
     for light in [false, true] {
         cx.update(|window, cx| {
             view.update(cx, |this, cx| {
-                this.appearance.light_theme = light;
+                this.appearance.theme = light.into();
                 this.show_project_tasks(window, cx);
                 this.install_tasks(
                     this.state.active_project,

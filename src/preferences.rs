@@ -3,7 +3,7 @@ pub struct Preferences {
     pub font_family: String,
     pub code_size: u8,
     pub ui_size: u8,
-    pub light_theme: bool,
+    pub theme: Themes,
     pub language: Language,
     pub file_nesting: bool,
     pub command_suggestions: bool,
@@ -18,7 +18,7 @@ impl Default for Preferences {
             font_family: Platform::CURRENT.mono_font().into(),
             code_size: 14,
             ui_size: 13,
-            light_theme: false,
+            theme: Themes::default(),
             language: Language::System,
             file_nesting: false,
             command_suggestions: true,
@@ -39,23 +39,223 @@ impl Preferences {
     pub fn reset(&mut self) {
         // Resetting appearance must not resume network checks or command-history recording.
         self.reset_general();
+        self.reset_appearance();
         self.reset_workspace();
     }
 
     pub fn reset_general(&mut self) {
+        self.language = Self::default().language;
+    }
+
+    pub fn reset_appearance(&mut self) {
         let defaults = Self::default();
-        self.light_theme = defaults.light_theme;
-        self.language = defaults.language;
+        self.theme = defaults.theme;
         self.ui_size = defaults.ui_size;
+        self.font_family = defaults.font_family;
+        self.code_size = defaults.code_size;
     }
 
     pub fn reset_workspace(&mut self) {
         // History recording is an explicit choice, even when the rest of this page is reset.
         let defaults = Self::default();
-        self.font_family = defaults.font_family;
-        self.code_size = defaults.code_size;
         self.file_nesting = defaults.file_nesting;
         self.shell = defaults.shell;
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+    Midnight,
+    Forest,
+    Paper,
+    Rose,
+    Darcula,
+    Monokai,
+    SolarizedDark,
+    SolarizedLight,
+    QuietLight,
+}
+
+impl Theme {
+    pub const ALL: [Self; 11] = [
+        Self::Dark,
+        Self::Light,
+        Self::Midnight,
+        Self::Forest,
+        Self::Paper,
+        Self::Rose,
+        Self::Darcula,
+        Self::Monokai,
+        Self::SolarizedDark,
+        Self::SolarizedLight,
+        Self::QuietLight,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::Midnight => "midnight",
+            Self::Forest => "forest",
+            Self::Paper => "paper",
+            Self::Rose => "rose",
+            Self::Darcula => "darcula",
+            Self::Monokai => "monokai",
+            Self::SolarizedDark => "solarized-dark",
+            Self::SolarizedLight => "solarized-light",
+            Self::QuietLight => "quiet-light",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|theme| theme.id() == id)
+    }
+
+    pub fn is_light(self) -> bool {
+        matches!(
+            self,
+            Self::Light | Self::Paper | Self::Rose | Self::SolarizedLight | Self::QuietLight
+        )
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::Midnight => "theme_midnight",
+            Self::Forest => "theme_forest",
+            Self::Paper => "theme_paper",
+            Self::Rose => "theme_rose",
+            Self::Darcula => "theme_darcula",
+            Self::Monokai => "theme_monokai",
+            Self::SolarizedDark => "theme_solarized_dark",
+            Self::SolarizedLight => "theme_solarized_light",
+            Self::QuietLight => "theme_quiet_light",
+        }
+    }
+
+    pub fn label(self, language: Language) -> &'static str {
+        language.text(self.key())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Dark,
+    Light,
+    System,
+}
+
+impl Mode {
+    pub const ALL: [Self; 3] = [Self::Dark, Self::Light, Self::System];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+            Self::System => "system",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Themes {
+    dark: Theme,
+    light: Theme,
+    light_mode: bool,
+    mode: Mode,
+}
+
+impl Default for Themes {
+    fn default() -> Self {
+        Self {
+            dark: Theme::Dark,
+            light: Theme::Light,
+            light_mode: false,
+            mode: Mode::Dark,
+        }
+    }
+}
+
+impl Themes {
+    pub fn current(self) -> Theme {
+        self.selected(self.light_mode)
+    }
+
+    pub fn selected(self, light: bool) -> Theme {
+        if light { self.light } else { self.dark }
+    }
+
+    pub fn is_light(self) -> bool {
+        self.light_mode
+    }
+
+    pub fn select(&mut self, theme: Theme) {
+        // Configuring the inactive mode must not change the current appearance.
+        if theme.is_light() {
+            self.light = theme;
+        } else {
+            self.dark = theme;
+        }
+    }
+
+    pub fn set_light(&mut self, light: bool) {
+        self.light_mode = light;
+        self.mode = if light { Mode::Light } else { Mode::Dark };
+    }
+
+    pub fn mode(self) -> Mode {
+        self.mode
+    }
+
+    pub fn set_mode(&mut self, mode: Mode) {
+        match mode {
+            Mode::Dark => self.set_light(false),
+            Mode::Light => self.set_light(true),
+            Mode::System => self.mode = Mode::System,
+        }
+    }
+
+    pub fn sync_system(&mut self, light: bool) -> bool {
+        if self.mode != Mode::System || self.light_mode == light {
+            return false;
+        }
+        self.light_mode = light;
+        true
+    }
+
+    pub fn toggle(&mut self) {
+        self.set_light(!self.light_mode);
+    }
+}
+
+impl From<Theme> for Themes {
+    fn from(theme: Theme) -> Self {
+        let mut themes = Self::default();
+        themes.select(theme);
+        themes.set_light(theme.is_light());
+        themes
+    }
+}
+
+impl From<Themes> for Theme {
+    fn from(themes: Themes) -> Self {
+        themes.current()
+    }
+}
+
+impl From<bool> for Themes {
+    fn from(light: bool) -> Self {
+        Theme::from(light).into()
+    }
+}
+
+impl From<bool> for Theme {
+    fn from(light: bool) -> Self {
+        if light { Self::Light } else { Self::Dark }
     }
 }
 use crate::{locale::Language, platform::Platform};

@@ -511,7 +511,7 @@ fn project_favorite_shares_the_row_hover_surface(cx: &mut TestAppContext) {
     for light in [false, true] {
         for selected in [false, true] {
             view.update(cx, |this, cx| {
-                this.appearance.light_theme = light;
+                this.appearance.theme = light.into();
                 super::super::theme::apply_palette(light, cx);
                 this.state.switch_project(usize::from(selected));
                 cx.notify();

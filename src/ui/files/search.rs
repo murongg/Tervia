@@ -180,7 +180,7 @@ impl Tervia {
     pub(in crate::ui) fn search_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let project = self.state.active_project;
         let finder = &self.explorers[project].finder;
-        let p = super::super::theme::Palette::workbench(self.appearance.light_theme);
+        let p = super::super::theme::Palette::workbench(self.appearance.theme);
         let rows = finder.rows.clone();
         let generation = finder.generation;
         let status = if finder.loading {
@@ -341,7 +341,7 @@ impl Tervia {
                                                     .gap(px(6.0))
                                                     .child(file_icon(
                                                         file_path,
-                                                        this.appearance.light_theme,
+                                                        this.appearance.theme.is_light(),
                                                         None,
                                                     ))
                                                     .child(

@@ -277,7 +277,12 @@ impl Tervia {
                     .small()
                     .h(px(29.0))
                     .rounded(px(5.0))
-                    .icon(agent_icon(agent, selected, p, self.appearance.light_theme))
+                    .icon(agent_icon(
+                        agent,
+                        selected,
+                        p,
+                        self.appearance.theme.is_light(),
+                    ))
                     .label(session_name.clone())
                     .max_w(px(220.0))
                     .overflow_hidden()

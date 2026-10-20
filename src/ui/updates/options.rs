@@ -29,7 +29,7 @@ impl Updater {
         let preferences = self.preferences.read(cx);
         let language = preferences.language;
         let settings = preferences.updates;
-        let p = Palette::new(preferences.light_theme);
+        let p = Palette::new(preferences.theme);
         let shared_preferences = self.preferences.clone();
         div()
             .flex()

@@ -7,12 +7,12 @@ use std::time::Duration;
 struct ProjectDrag {
     owner: usize,
     name: String,
-    light: bool,
+    theme: tervia::preferences::Theme,
     favorite: bool,
 }
 impl Render for ProjectDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let p = crate::ui::theme::Palette::new(self.light);
+        let p = crate::ui::theme::Palette::new(self.theme);
         div()
             .px(px(10.0))
             .py(px(6.0))
@@ -101,7 +101,7 @@ impl Tervia {
         let drag = ProjectDrag {
             owner: parent,
             name: name.clone(),
-            light: self.appearance.light_theme,
+            theme: self.appearance.theme.current(),
             favorite,
         };
         let target = self.state.project_target(parent);
@@ -401,13 +401,13 @@ impl Tervia {
                     .px(px(8.0))
                     .pb(px(8.0))
                     .rounded(px(12.0))
-                    .bg(if self.appearance.light_theme {
+                    .bg(if self.appearance.theme.is_light() {
                         p.background
                     } else {
                         p.toolbar
                     })
                     .shadow(vec![BoxShadow {
-                        color: black().opacity(if self.appearance.light_theme {
+                        color: black().opacity(if self.appearance.theme.is_light() {
                             0.10
                         } else {
                             0.30

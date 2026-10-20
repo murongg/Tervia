@@ -516,7 +516,7 @@ mod tests {
                 view.update(cx, |view, cx| {
                     view.state.screen = screen;
                     view.preferences.update(cx, |preferences, cx| {
-                        preferences.light_theme = light;
+                        preferences.theme = light.into();
                         cx.notify();
                     });
                     cx.notify();

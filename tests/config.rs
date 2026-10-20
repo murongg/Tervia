@@ -10,6 +10,130 @@ fn fixture(source: &str) -> (TempDir, Config) {
 }
 
 #[test]
+fn light_and_dark_themes_are_configured_independently() {
+    let (_root, mut config) = fixture(
+        "[ui]\ntheme = 'dark'\ndark_theme = 'midnight' # mock night choice\nlight_theme = 'paper' # mock day choice\n",
+    );
+    let mut preferences = config.load().unwrap();
+    assert_eq!(
+        preferences.theme.current(),
+        tervia::preferences::Theme::Midnight
+    );
+    assert_eq!(
+        preferences.theme.selected(true),
+        tervia::preferences::Theme::Paper
+    );
+    preferences.theme.toggle();
+    config.save(&preferences).unwrap();
+    assert_eq!(
+        Config::new(config.path().into()).load().unwrap(),
+        preferences
+    );
+    let saved = fs::read_to_string(config.path()).unwrap();
+    assert!(saved.contains("# mock night choice"));
+    assert!(saved.contains("# mock day choice"));
+    let document = saved.parse::<toml_edit::DocumentMut>().unwrap();
+    assert_eq!(document["ui"]["theme"].as_str(), Some("light"));
+    assert_eq!(document["ui"]["dark_theme"].as_str(), Some("midnight"));
+    assert_eq!(document["ui"]["light_theme"].as_str(), Some("paper"));
+}
+
+#[test]
+fn theme_choices_reject_the_wrong_mode_and_preserve_the_document() {
+    for (key, value) in [
+        ("dark_theme", "paper"),
+        ("light_theme", "forest"),
+        ("dark_theme", "mock-unknown"),
+        ("light_theme", "mock-unknown"),
+    ] {
+        let source = format!("[ui]\n{key} = '{value}'\n");
+        let (_root, mut config) = fixture(&source);
+        assert!(config.load().is_err(), "{key} = {value}");
+        assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+    }
+}
+
+#[test]
+fn theme_presets_survive_saving_other_settings_and_restarting() {
+    for id in [
+        "dark",
+        "light",
+        "midnight",
+        "forest",
+        "paper",
+        "rose",
+        "darcula",
+        "monokai",
+        "solarized-dark",
+        "solarized-light",
+        "quiet-light",
+    ] {
+        let (_root, mut config) = fixture(&format!(
+            "[ui]\ntheme = '{id}' # synthetic choice\nfuture = 'mock'\n"
+        ));
+        let mut preferences = config
+            .load()
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
+        preferences.set_ui_size(15);
+        config.save(&preferences).unwrap();
+        let saved = fs::read_to_string(config.path()).unwrap();
+        let document = saved.parse::<toml_edit::DocumentMut>().unwrap();
+        assert_eq!(preferences.theme.current().id(), id);
+        let key = if preferences.theme.is_light() {
+            "light_theme"
+        } else {
+            "dark_theme"
+        };
+        assert_eq!(document["ui"][key].as_str(), Some(id));
+        assert!(saved.contains("# synthetic choice"));
+        assert!(saved.contains("future = 'mock'"));
+        assert_eq!(
+            Config::new(config.path().into()).load().unwrap(),
+            preferences
+        );
+    }
+}
+
+#[test]
+fn classic_presets_remember_each_dark_and_light_pair() {
+    for dark in ["darcula", "monokai", "solarized-dark"] {
+        for light in ["solarized-light", "quiet-light"] {
+            let (_root, mut config) = fixture(&format!(
+                "[ui]\ntheme = 'dark'\ndark_theme = '{dark}'\nlight_theme = '{light}'\n"
+            ));
+            let mut preferences = config.load().unwrap();
+            assert_eq!(preferences.theme.current().id(), dark);
+            preferences.theme.toggle();
+            assert_eq!(preferences.theme.current().id(), light);
+            config.save(&preferences).unwrap();
+            let mut restarted = Config::new(config.path().into()).load().unwrap();
+            assert_eq!(restarted, preferences);
+            restarted.theme.toggle();
+            assert_eq!(restarted.theme.current().id(), dark);
+        }
+    }
+}
+
+#[test]
+fn system_appearance_persists_without_replacing_the_two_theme_choices() {
+    let (_root, mut config) = fixture(
+        "[ui]\ntheme = 'system' # mock appearance\ndark_theme = 'monokai'\nlight_theme = 'quiet-light'\n",
+    );
+    let preferences = config.load().unwrap();
+    config.save(&preferences).unwrap();
+    let source = fs::read_to_string(config.path()).unwrap();
+    let document = source.parse::<toml_edit::DocumentMut>().unwrap();
+    assert_eq!(document["ui"]["theme"].as_str(), Some("system"));
+    assert_eq!(document["ui"]["dark_theme"].as_str(), Some("monokai"));
+    assert_eq!(document["ui"]["light_theme"].as_str(), Some("quiet-light"));
+    assert!(source.contains("# mock appearance"));
+    assert_eq!(
+        Config::new(config.path().into()).load().unwrap(),
+        preferences
+    );
+}
+
+#[test]
 fn agent_notifications_default_off_and_explicit_opt_in_survives_reset() {
     assert!(!Preferences::default().agent_notifications);
     let (_root, mut config) = fixture("");
@@ -109,7 +233,7 @@ fn partial_config_uses_defaults_and_loads_all_supported_preferences() {
     assert_eq!(
         config.load().unwrap(),
         Preferences {
-            light_theme: true,
+            theme: tervia::preferences::Theme::Light.into(),
             language: Language::Chinese,
             ..Preferences::default()
         }
@@ -255,7 +379,7 @@ fn saves_preserve_comments_unknown_settings_and_unchanged_formatting() {
         "# My synthetic setup\n[ui]\ntheme = 'dark' # keep this note\nlanguage = 'system'\n\n[future]\nvalue = 42 # another note\n",
     );
     let mut preferences = config.load().unwrap();
-    preferences.light_theme = true;
+    preferences.theme = tervia::preferences::Theme::Light.into();
     preferences.font_family = "Synthetic \\\" Mono".into();
     config.save(&preferences).unwrap();
     let source = fs::read_to_string(config.path()).unwrap();
@@ -328,7 +452,7 @@ fn external_edits_and_deletions_block_saving_until_reloaded() {
         fs::read_to_string(config.path()).unwrap(),
         "[ui]\ntheme = 'light' # manual edit\n"
     );
-    assert!(config.load().unwrap().light_theme);
+    assert!(config.load().unwrap().theme.is_light());
     config.save(&preferences).unwrap();
     fs::remove_file(config.path()).unwrap();
     assert!(config.save(&preferences).is_err());

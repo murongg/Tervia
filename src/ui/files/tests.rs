@@ -79,7 +79,7 @@ fn file_types_share_icons_in_tree_tabs_and_both_search_modes(cx: &mut TestAppCon
         ] {
             cx.update(|window, cx| {
                 view.update(cx, |this, _| {
-                    this.appearance.light_theme = light;
+                    this.appearance.theme = light.into();
                     let finder = &mut this.explorers[0].finder;
                     finder.mode = mode;
                     finder.rows = Arc::new(vec![if mode == Mode::Text {
@@ -502,7 +502,7 @@ fn files_top_divider_spans_the_explorer_and_empty_editor(cx: &mut TestAppContext
     let (view, cx) = divider_surface(cx);
     for light in [false, true] {
         view.update(cx, |this, cx| {
-            this.appearance.light_theme = light;
+            this.appearance.theme = light.into();
             super::super::theme::apply_palette(light, cx);
         });
         cx.update(|window, cx| window.draw(cx).clear(cx));
@@ -533,7 +533,7 @@ fn files_split_divider_is_painted_once_in_browse_and_search(cx: &mut TestAppCont
             search::Mode::Text,
         ] {
             view.update(cx, |this, cx| {
-                this.appearance.light_theme = light;
+                this.appearance.theme = light.into();
                 this.explorers[0].finder.mode = mode;
                 super::super::theme::apply_palette(light, cx);
             });

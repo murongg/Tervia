@@ -462,6 +462,15 @@ impl TestAppContext {
         self.test_window(window_handle).simulate_resize(size);
     }
 
+    /// Simulates an operating-system appearance change for a window.
+    pub fn simulate_window_appearance_change(
+        &self,
+        window_handle: AnyWindowHandle,
+        appearance: crate::WindowAppearance,
+    ) {
+        self.test_window(window_handle).simulate_appearance_change(appearance);
+    }
+
     /// Simulates a change in whether the platform is presenting the window.
     pub fn simulate_window_visibility_change(
         &self,
