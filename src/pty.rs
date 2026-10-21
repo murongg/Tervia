@@ -63,6 +63,14 @@ pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder 
 }
 
 fn configure_terminal_environment(command: &mut CommandBuilder) {
+    #[cfg(target_os = "macos")]
+    if ["LC_ALL", "LC_CTYPE", "LANG"]
+        .iter()
+        .all(|name| command.get_env(name).is_none_or(|value| value.is_empty()))
+    {
+        // Fish decodes PWD before startup files can establish a UTF-8 locale.
+        command.env("LC_CTYPE", "en_US.UTF-8");
+    }
     // A GUI launched by a text-only runner must not pass its output policy to
     // the interactive PTY. Shell startup can still opt into NO_COLOR explicitly.
     command.env_remove("NO_COLOR");
@@ -319,6 +327,51 @@ impl Drop for PtySession {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shells_default_to_utf8_when_locale_is_missing_or_empty() {
+        for empty in [false, true] {
+            let mut command = CommandBuilder::new("/synthetic-shell");
+            command.env_clear();
+            if empty {
+                for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+                    command.env(name, "");
+                }
+            }
+            command.env("LC_MESSAGES", "C");
+
+            configure_terminal_environment(&mut command);
+
+            assert_eq!(command.get_env("LC_CTYPE"), Some(OsStr::new("en_US.UTF-8")));
+            for name in ["LC_ALL", "LANG"] {
+                assert_eq!(command.get_env(name), empty.then(|| OsStr::new("")));
+            }
+            assert_eq!(command.get_env("LC_MESSAGES"), Some(OsStr::new("C")));
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shells_preserve_explicit_locale_settings() {
+        for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+            for value in ["C", "en_US.UTF-8", "zh_CN.UTF-8"] {
+                let mut command = CommandBuilder::new("/synthetic-shell");
+                command.env_clear();
+                command.env(name, value);
+
+                configure_terminal_environment(&mut command);
+
+                for other in ["LC_ALL", "LC_CTYPE", "LANG"] {
+                    assert_eq!(
+                        command.get_env(other),
+                        (other == name).then(|| OsStr::new(value)),
+                        "{name}={value}: {other} changed"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn interactive_terminal_does_not_inherit_the_launchers_no_color_policy() {
