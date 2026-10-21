@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.17.0 (2026-10-21)
+
+### Features
+
+- **appearance:** add custom theme editor (51998ccd)
+
+### Fixes
+
+- **projects:** hide worktrees from the directory picker (a303a1f4)
+
 ## v0.16.0 (2026-10-20)
 
 ### Features
