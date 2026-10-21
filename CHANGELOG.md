@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.17.1 (2026-10-21)
+
+### Fixes
+
+- **terminal:** initialize missing macOS locale before shell startup (67f0b1d0)
+- **ui:** prevent Escape from closing the workspace (adc57337)
+
+### Other changes
+
+- **github:** add issue and pull request templates (5096b976)
+- change project license to MIT (c18ec3f8)
+
 ## v0.17.0 (2026-10-21)
 
 ### Features
