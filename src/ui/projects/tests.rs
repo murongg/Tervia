@@ -474,6 +474,43 @@ fn project_window(
 }
 
 #[gpui_test::test]
+fn escape_keeps_idle_workspace_tabs_open(cx: &mut TestAppContext) {
+    use tervia::state::Tab;
+
+    let (_root, view, cx) = project_window(cx);
+    cx.update(|_, cx| {
+        cx.bind_keys([KeyBinding::new(
+            "escape",
+            gpui_kit::base::actions::Cancel,
+            Some("Tervia"),
+        )]);
+    });
+    for tab in [Tab::Git, Tab::Files, Tab::Terminal] {
+        cx.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.change_tab(tab, window, cx);
+                view.focus.focus(window, cx);
+            });
+            window.draw(cx).clear(cx);
+        });
+        for _ in 0..2 {
+            cx.simulate_keystrokes("escape");
+            assert_eq!(cx.windows().len(), 1, "Escape keeps the workspace open");
+        }
+        cx.dispatch_action(gpui_kit::component::input::Escape);
+        assert_eq!(cx.windows().len(), 1);
+        view.update(cx, |view, _| {
+            assert_eq!(view.state.active_tab(), tab);
+            assert_eq!(view.state.active_project, 0);
+            assert_eq!(
+                view.state.project().current_file().unwrap().draft,
+                "synthetic draft"
+            );
+        });
+    }
+}
+
+#[gpui_test::test]
 fn global_project_search_accepts_keyboard_selection_and_escape_restores_focus(
     cx: &mut TestAppContext,
 ) {
@@ -503,6 +540,12 @@ fn global_project_search_accepts_keyboard_selection_and_escape_restores_focus(
         assert_eq!(view.state.active_project, 1);
         assert_eq!(cx.windows().len(), 1);
     });
+    cx.dispatch_action(gpui_kit::base::actions::Cancel);
+    assert_eq!(
+        cx.windows().len(),
+        1,
+        "Escape after dismissing the picker keeps the workspace open"
+    );
 }
 
 #[gpui_test::test]

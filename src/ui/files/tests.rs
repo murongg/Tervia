@@ -601,7 +601,7 @@ fn files_split_divider_keeps_its_drag_target(cx: &mut TestAppContext) {
 }
 
 #[gpui_test::test]
-fn escape_leaves_file_search_before_closing_the_workspace(cx: &mut TestAppContext) {
+fn escape_leaves_file_search_without_closing_the_workspace(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let root = tempfile::tempdir().unwrap();
     let (_, cx) = cx.add_window_view(|window, cx| {

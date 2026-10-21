@@ -449,7 +449,7 @@ fn closing_last_terminal_leaves_an_empty_project() {
 }
 
 #[test]
-fn escape_dismisses_quick_actions_before_closing_the_workspace() {
+fn dismissing_quick_actions_reports_whether_the_palette_was_open() {
     let mut workspace = workspace();
     workspace.palette_open = true;
     assert!(workspace.dismiss_palette());

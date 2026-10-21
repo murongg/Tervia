@@ -607,7 +607,7 @@ impl Tervia {
             cx.notify();
             return;
         }
-        // Input Escape can bubble past the popover's own Cancel action.
+        // Input Escape can bubble past a popover; falling through must never close the workspace.
         if self.navigation.switcher.open {
             self.close_project_switcher(window, cx);
         } else if self.navigation.open {
@@ -619,14 +619,12 @@ impl Tervia {
         {
             cx.notify();
         } else if self.dismiss_project_sidebar(cx) {
-            // A transient navigation panel consumes Escape before the workspace's quit fallback.
+            // Dismissing a transient sidebar consumes Escape before file search.
         } else if !self.state.projects.is_empty()
             && self.state.active_tab() == Tab::Files
             && self.explorers[self.state.active_project].finder.mode != files::search::Mode::Browse
         {
             self.show_file_search(files::search::Mode::Browse, window, cx);
-        } else if self.try_quit(cx) {
-            window.remove_window();
         }
     }
 

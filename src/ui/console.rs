@@ -1782,6 +1782,8 @@ mod tests {
             assert!(this.transmitted.is_empty());
             assert!(this.focus.is_focused(window));
         });
+        cx.simulate_keystrokes("escape");
+        cx.update(|_, cx| assert_eq!(console.read(cx).transmitted, [vec![27]]));
     }
 
     #[gpui_test::test]
@@ -2256,14 +2258,26 @@ mod tests {
                 this.focus.focus(window, cx);
                 this.suggestions.input.prompt();
                 this.send(b"git", cx);
+                assert!(this.suggestion_visible());
             });
+        });
+        cx.simulate_keystrokes("escape");
+        cx.update(|_, cx| {
+            let this = console.read(cx);
+            assert_eq!(this.transmitted, [b"git".to_vec()]);
+            assert!(!this.suggestion_visible());
         });
         cx.simulate_keystrokes("escape up tab");
         cx.update(|_, cx| {
             let this = console.read(cx);
             assert_eq!(
                 this.transmitted,
-                [b"git".to_vec(), b"\x1b[A".to_vec(), b"\t".to_vec()]
+                [
+                    b"git".to_vec(),
+                    vec![27],
+                    b"\x1b[A".to_vec(),
+                    b"\t".to_vec()
+                ]
             );
             assert!(!this.suggestion_visible());
         });
@@ -2667,6 +2681,52 @@ mod tests {
             _subscriptions: Vec::new(),
             transmitted: Vec::new(),
         }
+    }
+
+    #[gpui_test::test]
+    fn escape_reaches_the_terminal_with_workspace_bindings(cx: &mut TestAppContext) {
+        use super::super::Tervia;
+        use tervia::state::Tab;
+
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+            cx.bind_keys([KeyBinding::new(
+                "escape",
+                gpui_kit::base::actions::Cancel,
+                Some("Tervia"),
+            )]);
+        });
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                let project = view.state.open_directory("/synthetic/escape".into());
+                view.init_project(project, window, cx);
+                view.state.set_tab(Tab::Terminal);
+                let terminal = cx.new(mock_console);
+                terminal.read(cx).focus.clone().focus(window, cx);
+                view.terminals[project][0] = Some(terminal.clone());
+                console = Some(terminal);
+                view
+            });
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.simulate_keystrokes("escape");
+        cx.update(|_, cx| {
+            assert_eq!(console.read(cx).transmitted, [vec![27]]);
+            console.update(cx, |this, _| this.buffer.feed(b"\x1b[?1049h"));
+        });
+        cx.simulate_keystrokes("escape");
+        assert_eq!(cx.windows().len(), 1);
+        cx.update(|window, cx| {
+            let console = console.read(cx);
+            assert!(console.buffer.term.mode().contains(TermMode::ALT_SCREEN));
+            assert_eq!(console.transmitted, [vec![27], vec![27]]);
+            assert!(console.focus.is_focused(window));
+        });
     }
 
     #[gpui_test::test]

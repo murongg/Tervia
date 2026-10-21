@@ -1014,6 +1014,35 @@ fn terminal_suggestions_can_be_disabled_in_settings(cx: &mut TestAppContext) {
 }
 
 #[gpui_test::test]
+fn escape_keeps_the_welcome_window_open(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.bind_keys([KeyBinding::new(
+            "escape",
+            gpui_kit::base::actions::Cancel,
+            Some("Tervia"),
+        )]);
+    });
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        entity.read(cx).focus.clone().focus(window, cx);
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    for _ in 0..2 {
+        cx.simulate_keystrokes("escape");
+        assert_eq!(
+            cx.windows().len(),
+            1,
+            "Escape keeps the welcome window open"
+        );
+    }
+    cx.dispatch_action(gpui_kit::component::input::Escape);
+    assert_eq!(cx.windows().len(), 1);
+    assert!(cx.debug_bounds("welcome-open").is_some());
+}
+
+#[gpui_test::test]
 fn escape_on_the_welcome_screen_cannot_interrupt_installation(cx: &mut TestAppContext) {
     cx.update(gpui_kit::init);
     let mut view = None;
@@ -1033,10 +1062,18 @@ fn escape_on_the_welcome_screen_cannot_interrupt_installation(cx: &mut TestAppCo
     });
     cx.update(|window, cx| window.draw(cx).clear(cx));
     cx.dispatch_action(gpui_kit::base::actions::Cancel);
-    assert_eq!(
-        cx.update(|_, cx| view.read(cx).state.notice.clone()),
-        Language::System.text("update_wait")
-    );
+    assert_eq!(cx.windows().len(), 1);
+    cx.update(|_, cx| {
+        let view = view.read(cx);
+        assert!(
+            view.state.notice.is_empty(),
+            "Escape must not attempt to quit"
+        );
+        assert!(matches!(
+            view.updater.read(cx).state,
+            super::super::updates::State::Installing
+        ));
+    });
 }
 
 #[gpui_test::test]
