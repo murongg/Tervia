@@ -1,0 +1,67 @@
+name: Bug report
+description: Report a crash, error, or unexpected behavior in Tervia.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting. English and Chinese are welcome / 欢迎使用中文或英文填写。
+        Remove tokens, private paths, and sensitive terminal content from any attachments.
+  - type: input
+    id: version
+    attributes:
+      label: Tervia version
+      description: Include the release version, or the commit hash for a source build.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS version, CPU architecture, and installation method. For terminal or agent issues, include the shell and tool versions.
+      placeholder: |
+        OS version:
+        Architecture (Apple silicon / Intel / x64 / ARM64):
+        Installation (release archive / installer / package / source):
+        Shell and related tools, if applicable:
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Give the smallest reproducible example, using a sample project where possible.
+      placeholder: |
+        1. Open ...
+        2. Run or click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the exact error message and whether this worked in an earlier version, if known.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Logs, screenshots, or recordings
+      description: Attach relevant, redacted evidence. Include crash output if available.

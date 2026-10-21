@@ -1,0 +1,57 @@
+name: Performance issue
+description: Report slow interactions, high resource usage, or unresponsive UI.
+title: "[Performance] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting. English and Chinese are welcome / 欢迎使用中文或英文填写。
+        Use a sample workload where possible. Remove private paths, source code, tokens, and sensitive terminal content from attachments.
+  - type: input
+    id: version
+    attributes:
+      label: Tervia version
+      description: Include the release version, or the commit hash for a source build.
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS version, CPU, RAM, installation method, and whether this is a debug or release build. For rendering issues, include GPU and display details.
+    validations:
+      required: true
+  - type: textarea
+    id: workload
+    attributes:
+      label: Workload and steps to reproduce
+      description: Include relevant project size, open terminals, output volume, or file size, and how often the slowdown occurs.
+      placeholder: |
+        Workload:
+        1. Open ...
+        2. Run or click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Observed and expected performance
+      description: Describe the delay or resource usage. Include rough timings or CPU / memory measurements if available, and any earlier version that performed better.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Measurements, profiles, or recordings
+      description: Attach redacted evidence if available. A profiler trace is helpful but not required.

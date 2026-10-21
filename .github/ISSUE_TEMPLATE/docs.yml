@@ -1,0 +1,27 @@
+name: Documentation feedback
+description: Report missing, incorrect, or unclear documentation or translations.
+title: "[Docs] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting. English and Chinese are welcome / 欢迎使用中文或英文填写。
+  - type: input
+    id: location
+    attributes:
+      label: Page or location
+      description: Link to the page or give the file path and section. For an in-app translation, name the screen and UI language.
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is missing or unclear?
+      description: Quote the relevant wording or describe what you could not find. Include the Tervia version and platform if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Suggest clearer wording, a correction, or an example if you have one.

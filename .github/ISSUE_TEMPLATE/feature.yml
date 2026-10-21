@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a new capability or improvement for Tervia.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues before submitting. English and Chinese are welcome / 欢迎使用中文或英文填写。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the workflow you want to improve and what currently gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe what Tervia should do and how it would help your workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing features or workarounds you have tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include relevant platforms, examples, or mockups. Remove sensitive information before attaching files.

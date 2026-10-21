@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: User and developer guide (English)
+    url: https://github.com/murongg/Tervia/blob/main/docs/guide.md
+    about: Read usage, configuration, build, and release instructions.
+  - name: 使用与开发指南（简体中文）
+    url: https://github.com/murongg/Tervia/blob/main/docs/guide.zh-CN.md
+    about: 查看使用方法、配置、构建与发布说明。
