@@ -20,9 +20,21 @@ impl Tervia {
 
     pub(in crate::ui) fn working_directory_rows(&self, parent: usize, cx: &App) -> Vec<usize> {
         let query = self.navigation.input.read(cx).value().to_lowercase();
+        let worktrees: std::collections::BTreeSet<_> = self
+            .git_states
+            .iter()
+            .filter_map(|ui| ui.snapshot.as_ref())
+            .flat_map(|snapshot| &snapshot.worktrees)
+            .filter(|tree| !tree.main)
+            .map(|tree| &tree.path)
+            .collect();
         self.state
             .working_directories(parent)
             .into_iter()
+            // Keep an explicitly opened root; linked checkouts have their own Git navigation.
+            .filter(|index| {
+                *index == parent || !worktrees.contains(&self.state.projects[*index].root)
+            })
             .filter(|index| {
                 self.working_directory_name(parent, *index)
                     .to_lowercase()

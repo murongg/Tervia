@@ -826,6 +826,65 @@ fn the_titlebar_switches_working_directories_while_the_project_rail_restores_the
 }
 
 #[gpui_test::test]
+fn directory_picker_hides_linked_worktrees_but_keeps_normal_directories(cx: &mut TestAppContext) {
+    let (root, view, cx) = project_window(cx);
+    let directory = root.path().canonicalize().unwrap();
+    let main = directory.join("mock-alpha");
+    let linked = main.join(".worktree/mock-feature");
+    let manual = main.join(".worktree/mock-src");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::fs::create_dir(&manual).unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |view, cx| {
+            let parent = view.state.register_directory(directory.clone());
+            view.init_project(parent, window, cx);
+            let worktree = view.state.register_directory(linked.clone());
+            view.init_project(worktree, window, cx);
+            let child = view.state.register_directory(manual.clone());
+            view.init_project(child, window, cx);
+            let identity = main.join(".git");
+            for index in [0, worktree, child] {
+                view.state
+                    .associate_repository(index, identity.clone(), Some(main.clone()));
+            }
+            view.state.group_folder(parent, &[0, 1, worktree]);
+            view.state.attach_directory(parent, worktree);
+            view.state.attach_directory(parent, child);
+            view.state.switch_project(worktree);
+            view.git_states[0].snapshot = Some(std::sync::Arc::new(tervia::git::Snapshot {
+                worktrees: vec![
+                    tervia::git::Worktree {
+                        path: main.clone(),
+                        main: true,
+                        ..Default::default()
+                    },
+                    tervia::git::Worktree {
+                        path: linked.clone(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }));
+            view.toggle_directory_picker(true, window, cx);
+            assert_eq!(
+                view.working_directory_rows(parent, cx),
+                vec![parent, 0, 1, child]
+            );
+            assert_eq!(view.navigation.selected, 0);
+            assert_eq!(view.state.active_project, worktree);
+            view.navigation.input.update(cx, |input, cx| {
+                input.set_value("mock-feature", window, cx);
+            });
+            assert!(view.working_directory_rows(parent, cx).is_empty());
+            view.navigation.input.update(cx, |input, cx| {
+                input.set_value("", window, cx);
+            });
+            assert_eq!(view.working_directory_rows(worktree, cx), vec![worktree]);
+        });
+    });
+}
+
+#[gpui_test::test]
 fn directory_search_supports_keyboard_selection_empty_results_and_escape(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
