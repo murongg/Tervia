@@ -91,7 +91,7 @@ Name: tervia
 Version: $TERVIA_CORE
 Release: $TERVIA_RPM_RELEASE
 Summary: A native terminal workspace with Git and lightweight editing
-License: AGPL-3.0-only
+License: MIT
 URL: https://github.com/murongg/Tervia
 Source0: tervia.tar.gz
 BuildArch: $TERVIA_ARCH

@@ -39,6 +39,6 @@ Currently focused on macOS 15+. The Windows and Linux experience is still being 
 
 ## License
 
-Tervia is licensed under the [GNU Affero General Public License v3.0 only](LICENSE) (`AGPL-3.0-only`).
+Tervia is licensed under the [MIT License](LICENSE).
 
 Third-party dependencies and assets retain their respective licenses.

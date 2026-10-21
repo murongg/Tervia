@@ -39,6 +39,6 @@ Tervia 把终端、Git 和轻量文件编辑放进同一个桌面工作区，让
 
 ## 开源协议
 
-Tervia 采用 [GNU Affero 通用公共许可证第 3 版](LICENSE)（`AGPL-3.0-only`，仅限第 3 版）。
+Tervia 采用 [MIT 许可证](LICENSE)。
 
 第三方依赖和素材保留各自的许可协议。

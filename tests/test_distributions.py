@@ -122,7 +122,7 @@ class DistributionTests(unittest.TestCase):
         self.assertIn("libc6 (>= 2.38)", control)
         self.assertIn("git", control)
         self.assertIn("Release: 0.beta.1", self.spec.read_text())
-        self.assertIn("License: AGPL-3.0-only\n", self.spec.read_text())
+        self.assertIn("License: MIT\n", self.spec.read_text())
         self.assertIn("%license /usr/share/doc/tervia/LICENSE\n", self.spec.read_text())
         self.assertIn(["dpkg-deb", "--root-owner-group", "--build", str(stage), str(self.root / "build/Tervia-linux-x86_64.deb")], self.recorded())
         self.assertFalse(any(call[:2] == ["cargo", "build"] for call in self.recorded()))
