@@ -299,6 +299,41 @@ fn refresh_invalidates_collapsed_contents_and_reopens_them_lazily() {
         matches!(&tree.rows()[1], Row::Entry { entry, .. } if entry.path == std::path::Path::new("src/new.rs"))
     );
 }
+
+#[test]
+fn refreshing_cached_directories_keeps_their_visible_rows() {
+    let mut tree = Tree::default();
+    assert!(matches!(tree.rows()[0], Row::Loading { .. }));
+    install(&mut tree, "", vec![entry("src", EntryKind::Directory)]);
+    tree.toggle("src".as_ref());
+    install(&mut tree, "src", vec![entry("src/old.rs", EntryKind::File)]);
+
+    let before = tree.rows();
+    let requests = tree.refresh();
+    assert_eq!(requests.len(), 2);
+    assert!(tree.loading());
+    assert_eq!(tree.rows().as_ref(), before.as_ref());
+
+    let root = requests
+        .iter()
+        .find(|(path, _)| path.as_os_str().is_empty())
+        .unwrap();
+    assert!(tree.finish(
+        "".as_ref(),
+        root.1,
+        Ok(vec![entry("src", EntryKind::Directory)])
+    ));
+    let src = requests.iter().find(|(path, _)| path == "src").unwrap();
+    assert!(tree.finish(
+        "src".as_ref(),
+        src.1,
+        Ok(vec![entry("src/new.rs", EntryKind::File)])
+    ));
+    assert!(
+        matches!(&tree.rows()[1], Row::Entry { entry, .. } if entry.path == std::path::Path::new("src/new.rs"))
+    );
+}
+
 #[test]
 fn directory_resolution_rejects_a_folder_replaced_by_an_external_symlink() {
     let root = tempfile::tempdir().unwrap();

@@ -366,9 +366,7 @@ impl Tree {
                 depth,
                 message: error.clone(),
             });
-        } else if directory
-            .is_none_or(|directory| directory.pending.is_some() || directory.entries.is_none())
-        {
+        } else if directory.is_none_or(|directory| directory.entries.is_none()) {
             stack.push(Row::Loading {
                 path: path.into(),
                 depth,
