@@ -56,12 +56,18 @@ impl Profile {
         system: Option<&Path>,
         programs: Option<&Path>,
     ) -> Option<PathBuf> {
+        // Join components separately: CMD parses '/' in its executable path as a switch.
         let installed = match self {
-            Self::WindowsPowerShell => {
-                system.map(|root| root.join("System32/WindowsPowerShell/v1.0/powershell.exe"))
+            Self::WindowsPowerShell => system.map(|root| {
+                root.join("System32")
+                    .join("WindowsPowerShell")
+                    .join("v1.0")
+                    .join("powershell.exe")
+            }),
+            Self::Cmd => system.map(|root| root.join("System32").join("cmd.exe")),
+            Self::PowerShell => {
+                programs.map(|root| root.join("PowerShell").join("7").join("pwsh.exe"))
             }
-            Self::Cmd => system.map(|root| root.join("System32/cmd.exe")),
-            Self::PowerShell => programs.map(|root| root.join("PowerShell/7/pwsh.exe")),
             Self::Default => None,
         };
         installed.filter(|path| path.is_file()).or_else(|| {
@@ -122,18 +128,28 @@ mod tests {
                 .is_none()
         );
         for (profile, path) in [
-            (Profile::PowerShell, programs.join("PowerShell/7/pwsh.exe")),
+            (
+                Profile::PowerShell,
+                programs.join("PowerShell").join("7").join("pwsh.exe"),
+            ),
             (
                 Profile::WindowsPowerShell,
-                system.join("System32/WindowsPowerShell/v1.0/powershell.exe"),
+                system
+                    .join("System32")
+                    .join("WindowsPowerShell")
+                    .join("v1.0")
+                    .join("powershell.exe"),
             ),
-            (Profile::Cmd, system.join("System32/cmd.exe")),
+            (Profile::Cmd, system.join("System32").join("cmd.exe")),
         ] {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, b"synthetic executable").unwrap();
+            // Path equality normalizes separators; CMD needs the native spelling too.
             assert_eq!(
-                profile.locate(&paths, Some(&system), Some(&programs)),
-                Some(path)
+                profile
+                    .locate(&paths, Some(&system), Some(&programs))
+                    .map(PathBuf::into_os_string),
+                Some(path.into_os_string())
             );
         }
         let portable = tools.join("pwsh.exe");

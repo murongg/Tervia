@@ -1,6 +1,8 @@
 #![cfg(feature = "pty")]
 
-use portable_pty::{CommandBuilder, PtySize};
+#[cfg(unix)]
+use portable_pty::CommandBuilder;
+use portable_pty::PtySize;
 use tervia::pty::{PtyEvent, PtySession, initial_directory};
 
 #[cfg(unix)]
@@ -505,28 +507,25 @@ fn dropping_a_session_terminates_a_synthetic_shell_that_ignores_hangup() {
 
 #[cfg(windows)]
 #[test]
-fn a_synthetic_windows_command_round_trip_uses_conpty() {
+fn a_discovered_cmd_shell_round_trip_uses_conpty() {
     use alacritty_terminal::event::Event;
     use tervia::terminal::TerminalBuffer;
 
     let system_root = std::env::var_os("SystemRoot").expect("Windows must provide SystemRoot");
-    let executable = std::path::PathBuf::from(&system_root)
-        .join("System32")
-        .join("cmd.exe");
+    let executable = tervia::shell::Profile::Cmd.resolve();
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(
         directory.path().join("roundtrip.cmd"),
-        "@echo off\r\necho synthetic-ready\r\nset /p \"value=\"\r\necho synthetic:%value%\r\n",
+        "@echo off\r\necho synthetic-ready\r\nset /p \"value=\"\r\necho synthetic:%value%\r\nexit\r\n",
     )
     .unwrap();
     // portable-pty resolves executables from the command's PATH. An isolated
     // environment needs an absolute executable and Windows' system directory.
-    let mut command = CommandBuilder::new(executable);
+    let mut command = tervia::pty::shell_command_for(&executable, directory.path());
     command.env_clear();
     command.env("SystemRoot", system_root);
-    command.cwd(directory.path());
-    // Keep shell syntax in the batch file instead of relying on CRT quoting for cmd /C.
-    command.args(["/D", "/Q", "/C", "roundtrip.cmd"]);
+    // /K runs the fixture, which exits after the interactive round trip.
+    command.arg("roundtrip.cmd");
     let (session, receiver) = PtySession::spawn(
         command,
         PtySize {
