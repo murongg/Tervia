@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.17.2 (2026-10-22)
+
+### Fixes
+
+- **terminal:** use native Windows shell paths (e45d0ede)
+- **files:** keep cached rows visible during refresh (17be545a)
+
 ## v0.17.1 (2026-10-21)
 
 ### Fixes
