@@ -10,6 +10,7 @@ pub enum Tab {
     Terminal,
     Git,
     Files,
+    Ssh,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -27,6 +28,7 @@ pub struct Session {
     pub connection: Option<String>,
     pub scroll_offset: usize,
     pub task: Option<crate::tasks::Task>,
+    pub ssh: Option<crate::ssh::Host>,
 }
 
 #[derive(Clone, Debug)]

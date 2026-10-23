@@ -3,7 +3,8 @@ use gpui_kit::component::resizable::{resizable_panel, v_resizable};
 
 impl Tervia {
     pub(super) fn toggle_terminal_dock(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.state.has_project() || self.state.project().tab == Tab::Terminal {
+        if !self.state.has_project() || matches!(self.state.project().tab, Tab::Terminal | Tab::Ssh)
+        {
             return;
         }
         let visible = !self.state.project().dock.visible;
@@ -35,10 +36,13 @@ impl Tervia {
         if tab == Tab::Terminal {
             return self.terminal(window, cx).into_any_element();
         }
+        if tab == Tab::Ssh {
+            return self.ssh_workspace(window, cx).into_any_element();
+        }
         let body = match tab {
             Tab::Git => self.git(window, cx).into_any_element(),
             Tab::Files => self.files(window, cx).into_any_element(),
-            Tab::Terminal => unreachable!(),
+            Tab::Terminal | Tab::Ssh => unreachable!(),
         };
         if !self.state.project().dock.visible {
             return body;

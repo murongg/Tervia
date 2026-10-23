@@ -38,6 +38,7 @@ impl Default for Terminals {
                 connection: None,
                 scroll_offset: 0,
                 task: None,
+                ssh: None,
             }],
             active_session: 0,
             focused_session: 0,
@@ -90,6 +91,7 @@ impl Terminals {
             connection: None,
             scroll_offset: 0,
             task: None,
+            ssh: None,
         });
         self.active_session = index;
         self.focused_session = index;

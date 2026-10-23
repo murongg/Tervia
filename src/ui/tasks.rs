@@ -204,7 +204,7 @@ impl Tervia {
                 .consoles()
                 .get(session)
                 .and_then(Option::as_ref)
-                .is_some_and(|console| console.read(cx).can_rerun_task())
+                .is_some_and(|console| console.read(cx).can_restart())
         {
             return;
         }
@@ -229,7 +229,7 @@ impl Tervia {
             .as_ref()?;
         let console = self.consoles().get(session)?.as_ref()?.read(cx);
         let status = console.task_status();
-        let can_rerun = console.can_rerun_task();
+        let can_rerun = console.can_restart();
         let p = self.p();
         Some(
             div()

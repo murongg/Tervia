@@ -91,6 +91,7 @@ impl Tervia {
             return console.clone();
         }
         let owner = self.console_owner();
+        let remote = self.state.terminals().sessions[session].ssh.is_some();
         let home = dirs::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" }));
         let cwd = match owner {
@@ -119,6 +120,9 @@ impl Tervia {
                 .with_shell(profile.resolve());
             if let Some(task) = &self.state.terminals().sessions[session].task {
                 target = target.with_task(task.clone());
+            }
+            if let Some(host) = &self.state.terminals().sessions[session].ssh {
+                target = target.with_ssh(host.clone());
             }
             self.state.terminals_mut().sessions[session].connection = Some(id);
             // Record ownership before starting a host; a fast exit/update must not orphan a live shell.
@@ -153,7 +157,8 @@ impl Tervia {
             &console,
             window,
             move |this, _, link: &tervia::terminal::FileLink, window, cx| {
-                if this.console_owner() != owner || this.state.screen == Screen::Welcome {
+                // A remote path may coincidentally name a local file; never open it against the local project.
+                if remote || this.console_owner() != owner || this.state.screen == Screen::Welcome {
                     return;
                 }
                 match owner {
@@ -261,7 +266,11 @@ impl Tervia {
         } else if let Some(id) = connection {
             self.end_session(id, cx);
         }
-        self.focus_terminal(window, cx);
+        if self.state.active_tab() == tervia::state::Tab::Ssh {
+            self.focus.focus(window, cx);
+        } else {
+            self.focus_terminal(window, cx);
+        }
         cx.notify();
     }
 

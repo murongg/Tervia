@@ -257,7 +257,8 @@ impl Status {
 }
 
 impl Console {
-    pub(super) fn can_rerun_task(&self) -> bool {
+    pub(super) fn can_restart(&self) -> bool {
+        // Losing contact with a host does not prove its process exited.
         matches!(self.status, Some(Status::Exited(_) | Status::Spawn(_)))
     }
 

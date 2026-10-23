@@ -48,6 +48,16 @@ pub fn shell_command(cwd: &Path) -> CommandBuilder {
     shell_command_for(&default_shell(), cwd)
 }
 
+pub fn ssh_command_for(cwd: &Path, host: &crate::ssh::Host) -> Result<CommandBuilder, String> {
+    let mut command = CommandBuilder::new("ssh");
+    command.args(host.arguments()?);
+    #[cfg(windows)]
+    let cwd = dunce::simplified(cwd);
+    command.cwd(cwd);
+    configure_terminal_environment(&mut command);
+    Ok(command)
+}
+
 pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder {
     let mut command = CommandBuilder::new(shell);
     command.args(crate::platform::Platform::shell_args(
