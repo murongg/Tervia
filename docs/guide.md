@@ -119,6 +119,14 @@ The permanent Local Terminal entry at the top of the project sidebar needs no pr
 
 Cmd+T / Ctrl+Shift+T enters the local terminal from the welcome page and creates a session in the current context elsewhere. Cmd+Shift+N / Ctrl+Shift+N creates a local terminal from any main screen. Closing the last local tab leaves an empty surface with a New Terminal action; each context supports up to 64 tabs. Exit, reopen and application updates preserve live terminal sessions. Explicitly closing a tab ends its session. Running `cd` in a local shell never creates or switches projects; explicitly open a project for Files and Git.
 
+## SSH management
+
+The **SSH** tab immediately after Files (Cmd+4 / Ctrl+4) manages a global host list. Select a host on the left to display its SSH terminal on the right. Selecting it again reuses a running session in the current project. If the session exited or failed to start, Connect creates another session while keeping previous output. Reconnect opens a new terminal and preserves previous output; Close connection ends the selected session. Right-click a host to connect, edit or delete that entry. Deleting a profile requires confirmation and preserves existing terminals.
+
+**Add host** and **Edit host** open a modal for the name, hostname / IP / SSH alias, and optional user, port and identity path. Blank fields inherit the system OpenSSH configuration. Read literal top-level `Host` aliases from `~/.ssh/config`, or add aliases from `Include` files by name. Hosts are stored in `ssh.json` beside `config.toml`, without passwords or private key contents. Verify the host fingerprint in OpenSSH’s prompt on first connection.
+
+OpenSSH must be installed locally. SSH sessions reuse the existing PTY, output search and recovery mechanisms, and also appear among ordinary terminal tabs. Renaming a host updates its existing session labels and keeps the same connections. Changed connection options apply to new sessions. Deleting a host profile leaves existing connections running; closing a project ends its owned terminals. Remote file management and remote Git are outside this version.
+
 ## Terminal session recovery
 
 Independent local hosts own terminal processes. Quitting, closing the main window or updating Tervia disconnects the UI while shells, agents and running programs continue. Reopening reconnects to the same PTY, replays output and resize events in order, then enables live input. Historical bells, clipboard requests and command-history recording are suppressed during replay.

@@ -121,7 +121,9 @@ impl Tervia {
             {
                 session.scroll_offset = 0;
                 let connection = session.connection.take();
-                if session.task.take().is_some() {
+                let was_task = session.task.take().is_some();
+                let was_ssh = session.ssh.take().is_some();
+                if was_task || was_ssh {
                     // Explicit close ends this run; reopening restores a shell tab, never a task with no host.
                     session.name = if slot == 0 {
                         "shell".into()

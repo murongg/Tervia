@@ -28,6 +28,12 @@ pub(super) fn snapshot(
                         .as_ref()
                         .is_some_and(|task| crate::tasks::Task::from_json(&task.to_json()).is_err())
                     || (session.task.is_some() && session.connection.is_none())
+                    || session
+                        .ssh
+                        .as_ref()
+                        .is_some_and(|host| host.validate().is_err())
+                    || (session.ssh.is_some()
+                        && (session.connection.is_none() || session.task.is_some()))
             })
         {
             return Err(serde_json::Error::io(io::Error::new(
@@ -82,13 +88,14 @@ pub(super) fn snapshot(
         contexts.push(json!({
             "root": serde_json::to_value(&project.root)?,
             "owner": serde_json::to_value(workspace.folder(index).map(|owner| &workspace.projects[owner].root).unwrap_or(&project.root))?,
-            "tab": match project.tab { Tab::Terminal => "terminal", Tab::Git => "git", Tab::Files => "files" },
+            "tab": match project.tab { Tab::Terminal => "terminal", Tab::Git => "git", Tab::Files => "files", Tab::Ssh => "ssh" },
             "dock": { "visible": project.dock.visible, "size": project.dock.size },
             "sessions": project.terminal.sessions.iter().map(|session| &session.name).collect::<Vec<_>>(),
             "custom_names": project.terminal.sessions.iter().map(|session| &session.custom_name).collect::<Vec<_>>(),
             "connections": project.terminal.sessions.iter().map(|session| &session.connection).collect::<Vec<_>>(),
             "scroll_offsets": project.terminal.sessions.iter().map(|session| session.scroll_offset).collect::<Vec<_>>(),
             "tasks": project.terminal.sessions.iter().map(|session| session.task.as_ref().map(crate::tasks::Task::to_json)).collect::<Vec<_>>(),
+            "ssh": project.terminal.sessions.iter().map(|session| session.ssh.as_ref().map(crate::ssh::Host::to_json)).collect::<Vec<_>>(),
             "active_session": project.terminal.active_session, "focused_session": project.terminal.focused_session,
             "split_terminal": project.terminal.split_terminal, "files": files,
             "active_file": project.current_file().map(|file| serde_json::to_value(&file.disk_path)).transpose()?
@@ -136,6 +143,7 @@ pub(super) fn restore(saved: &Value, workspace: &mut Workspace) -> Result<Vec<Va
             "terminal" => Tab::Terminal,
             "git" => Tab::Git,
             "files" => Tab::Files,
+            "ssh" => Tab::Ssh,
             _ => return Err("Invalid recovery module".into()),
         };
         let terminal = terminals(context)?;
@@ -274,6 +282,7 @@ pub(super) fn terminals(context: &Value) -> Result<Terminals, String> {
     let connections = parallel("connections")?;
     let offsets = parallel("scroll_offsets")?;
     let tasks = parallel("tasks")?;
+    let ssh = parallel("ssh")?;
     let mut identities = std::collections::BTreeSet::new();
     let sessions = sessions
         .iter()
@@ -316,14 +325,19 @@ pub(super) fn terminals(context: &Value) -> Result<Terminals, String> {
                     .filter(|task| !task.is_null())
                     .map(crate::tasks::Task::from_json)
                     .transpose()?,
+                ssh: ssh
+                    .map(|values| &values[index])
+                    .filter(|host| !host.is_null())
+                    .map(crate::ssh::Host::from_json)
+                    .transpose()?,
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
     // Recovery may reconnect a task, but must never turn missing host metadata into permission to execute it again.
-    if sessions
-        .iter()
-        .any(|session| session.task.is_some() && session.connection.is_none())
-    {
+    if sessions.iter().any(|session| {
+        ((session.task.is_some() || session.ssh.is_some()) && session.connection.is_none())
+            || (session.task.is_some() && session.ssh.is_some())
+    }) {
         return Err("A recovered task must have a terminal connection".into());
     }
     let active = number(context.get("active_session"), 0, 63)? as usize;

@@ -78,6 +78,9 @@ impl Tervia {
         if let Some(task) = &session.task {
             return task.label.clone();
         }
+        if let Some(host) = &session.ssh {
+            return format!("SSH · {}", host.name);
+        }
         let agent = self.consoles()[index]
             .as_ref()
             .and_then(|console| console.read(cx).agent);
@@ -497,7 +500,7 @@ impl Tervia {
             .child(panes)
     }
 
-    fn terminal_pane(
+    pub(super) fn terminal_pane(
         &mut self,
         session: usize,
         window: &mut Window,

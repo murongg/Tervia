@@ -13,6 +13,7 @@ pub mod pty;
 #[cfg(feature = "pty")]
 pub mod sessions;
 pub mod shell;
+pub mod ssh;
 pub mod state;
 pub mod suggestions;
 pub mod tasks;

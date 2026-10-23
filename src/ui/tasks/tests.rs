@@ -235,7 +235,7 @@ fn rerun_waits_for_exit_and_retains_the_previous_output_and_session(cx: &mut Tes
             first.update(cx, |console, cx| {
                 console.finish_process("Exited with code 7".into(), cx)
             });
-            assert!(first.read(cx).can_rerun_task());
+            assert!(first.read(cx).can_restart());
             this.rerun_project_task(1, window, cx);
             assert_eq!(this.state.terminals().sessions.len(), 3);
             assert_eq!(

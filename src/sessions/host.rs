@@ -69,15 +69,29 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
         Some(shell) => serde_json::from_value::<PathBuf>(shell.clone())?.into_os_string(),
         None => default_shell(),
     };
-    let (pty, events, tracker) = match launch.get("task").filter(|task| !task.is_null()) {
-        Some(value) => {
-            let task = crate::tasks::Task::from_json(value).map_err(io::Error::other)?;
-            let command =
-                crate::pty::task_command_for(&shell, &cwd, &task).map_err(io::Error::other)?;
-            let (pty, events) = PtySession::spawn(command, size).map_err(io::Error::other)?;
-            (pty, events, None)
+    let ssh = launch.get("ssh").filter(|ssh| !ssh.is_null());
+    let task = launch.get("task").filter(|task| !task.is_null());
+    if ssh.is_some() && task.is_some() {
+        return Err(io::Error::other(
+            "A terminal cannot be both SSH and a project task",
+        ));
+    }
+    let (pty, events, tracker) = if let Some(value) = ssh {
+        let host = crate::ssh::Host::from_json(value).map_err(io::Error::other)?;
+        let command = crate::pty::ssh_command_for(&cwd, &host).map_err(io::Error::other)?;
+        let (pty, events) = PtySession::spawn(command, size).map_err(io::Error::other)?;
+        (pty, events, None)
+    } else {
+        match task {
+            Some(value) => {
+                let task = crate::tasks::Task::from_json(value).map_err(io::Error::other)?;
+                let command =
+                    crate::pty::task_command_for(&shell, &cwd, &task).map_err(io::Error::other)?;
+                let (pty, events) = PtySession::spawn(command, size).map_err(io::Error::other)?;
+                (pty, events, None)
+            }
+            None => PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?,
         }
-        None => PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?,
     };
     let mut journal = Journal::create(&directory.join("output"))?;
     journal.resize(size)?;

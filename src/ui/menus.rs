@@ -5,8 +5,8 @@ use tervia::platform::Platform;
 use super::{
     ClearTerminal, CloseFileTab, CloseSession, CopyCodeContext, CopyTerminalOutput, FilesTab,
     GitTab, NewLocalTerminal, NewSession, OpenFile, OpenPreferences, OpenProject, QuickOpenFile,
-    Quit, ReopenFileTab, RunProjectTask, SaveFile, SearchProjectText, SplitTerminal, TerminalTab,
-    TogglePalette, ToggleSidebar, ToggleTerminalDock, ToggleTheme, Welcome,
+    Quit, ReopenFileTab, RunProjectTask, SaveFile, SearchProjectText, SplitTerminal, SshTab,
+    TerminalTab, TogglePalette, ToggleSidebar, ToggleTerminalDock, ToggleTheme, Welcome,
 };
 
 pub(crate) fn bind_menu_keys(cx: &mut App) {
@@ -105,6 +105,7 @@ pub(super) fn menus(language: Language) -> Vec<Menu> {
             MenuItem::action(language.text("terminal"), TerminalTab),
             MenuItem::action("Git", GitTab),
             MenuItem::action(language.text("files"), FilesTab),
+            MenuItem::action("SSH", SshTab),
             MenuItem::separator(),
             MenuItem::action(language.text("toggle_projects"), ToggleSidebar),
             MenuItem::action(language.text("quick_actions"), TogglePalette),

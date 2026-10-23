@@ -35,6 +35,7 @@ pub struct Target {
     colors: Vec<[u8; 3]>,
     shell: Option<PathBuf>,
     task: Option<crate::tasks::Task>,
+    ssh: Option<crate::ssh::Host>,
 }
 
 impl Target {
@@ -47,6 +48,7 @@ impl Target {
             colors: Vec::new(),
             shell: None,
             task: None,
+            ssh: None,
         }
     }
 
@@ -67,6 +69,11 @@ impl Target {
 
     pub fn with_task(mut self, task: crate::tasks::Task) -> Self {
         self.task = Some(task);
+        self
+    }
+
+    pub fn with_ssh(mut self, host: crate::ssh::Host) -> Self {
+        self.ssh = Some(host);
         self
     }
 
@@ -106,6 +113,7 @@ impl Target {
                     "token": random_id()?, "colors": self.colors,
                     "shell": self.shell,
                     "task": self.task.as_ref().map(crate::tasks::Task::to_json),
+                    "ssh": self.ssh.as_ref().map(crate::ssh::Host::to_json),
                     "agent_token": agent_token,
                 }),
             )?;

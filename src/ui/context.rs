@@ -46,7 +46,7 @@ impl Tervia {
         match self.state.project().tab {
             Tab::Files => self.file_context(project, self.state.project().active_file, cx),
             Tab::Git => self.git_states[project].code_context(cx),
-            Tab::Terminal => None,
+            Tab::Terminal | Tab::Ssh => None,
         }
     }
 

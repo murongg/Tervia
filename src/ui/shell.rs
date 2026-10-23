@@ -219,6 +219,7 @@ impl Tervia {
             (Tab::Terminal, self.t("terminal"), IconName::SquareTerminal),
             (Tab::Git, "Git", IconName::GitBranch),
             (Tab::Files, self.t("files"), IconName::Files),
+            (Tab::Ssh, "SSH", IconName::Server),
         ]
         .into_iter()
         .enumerate()
@@ -226,6 +227,15 @@ impl Tervia {
             let selected = active == tab;
             nav = nav.child(
                 Button::new(("module", index))
+                    .debug_selector(move || {
+                        match tab {
+                            Tab::Files => "module-files",
+                            Tab::Ssh => "module-ssh",
+                            Tab::Git => "module-git",
+                            Tab::Terminal => "module-terminal",
+                        }
+                        .into()
+                    })
                     .ghost()
                     .small()
                     .h(px(32.0))
@@ -258,7 +268,7 @@ impl Tervia {
                         cx.listener(|this, _, window, cx| this.show_project_tasks(window, cx)),
                     ),
             )
-            .when(active != Tab::Terminal, |nav| {
+            .when(!matches!(active, Tab::Terminal | Tab::Ssh), |nav| {
                 nav.child(
                     icon_button(
                         "toggle-terminal-dock",
@@ -328,6 +338,7 @@ impl Tervia {
         }
         let project = self.state.project();
         let context = match project.tab {
+            Tab::Ssh => "SSH".into(),
             Tab::Terminal => {
                 format!("UTF-8  ·  {}", self.terminal_shell(cx))
             }
@@ -454,6 +465,7 @@ impl Tervia {
             (Tab::Terminal, self.t("open_terminal"), "⌘1"),
             (Tab::Git, self.t("review_git"), "⌘2"),
             (Tab::Files, self.t("browse_files"), "⌘3"),
+            (Tab::Ssh, "SSH", "⌘4"),
         ]
         .into_iter()
         .enumerate()
