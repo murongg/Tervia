@@ -23,7 +23,9 @@ For docs-only changes, check links and formatting; explain any checks not run.
 
 ## Screenshots or recordings
 
-<!-- For UI changes, show the affected states and relevant light / dark appearances. -->
+<!-- For UI changes, attach useful visual evidence here when needed.
+Keep temporary captures outside the repository; commit images only when explicitly
+requested or needed as referenced documentation illustrations. -->
 
 ## Risks and compatibility
 
