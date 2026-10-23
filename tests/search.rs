@@ -1,4 +1,4 @@
-use std::{fs, path::Path, sync::atomic::AtomicBool};
+use std::{fs, iter::once, path::Path, sync::atomic::AtomicBool};
 use tervia::files::search;
 
 #[test]
@@ -139,4 +139,95 @@ fn text_search_prefilter_keeps_literal_multiline_utf16_and_long_line_behavior() 
             .hits
             .is_empty()
     );
+}
+
+#[test]
+fn filename_highlights_follow_name_priority_paths_and_fuzzy_matches() {
+    for (path, query, expected) in [
+        ("src/mock.rs", " MOCK ", once(4..8).collect()),
+        ("mock/mock.rs", "mock", once(5..9).collect()),
+        ("src/mock.rs", "src/mo", once(0..6).collect()),
+        ("src\\mock.rs", "SRC/MO", once(0..6).collect()),
+        ("src/mock.rs", "smrs", vec![0..1, 4..5, 9..11]),
+        ("src/mock.rs", "missing", vec![]),
+        ("src/mock.rs", " ", vec![]),
+        ("合成/测试.rs", "测试", once(7..13).collect()),
+        ("İ/Mock.rs", "mock", once(3..7).collect()),
+        ("İ.rs", "i\u{307}", once(0..2).collect()),
+        ("ΟΣ/mock.rs", "ος", once(0..4).collect()),
+    ] {
+        let ranges = search::name_matches(Path::new(path), query);
+        assert_eq!(ranges, expected, "{path:?}, {query:?}");
+        assert!(ranges.iter().all(|range| path.get(range.clone()).is_some()));
+    }
+}
+
+#[test]
+fn text_highlights_cover_every_literal_match_with_original_utf8_offsets() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(
+        root.path().join("mock.txt"),
+        "😀 synthetic [QUERY] [query]\nK k\n",
+    )
+    .unwrap();
+    let cancel = AtomicBool::new(false);
+    let results = search::text(root.path(), "[query]", &cancel).unwrap();
+    assert_eq!(results.hits.len(), 2);
+    for hit in &results.hits {
+        assert_eq!(hit.matches, vec![15..22, 23..30]);
+    }
+    let results = search::text(root.path(), "k", &cancel).unwrap();
+    assert_eq!(results.hits[0].matches, vec![0..3, 4..5]);
+}
+
+#[test]
+fn truncated_text_highlights_keep_the_visible_match_without_highlighting_the_ellipsis() {
+    let root = tempfile::tempdir().unwrap();
+    let query = "n".repeat(350);
+    fs::write(
+        root.path().join("mock.txt"),
+        format!("{}{query}", "x".repeat(400)),
+    )
+    .unwrap();
+    let cancel = AtomicBool::new(false);
+    let results = search::text(root.path(), &query, &cancel).unwrap();
+    let hit = &results.hits[0];
+    assert!(hit.text.starts_with('…'));
+    assert_eq!(hit.matches.len(), 1);
+    let range = hit.matches[0].clone();
+    assert_eq!(range.end, hit.text.len());
+    assert_eq!(&hit.text[range.clone()], "n".repeat(range.len()));
+
+    fs::write(
+        root.path().join("mock.txt"),
+        format!("{}…x", "x".repeat(400)),
+    )
+    .unwrap();
+    let results = search::text(root.path(), "…x", &cancel).unwrap();
+    let hit = &results.hits[0];
+    assert_eq!(hit.matches.len(), 1);
+    assert_ne!(hit.matches[0].start, 0);
+    assert_eq!(&hit.text[hit.matches[0].clone()], "…x");
+}
+
+#[test]
+fn text_highlights_stay_disjoint_when_a_snippet_starts_inside_a_repeated_match() {
+    let root = tempfile::tempdir().unwrap();
+    fs::write(root.path().join("mock.txt"), "a".repeat(400)).unwrap();
+    let results = search::text(root.path(), "aa", &AtomicBool::new(false)).unwrap();
+    assert!(results.hits.iter().any(|hit| hit.text.starts_with('…')));
+    for hit in results.hits {
+        assert!(
+            hit.matches
+                .windows(2)
+                .all(|pair| pair[0].end <= pair[1].start),
+            "overlapping ranges: {:?}",
+            hit.matches
+        );
+        assert!(
+            hit.matches
+                .iter()
+                .all(|range| hit.text.get(range.clone()).is_some())
+        );
+    }
 }

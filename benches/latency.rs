@@ -129,6 +129,7 @@ fn legacy_text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results,
                     } else {
                         format!("…{snippet}")
                     },
+                    matches: Vec::new(),
                 });
             }
         }

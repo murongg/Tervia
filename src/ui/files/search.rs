@@ -181,6 +181,17 @@ impl Tervia {
         let project = self.state.active_project;
         let finder = &self.explorers[project].finder;
         let p = super::super::theme::Palette::workbench(&self.appearance.theme);
+        let query = finder.input.read(cx).value().to_string();
+        let name_highlight = HighlightStyle {
+            color: Some(p.accent),
+            font_weight: Some(FontWeight::BOLD),
+            ..Default::default()
+        };
+        let text_highlight = HighlightStyle {
+            color: Some(p.text),
+            background_color: Some(p.accent.opacity(0.22)),
+            ..Default::default()
+        };
         let rows = finder.rows.clone();
         let generation = finder.generation;
         let status = if finder.loading {
@@ -299,19 +310,50 @@ impl Tervia {
                                     Row::File(path) => path,
                                     Row::Text(hit) => &hit.path,
                                 };
-                                let (path, text) = match &row {
-                                    Row::File(path) => (
-                                        path.file_name()
+                                let (path, text, name_matches, text_matches) = match &row {
+                                    Row::File(path) => {
+                                        let name = path
+                                            .file_name()
                                             .unwrap_or_default()
                                             .to_string_lossy()
-                                            .into_owned(),
-                                        Some(path.to_string_lossy().into_owned()),
-                                    ),
+                                            .into_owned();
+                                        let full = path.to_string_lossy().into_owned();
+                                        let matches = search::name_matches(path, &query);
+                                        let name_start = full.len() - name.len();
+                                        let name_matches = matches
+                                            .iter()
+                                            .filter(|range| range.end > name_start)
+                                            .map(|range| {
+                                                range.start.saturating_sub(name_start)
+                                                    ..range.end - name_start
+                                            })
+                                            .collect::<Vec<_>>();
+                                        (name, Some(full), name_matches, matches)
+                                    }
                                     Row::Text(hit) => (
                                         format!("{}:{}", hit.path.display(), hit.line),
                                         Some(hit.text.clone()),
+                                        Vec::new(),
+                                        hit.matches.clone(),
                                     ),
                                 };
+                                let subtitle_highlight = if matches!(&row, Row::File(_)) {
+                                    name_highlight
+                                } else {
+                                    text_highlight
+                                };
+                                let title = StyledText::new(path.clone()).with_highlights(
+                                    name_matches
+                                        .into_iter()
+                                        .map(|range| (range, name_highlight)),
+                                );
+                                let text = text.map(|text| {
+                                    StyledText::new(text).with_highlights(
+                                        text_matches
+                                            .into_iter()
+                                            .map(|range| (range, subtitle_highlight)),
+                                    )
+                                });
                                 label_button(("files-search-result", index), "", p)
                                     .debug_selector(move || format!("files-search-result-{index}"))
                                     .w_full()
@@ -349,7 +391,7 @@ impl Tervia {
                                                             .flex_1()
                                                             .min_w_0()
                                                             .text_ellipsis()
-                                                            .child(path),
+                                                            .child(title),
                                                     ),
                                             )
                                             .when_some(text, |item, text| {

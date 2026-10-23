@@ -1,4 +1,5 @@
 use std::{
+    ops::Range,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
@@ -16,6 +17,7 @@ pub struct Hit {
     pub line: usize,
     pub column: usize,
     pub text: String,
+    pub matches: Vec<Range<usize>>,
 }
 
 #[derive(Default)]
@@ -113,6 +115,56 @@ impl Names {
 
 fn normalize(query: &str) -> String {
     query.trim().replace('\\', "/").to_lowercase()
+}
+
+pub fn name_matches(path: &Path, query: &str) -> Vec<Range<usize>> {
+    let query = normalize(query);
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let text = path.to_string_lossy();
+    let full = text.replace('\\', "/").to_lowercase();
+    let name_start = full.rfind('/').map_or(0, |offset| offset + 1);
+    let ranges = if let Some(offset) = full[name_start..].find(&query) {
+        let start = name_start + offset;
+        std::iter::once(start..start + query.len()).collect()
+    } else if let Some(start) = full.find(&query) {
+        std::iter::once(start..start + query.len()).collect()
+    } else {
+        let mut chars = full.char_indices();
+        let Some(ranges) = query
+            .chars()
+            .map(|wanted| {
+                chars
+                    .find(|(_, ch)| *ch == wanted)
+                    .map(|(offset, ch)| offset..offset + ch.len_utf8())
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Vec::new();
+        };
+        ranges
+    };
+    // Lowercasing can expand characters; GPUI ranges must index the original UTF-8 text.
+    let offsets: Vec<_> = text
+        .char_indices()
+        .flat_map(|(start, ch)| {
+            std::iter::repeat_n(
+                start..start + ch.len_utf8(),
+                ch.to_lowercase().map(char::len_utf8).sum::<usize>(),
+            )
+        })
+        .collect();
+    let mut matches: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        let range = offsets[range.start].start..offsets[range.end - 1].end;
+        if let Some(last) = matches.last_mut().filter(|last| last.end >= range.start) {
+            last.end = range.end;
+        } else {
+            matches.push(range);
+        }
+    }
+    matches
 }
 
 fn score(full: &str, name: &str, query: &str) -> Option<u8> {
@@ -214,6 +266,26 @@ pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, St
                     .nth(80)
                     .map_or(0, |(offset, _)| offset);
                 let snippet: String = text[start..].chars().take(300).collect();
+                let prefix = if start == 0 { 0 } else { "…".len() };
+                let mut matches: Vec<_> = matcher
+                    .find_iter(&snippet)
+                    .map(|found| found.start() + prefix..found.end() + prefix)
+                    .collect();
+                let active = found.start() - start + prefix
+                    ..(found.end() - start).min(snippet.len()) + prefix;
+                // A long query may extend beyond the snippet; keep its visible portion highlighted.
+                if !matches.contains(&active) {
+                    matches.push(active);
+                    matches.sort_unstable_by_key(|range| range.start);
+                    // Clipping repeated text can shift regex matches; GPUI requires disjoint ranges.
+                    matches.dedup_by(|next, previous| {
+                        let overlaps = previous.end >= next.start;
+                        if overlaps {
+                            previous.end = previous.end.max(next.end);
+                        }
+                        overlaps
+                    });
+                }
                 // LSP/editor columns are UTF-16 positions, rather than UTF-8 byte offsets.
                 results.hits.push(Hit {
                     path: path.clone(),
@@ -224,6 +296,7 @@ pub fn text(root: &Path, query: &str, cancel: &AtomicBool) -> Result<Results, St
                     } else {
                         format!("…{snippet}")
                     },
+                    matches,
                 });
             }
         }
