@@ -395,9 +395,10 @@ impl Tervia {
                     .await;
                 if weak
                     .update_in(cx, |this, window, cx| {
+                        // Index-only changes may never emit ordinary file events.
                         if this.files_active
                             && this.state.has_project()
-                            && this.state.project().tab == Tab::Git
+                            && matches!(this.state.project().tab, Tab::Git | Tab::Files)
                         {
                             this.poll_git(this.state.active_project, window, cx);
                         }
@@ -583,6 +584,7 @@ impl Tervia {
             self.refresh_git(self.state.active_project, window, cx);
         }
         if tab == Tab::Files {
+            self.poll_git(self.state.active_project, window, cx);
             self.load_directory(self.state.active_project, PathBuf::new(), false, window, cx);
         }
         self.focus.focus(window, cx);

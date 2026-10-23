@@ -79,7 +79,10 @@ impl Tervia {
         }
         if active
             && !self.state.projects.is_empty()
-            && self.state.project().tab == tervia::state::Tab::Git
+            && matches!(
+                self.state.project().tab,
+                tervia::state::Tab::Git | tervia::state::Tab::Files
+            )
         {
             self.refresh_git(self.state.active_project, window, cx);
         }

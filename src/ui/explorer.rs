@@ -58,6 +58,55 @@ mod tests {
     use super::*;
     use core::prelude::v1::test;
 
+    #[gpui_test::test]
+    fn explorer_git_status_refreshes_on_the_files_page_and_uses_repository_paths(
+        cx: &mut gpui_test::TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let root = tempfile::tempdir().unwrap();
+        let repo = tervia::git::Repository::initialize(root.path()).unwrap();
+        std::fs::create_dir(repo.root.join("src")).unwrap();
+        std::fs::write(repo.root.join("src/mock.rs"), "synthetic source\n").unwrap();
+        let mut view = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(|cx| {
+                let mut this = Tervia::new(window, cx);
+                let project = this.state.open_directory(repo.root.join("src"));
+                this.init_project(project, window, cx);
+                this.files_active = true;
+                this.state.set_tab(tervia::state::Tab::Files);
+                this.refresh_git(project, window, cx);
+                this.load_directory(project, PathBuf::new(), false, window, cx);
+                this
+            });
+            view = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let view = view.unwrap();
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("explorer-git-mock.rs-U").is_some());
+        repo.execute(tervia::git::Operation::StageAll).unwrap();
+        cx.executor()
+            .advance_clock(std::time::Duration::from_secs(3));
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(cx.debug_bounds("explorer-git-mock.rs-A").is_some());
+        cx.update(|_, cx| {
+            view.update(cx, |this, _| {
+                assert_eq!(this.state.project().tab, tervia::state::Tab::Files);
+                assert_eq!(
+                    this.git_states[0].file_decoration(&repo.root.join("src/mock.rs")),
+                    Some('A')
+                );
+                assert_eq!(
+                    this.git_states[0].file_decoration(&repo.root.join("src/clean.rs")),
+                    None
+                );
+            });
+        });
+    }
+
     fn luminance(color: Hsla) -> f32 {
         let color = Rgba::from(color);
         let channels = [color.r, color.g, color.b].map(|value| {
@@ -283,6 +332,21 @@ impl Tervia {
                     owner.active_file == index && owner.open_files.contains(&index)
                 });
                 let (text_color, icon_color) = entry_colors(entry.ignored, selected, p);
+                let status = if entry.ignored {
+                    None
+                } else {
+                    self.git_states[project].file_decoration(&owner.root.join(&path))
+                };
+                let status_color = match status {
+                    Some('!' | 'D') => p.red,
+                    Some('A' | 'U') => p.green,
+                    _ => p.accent,
+                };
+                let text_color = if status.is_some() && !selected {
+                    status_color
+                } else {
+                    text_color
+                };
                 let dirty = file.is_some_and(|index| owner.files[index].dirty());
                 let display = path
                     .file_name()
@@ -391,7 +455,25 @@ impl Tervia {
                 if dirty {
                     content = content.child(div().size(px(5.0)).rounded_full().bg(p.accent));
                 }
-                let description = if folder {
+                if let Some(status) = status {
+                    let path = path.clone();
+                    let badge = div()
+                        .debug_selector(move || format!("explorer-git-{}-{status}", path.display()))
+                        .w(px(14.0))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(status_color);
+                    content = content.child(if folder && status != '!' {
+                        badge.child(div().size(px(5.0)).rounded_full().bg(status_color))
+                    } else {
+                        badge.child(status.to_string())
+                    });
+                }
+                let mut description = if folder {
                     format!(
                         "{} {}",
                         self.t(if expanded {
@@ -404,6 +486,9 @@ impl Tervia {
                 } else {
                     self.f("open_file", &[("path", &path.to_string_lossy())])
                 };
+                if let Some(status) = status {
+                    description.push_str(&format!(", Git: {status}"));
+                }
                 let parent = self.working_directory_owner();
                 let directory = self.state.projects[project].root.join(&path);
                 let relative = directory
@@ -660,6 +745,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.poll_git(project, window, cx);
         for (path, token) in self.explorers[project].tree.refresh() {
             self.request_directory(project, path, token, window, cx);
         }
