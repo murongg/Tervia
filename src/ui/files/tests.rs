@@ -88,6 +88,7 @@ fn file_types_share_icons_in_tree_tabs_and_both_search_modes(cx: &mut TestAppCon
                             line: 1,
                             column: 1,
                             text: "synthetic match".into(),
+                            matches: std::iter::once(10..15).collect(),
                         })
                     } else {
                         Row::File("mock.tsx".into())
@@ -104,6 +105,79 @@ fn file_types_share_icons_in_tree_tabs_and_both_search_modes(cx: &mut TestAppCon
                 "light={light}, tabs={tabs}, text={}",
                 mode == Mode::Text
             );
+        }
+    }
+}
+
+#[gpui_test::test]
+fn text_search_paints_every_match_in_both_themes_and_selection_states(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let mut view = None;
+    let mut surface = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let model = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(model.clone());
+        let content = cx.new(|_| IconSurface {
+            view: model,
+            tabs: false,
+        });
+        surface = Some(content.clone());
+        gpui_kit::base::Root::new(content, window, cx)
+    });
+    let view = view.unwrap();
+    let surface = surface.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let owner = this
+                .state
+                .open_directory("/synthetic/search-highlights".into());
+            this.init_project(owner, window, cx);
+            this.state.set_tab(Tab::Files);
+            let finder = &mut this.explorers[owner].finder;
+            finder.mode = search::Mode::Text;
+            finder.rows = Arc::new(
+                ["needle.rs", "other.rs"]
+                    .into_iter()
+                    .map(|path| {
+                        search::Row::Text(tervia::files::search::Hit {
+                            path: path.into(),
+                            line: 1,
+                            column: 3,
+                            text: "😀 needle NEEDLE".into(),
+                            matches: vec![5..11, 12..18],
+                        })
+                    })
+                    .collect(),
+            );
+        });
+    });
+    for light in [false, true] {
+        cx.update(|window, cx| {
+            view.update(cx, |this, _| {
+                this.appearance.theme = light.into();
+            });
+            surface.update(cx, |_, cx| cx.notify());
+            window.draw(cx).clear(cx);
+        });
+        for selector in ["files-search-result-0", "files-search-result-1"] {
+            let bounds = cx.debug_bounds(selector).unwrap();
+            cx.update(|window, _| {
+                let bounds = bounds.scale(window.scale_factor());
+                let theme: tervia::preferences::Themes = light.into();
+                let color = super::super::theme::Palette::workbench(&theme)
+                    .accent
+                    .opacity(0.22);
+                assert_eq!(
+                    window
+                        .painted_quads()
+                        .iter()
+                        .filter(|quad| quad.background == color.into()
+                            && bounds.contains(&quad.bounds.center()))
+                        .count(),
+                    2,
+                    "light={light}, row={selector}"
+                );
+            });
         }
     }
 }
