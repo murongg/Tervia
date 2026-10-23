@@ -1,6 +1,7 @@
 mod branches;
 mod changes;
 mod commits;
+mod decorations;
 mod error;
 mod graph;
 mod history;
@@ -73,6 +74,7 @@ enum Detail {
 
 pub(super) struct GitUi {
     pub snapshot: Option<Arc<Snapshot>>,
+    decorations: std::collections::BTreeMap<PathBuf, char>,
     refresh_cache: tervia::git::SnapshotCache,
     workspace: Option<Arc<tervia::git::Discovery>>,
     changes_scroll: [UniformListScrollHandle; 4],
@@ -137,6 +139,7 @@ impl GitUi {
             .as_ref()
             .is_some_and(|previous| previous.status.files == snapshot.status.files)
         {
+            self.decorations = decorations::collect(&snapshot.status.files);
             self.review.files = review::files(snapshot);
             self.change_rows = changes::change_rows(
                 &snapshot.status.files,
@@ -322,6 +325,7 @@ impl GitUi {
     pub fn new(window: &mut Window, cx: &mut Context<Tervia>) -> Self {
         let mut ui = Self {
             snapshot: None,
+            decorations: Default::default(),
             refresh_cache: Default::default(),
             workspace: None,
             changes_scroll: std::array::from_fn(|_| UniformListScrollHandle::new()),
