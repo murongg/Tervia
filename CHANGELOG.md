@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.18.0 (2026-10-23)
+
+### Features
+
+- **ssh:** add host management and terminal sessions (785464e0)
+- **projects:** add persistent project avatars (d14cfcbc)
+- **files:** highlight search matches (61aff4b7)
+- **files:** show Git status in the file explorer (31c87479)
+
+### Other changes
+
+- remove unused screenshots and constrain visual artifacts (56b5121b)
+
 ## v0.17.2 (2026-10-22)
 
 ### Fixes
