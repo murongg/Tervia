@@ -163,6 +163,8 @@ The sidebar Search control, File menu and Cmd+Option+P (Ctrl+Alt+P on Windows/Li
 
 Favorite projects with the star or context menu. Drag rows within the favorite or ordinary group to reorder them; Move Up/Down provides the same operation from the context menu. Sidebar order stays stable while switching projects and survives restarting.
 
+Projects receive one of 24 built-in Lucide avatars automatically, favoring unused icons. Right-click a project and choose **Change project avatar** to select another. The choice is saved with the project, shared by its working directories/worktrees, and retained after reordering, closing or restarting.
+
 Close Project saves drafts, reading positions and layout to workspace recovery before ending that project's terminal sessions with a named confirmation. Failed recovery saves keep the project and terminals open; Git/file operations must finish before closing. Recently Closed Projects is available in the sidebar, File menu and welcome screen. Reopening restores the editing context and starts new shells when needed. Closing leaves project files on disk unchanged and preserves local terminal processes. Closing the final project returns to existing local sessions, or to the welcome page if there are none.
 
 ## Configuration

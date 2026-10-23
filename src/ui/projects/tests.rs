@@ -3,6 +3,71 @@ use core::prelude::v1::test;
 use gpui_test::TestAppContext;
 
 #[gpui_test::test]
+fn project_avatars_render_in_both_sidebar_states_without_changing_row_size(
+    cx: &mut TestAppContext,
+) {
+    let (_root, view, cx) = project_window(cx);
+    for light in [false, true] {
+        for expanded in [false, true] {
+            view.update(cx, |view, cx| {
+                view.preferences.update(cx, |preferences, cx| {
+                    preferences.theme = light.into();
+                    cx.notify();
+                });
+                view.state.sidebar_expanded = expanded;
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let row = cx.debug_bounds("project-row-0").unwrap();
+            let avatar = cx
+                .debug_bounds("project-avatar-0-rocket")
+                .expect("Project avatar is visible");
+            assert_eq!(row.size.height, px(40.0));
+            assert_eq!(row.size.width, px(if expanded { 216.0 } else { 39.0 }));
+            assert_eq!(avatar.size, size(px(28.0), px(28.0)));
+            assert!(avatar.left() >= row.left() && avatar.right() <= row.right());
+            assert!(avatar.top() >= row.top() && avatar.bottom() <= row.bottom());
+        }
+    }
+}
+
+#[gpui_test::test]
+fn right_click_avatar_choice_updates_only_that_project_and_is_saved(cx: &mut TestAppContext) {
+    let (root, view, cx) = project_window(cx);
+    let path = root.path().join("mock-avatar-workspace.json");
+    view.update(cx, |view, _| {
+        let mut store = tervia::workspace::Store::new(path.clone());
+        store.load().unwrap();
+        store.save(&view.state).unwrap();
+        view.workspace = Some(store);
+    });
+    let row = cx.debug_bounds("project-row-1").unwrap();
+    cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+    cx.simulate_mouse_down(row.center(), MouseButton::Right, Modifiers::default());
+    cx.simulate_mouse_up(row.center(), MouseButton::Right, Modifiers::default());
+    cx.run_until_parked();
+    cx.simulate_keystrokes("down down right");
+    cx.run_until_parked();
+    for _ in 0..14 {
+        cx.simulate_keystrokes("down");
+    }
+    cx.simulate_keystrokes("enter");
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    view.update(cx, |view, _| {
+        assert_eq!(
+            view.state.active_project, 0,
+            "Changing an inactive project's avatar keeps the active workspace"
+        );
+        assert_eq!(view.state.project_avatar(0), "rocket");
+        assert_eq!(view.state.project_avatar(1), "cat");
+    });
+    assert!(cx.debug_bounds("project-avatar-1-cat").is_some());
+    let restored = tervia::workspace::Store::new(path).load().unwrap();
+    assert_eq!(restored.project_avatar(1), "cat");
+}
+
+#[gpui_test::test]
 fn sidebar_long_project_lists_scroll_without_covering_global_tools(cx: &mut TestAppContext) {
     let (root, view, cx) = project_window(cx);
     cx.update(|window, cx| {
@@ -587,8 +652,8 @@ fn project_favorite_shares_the_row_hover_surface(cx: &mut TestAppContext) {
                 };
                 cx.update(|window, _| {
                     let scale = window.scale_factor();
+                    let sample = point(bounds.left() + px(48.0), bounds.center().y).scale(scale);
                     let bounds = bounds.scale(scale);
-                    let sample = content.scale(scale);
                     let surfaces: Vec<_> = window.painted_quads().into_iter().filter(|quad| {
                         !quad.background.is_transparent()
                             && quad.bounds.contains(&sample)

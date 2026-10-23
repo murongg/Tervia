@@ -2,6 +2,88 @@ use std::{fs, path::PathBuf};
 use tervia::{state::Workspace, workspace::Store};
 
 #[test]
+fn project_avatars_survive_restart_reordering_and_closed_project_recovery() {
+    let temporary = tempfile::tempdir().unwrap();
+    let alpha = directory(&temporary, "mock-avatar-alpha");
+    let beta = directory(&temporary, "mock-avatar-beta");
+    let child = directory(&temporary, "mock-avatar-alpha/mock-web");
+    let path = temporary.path().join("workspace.json");
+    let mut store = Store::new(path.clone());
+    let mut state = store.load().unwrap();
+    state.open_directory(alpha.clone());
+    state.open_directory(beta.clone());
+    let automatic = state.project_avatar(1).to_string();
+    let target = state.register_directory(child.clone());
+    state.attach_directory(0, target);
+    state.switch_project(target);
+    assert!(state.set_project_avatar(0, "cat"));
+    state.move_project(1, 0);
+    state.close_project(0);
+    store.save(&state).unwrap();
+
+    let saved: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(
+        saved["projects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|project| project["avatar"].is_string())
+    );
+    let mut restored = Store::new(path).load().unwrap();
+    let beta_owner = restored.project_rows()[0];
+    assert_eq!(restored.project_root(beta_owner), &beta);
+    assert_eq!(restored.project_avatar(beta_owner), automatic);
+    let closed = restored.closed_project_rows()[0];
+    assert_eq!(restored.project_root(closed), &alpha);
+    assert_eq!(restored.project_avatar(closed), "cat");
+    let target = restored.reopen_project(closed).unwrap();
+    assert_eq!(restored.projects[target].root, child);
+    assert_eq!(restored.project_avatar(target), "cat");
+}
+
+#[test]
+fn older_or_unknown_avatar_choices_receive_a_saved_builtin_avatar() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-legacy-avatar");
+    let path = temporary.path().join("workspace.json");
+    for avatar in [None, Some("unknown-synthetic-avatar")] {
+        let mut project = serde_json::json!({"root": root, "directory": root});
+        if let Some(avatar) = avatar {
+            project["avatar"] = serde_json::json!(avatar);
+        }
+        fs::write(
+            &path,
+            serde_json::json!({"version": 2, "projects": [project]}).to_string(),
+        )
+        .unwrap();
+        let mut store = Store::new(path.clone());
+        let state = store.load().unwrap();
+        let assigned = state.project_avatar(0);
+        assert!(tervia::state::PROJECT_AVATARS.contains(&assigned));
+        store.save(&state).unwrap();
+        let saved: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["projects"][0]["avatar"], assigned);
+        assert_eq!(
+            Store::new(path.clone()).load().unwrap().project_avatar(0),
+            assigned
+        );
+    }
+}
+
+#[test]
+fn project_avatar_survives_a_missing_worktree_directory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = directory(&temporary, "mock-avatar-main");
+    let path = temporary.path().join("workspace.json");
+    fs::write(&path, serde_json::json!({"version": 2, "projects": [{
+        "root": root, "directory": temporary.path().join("mock-missing-worktree"), "avatar": "moon"
+    }]}).to_string()).unwrap();
+    assert_eq!(Store::new(path).load().unwrap().project_avatar(0), "moon");
+}
+
+#[test]
 fn make_just_and_taskfile_task_commands_keep_their_file_binding_after_recovery() {
     let temporary = tempfile::tempdir().unwrap();
     let root = directory(&temporary, "mock-task-sources");

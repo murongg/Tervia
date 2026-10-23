@@ -158,13 +158,7 @@ impl Tervia {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .child(
-                                icon(
-                                    IconName::Folder,
-                                    if active { p.accent } else { p.secondary },
-                                )
-                                .size(px(14.0)),
-                            ),
+                            .child(self.project_avatar(parent)),
                     )
                     .child(
                         div()
@@ -193,21 +187,7 @@ impl Tervia {
                         )
                     })
             } else {
-                div()
-                    .size(px(28.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(if active { p.accent } else { p.secondary })
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_size(px(13.0))
-                    .child(
-                        name.chars()
-                            .next()
-                            .unwrap_or('T')
-                            .to_uppercase()
-                            .to_string(),
-                    )
+                self.project_avatar(parent)
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.change_project(this.state.project_target(parent), window, cx);
@@ -280,9 +260,19 @@ impl Tervia {
             .on_drop(cx.listener(move |this, drag: &ProjectDrag, _, cx| {
                 this.move_sidebar_project(drag.owner, parent, cx)
             }))
-            .context_menu(move |menu, _, cx| {
+            .context_menu(move |menu, window, cx| {
                 if let Some(view) = owner.upgrade() {
-                    view.read(cx).project_menu(parent, menu, owner.clone())
+                    let avatar_owner = owner.clone();
+                    let avatars = PopupMenu::build(window, cx, move |menu, _, cx| {
+                        if let Some(view) = avatar_owner.upgrade() {
+                            view.read(cx)
+                                .avatar_menu(parent, menu, avatar_owner.clone())
+                        } else {
+                            menu
+                        }
+                    });
+                    view.read(cx)
+                        .project_menu(parent, menu, owner.clone(), avatars)
                 } else {
                     menu
                 }

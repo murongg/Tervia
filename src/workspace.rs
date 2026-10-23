@@ -112,6 +112,7 @@ impl Storage {
         self.source = None;
         self.metadata = Arc::default();
         let mut orphans = Vec::new();
+        let mut saved = None;
         if fs::metadata(&self.path).is_ok_and(|metadata| metadata.len() > 256 * 1024 * 1024) {
             return Err(self.error("Recovery file exceeds 256 MiB"));
         }
@@ -131,9 +132,12 @@ impl Storage {
             catalog::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
             // Restore the screen last: project/catalog restoration temporarily changes selection.
             startup::restore(&value, &mut workspace).map_err(|error| self.error(error))?;
+            saved = Some(value);
         }
-        self.saved =
-            Some(snapshot(&workspace, &fallbacks, &orphans).map_err(|error| self.error(error))?);
+        // Compare with disk so the next save also persists migrated defaults such as project avatars.
+        self.saved = Some(saved.unwrap_or(
+            snapshot(&workspace, &fallbacks, &orphans).map_err(|error| self.error(error))?,
+        ));
         self.metadata = Arc::new(Metadata { fallbacks, orphans });
         self.source = source;
         Ok(workspace)
@@ -266,7 +270,7 @@ fn snapshot(
             let root = serde_json::to_value(root)?;
             let directory =
                 serde_json::to_value(&workspace.projects[workspace.project_target(index)].root)?;
-            let mut saved = json!({ "root": root, "directory": directory });
+            let mut saved = json!({ "root": root, "directory": directory, "avatar": workspace.project_avatar(index) });
             if workspace.folder(index) == Some(index) {
                 saved["folder"] = json!(true);
                 saved["children_expanded"] = json!(workspace.folder_expanded(index));
@@ -347,6 +351,9 @@ fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), Stri
             }
             let parent = fs::canonicalize(parent).map_err(|error| error.to_string())?;
             let parent_index = workspace.register_directory(parent);
+            if let Some(avatar) = project.get("avatar").and_then(Value::as_str) {
+                workspace.set_project_avatar(parent_index, avatar);
+            }
             let index = if target.is_dir() {
                 workspace.register_directory(
                     fs::canonicalize(&target).map_err(|error| error.to_string())?,
@@ -392,6 +399,9 @@ fn restore(source: &str) -> Result<(Workspace, BTreeMap<PathBuf, PathBuf>), Stri
         }
         let available = fs::canonicalize(available).map_err(|error| error.to_string())?;
         let index = workspace.register_directory(available.clone());
+        if let Some(avatar) = project.get("avatar").and_then(Value::as_str) {
+            workspace.set_project_avatar(index, avatar);
+        }
         if active.as_ref() == Some(&target) || active.as_ref() == Some(&root) {
             selected = index;
         }
