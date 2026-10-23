@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 mod projects;
 mod terminal;
-pub use projects::ProjectMatch;
+pub use projects::{PROJECT_AVATARS, ProjectMatch};
 pub use terminal::{Screen, Terminals};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -49,6 +49,7 @@ impl File {
 #[derive(Clone, Debug)]
 pub struct Project {
     pub name: String,
+    pub(crate) avatar: &'static str,
     pub monogram: String,
     pub path: String,
     pub root: PathBuf,
@@ -732,8 +733,19 @@ impl Workspace {
             .to_uppercase()
             .to_string();
         let index = self.projects.len();
+        let rows = self.all_project_rows();
+        let avatar = PROJECT_AVATARS
+            .iter()
+            .min_by_key(|avatar| {
+                rows.iter()
+                    .filter(|owner| self.projects[**owner].avatar == **avatar)
+                    .count()
+            })
+            .copied()
+            .unwrap();
         self.projects.push(Project {
             name,
+            avatar,
             monogram,
             path: root.to_string_lossy().into_owned(),
             root,

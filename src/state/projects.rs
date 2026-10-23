@@ -1,6 +1,34 @@
 use super::Workspace;
 use std::collections::{BTreeMap, BTreeSet};
 
+// Persist names rather than positions so extending or reordering this catalog keeps saved choices.
+pub const PROJECT_AVATARS: [&str; 24] = [
+    "rocket",
+    "mountain",
+    "compass",
+    "gem",
+    "leaf",
+    "orbit",
+    "flame",
+    "sun",
+    "moon",
+    "cloud",
+    "tree-pine",
+    "flower-2",
+    "sprout",
+    "waves",
+    "cat",
+    "dog",
+    "bird",
+    "fish",
+    "anchor",
+    "crown",
+    "coffee",
+    "lightbulb",
+    "palette",
+    "atom",
+];
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Catalog {
     pub order: Vec<usize>,
@@ -19,6 +47,25 @@ pub struct ProjectMatch {
 }
 
 impl Workspace {
+    pub fn project_avatar(&self, index: usize) -> &'static str {
+        let owner = self.project_owner(index).unwrap_or(index);
+        self.projects[owner].avatar
+    }
+
+    pub fn set_project_avatar(&mut self, index: usize, avatar: &str) -> bool {
+        let Some(&avatar) = PROJECT_AVATARS.iter().find(|name| **name == avatar) else {
+            return false;
+        };
+        let Some(owner) = self.project_owner(index) else {
+            return false;
+        };
+        if self.projects[owner].avatar == avatar {
+            return false;
+        }
+        self.projects[owner].avatar = avatar;
+        true
+    }
+
     pub(super) fn record_project_target(&mut self, index: usize) {
         if let Some(owner) = self.project_owner(index)
             && let Some((members, target)) = self.catalog.groups.get_mut(&owner)

@@ -10,6 +10,55 @@ fn workspace() -> Workspace {
 }
 
 #[test]
+fn project_avatars_are_assigned_without_repeats_until_the_catalog_is_used() {
+    let mut state = Workspace::empty();
+    let mut assigned = std::collections::BTreeSet::new();
+    for index in 0..tervia::state::PROJECT_AVATARS.len() {
+        let owner = state.open_directory(std::env::temp_dir().join(format!("mock-avatar-{index}")));
+        assert!(assigned.insert(state.project_avatar(owner)));
+    }
+    let avatars: Vec<_> = (0..state.projects.len())
+        .map(|owner| state.project_avatar(owner))
+        .collect();
+    state.move_project(1, 0);
+    state.toggle_project_favorite(2);
+    state.close_project(0);
+    state.reopen_project(0);
+    assert_eq!(
+        (0..state.projects.len())
+            .map(|owner| state.project_avatar(owner))
+            .collect::<Vec<_>>(),
+        avatars
+    );
+    let extra = state.open_directory(std::env::temp_dir().join("mock-avatar-extra"));
+    assert!(assigned.contains(state.project_avatar(extra)));
+}
+
+#[test]
+fn changing_an_avatar_updates_the_logical_project_and_validates_the_choice() {
+    let mut state = workspace();
+    let child = state.register_directory(state.projects[0].root.join("mock-web"));
+    state.attach_directory(0, child);
+    assert!(state.set_project_avatar(child, "cat"));
+    assert_eq!(state.project_avatar(0), "cat");
+    assert_eq!(state.project_avatar(child), "cat");
+    let other = state.project_avatar(1);
+    assert!(!state.set_project_avatar(0, "unknown-synthetic-avatar"));
+    assert!(!state.set_project_avatar(usize::MAX, "cat"));
+    assert_eq!(state.project_avatar(0), "cat");
+    assert_eq!(state.project_avatar(1), other);
+
+    let identity = state.projects[1].root.join(".git");
+    let root = state.projects[1].root.clone();
+    state.associate_repository(1, identity.clone(), Some(root.clone()));
+    let linked = state.register_directory(std::env::temp_dir().join("mock-avatar-linked"));
+    state.associate_repository(linked, identity, Some(root));
+    assert!(state.set_project_avatar(linked, "moon"));
+    assert_eq!(state.project_avatar(1), "moon");
+    assert_eq!(state.project_avatar(linked), "moon");
+}
+
+#[test]
 fn favorites_and_manual_order_do_not_move_owner_slots_or_follow_recent_switches() {
     let mut state = workspace();
     let roots: Vec<_> = state

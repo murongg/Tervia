@@ -12,6 +12,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
 
+mod avatar;
 mod lifecycle;
 mod navigation;
 mod picker;
@@ -45,7 +46,13 @@ pub(super) fn init(cx: &mut App) {
 }
 
 impl Tervia {
-    fn project_menu(&self, parent: usize, menu: PopupMenu, view: WeakEntity<Self>) -> PopupMenu {
+    fn project_menu(
+        &self,
+        parent: usize,
+        menu: PopupMenu,
+        view: WeakEntity<Self>,
+        avatars: Entity<PopupMenu>,
+    ) -> PopupMenu {
         let opening = view.clone();
         let scanning = view.clone();
         let p = self.p();
@@ -79,6 +86,7 @@ impl Tervia {
                     });
                 }),
             )
+            .item(PopupMenuItem::submenu(self.t("project_avatar"), avatars))
             .item(
                 PopupMenuItem::new(self.t("project_copy_path")).on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(
