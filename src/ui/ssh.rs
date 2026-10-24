@@ -4,7 +4,7 @@ use super::{
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    Disableable, Sizable, WindowExt,
+    Disableable, WindowExt,
     button::{Button, ButtonVariants},
     dialog::{DialogAction, DialogClose, DialogEntrance, DialogFooter},
     input::{Input, InputState},

@@ -108,7 +108,7 @@ fn sidebar_long_project_lists_scroll_without_covering_global_tools(cx: &mut Test
 fn sidebar_expansion_is_a_compact_project_panel_and_keeps_global_controls_in_the_rail(
     cx: &mut TestAppContext,
 ) {
-    let (_root, _view, cx) = project_window(cx);
+    let (_root, view, cx) = project_window(cx);
     let local = cx.debug_bounds("local-terminal-entry").unwrap();
     assert_eq!(
         local.size.width,
@@ -117,11 +117,22 @@ fn sidebar_expansion_is_a_compact_project_panel_and_keeps_global_controls_in_the
     );
     let panel = cx.debug_bounds("project-navigation").unwrap();
     assert!(panel.top() > local.bottom());
+    let search = cx.debug_bounds("project-search").unwrap();
+    assert_eq!(search.top() - panel.top(), px(8.0));
+    let last = cx.debug_bounds("project-row-1").unwrap();
+    assert_eq!(panel.bottom() - last.bottom(), px(8.0));
     assert!(
         panel.size.height < px(160.0),
         "A short project list must not become a full-height sheet"
     );
     assert!(cx.debug_bounds("project-row-0").unwrap().size.width > px(200.0));
+    let row = cx.debug_bounds("project-row-0").unwrap();
+    view.update(cx, |view, cx| {
+        view.state.sidebar_expanded = false;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(cx.debug_bounds("project-row-0").unwrap().top(), row.top());
 }
 
 #[gpui_test::test]

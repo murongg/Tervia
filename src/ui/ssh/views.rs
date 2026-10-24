@@ -1,3 +1,4 @@
+use super::super::theme::Palette;
 use super::*;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 
@@ -7,7 +8,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
-        let p = self.p();
+        let p = Palette::workbench(&self.appearance.theme);
         let query = self.ssh.search.read(cx).value().to_lowercase();
         let rows = self
             .ssh
@@ -58,9 +59,9 @@ impl Tervia {
                     ),
             )
             .child(
-                div().px(px(10.0)).pb(px(8.0)).child(
+                div().px(px(12.0)).py(px(8.0)).flex_shrink_0().child(
                     Input::new(&self.ssh.search)
-                        .small()
+                        .w_full()
                         .prefix(icon(IconName::Search, p.secondary))
                         .aria_label(self.t("ssh_search")),
                 ),

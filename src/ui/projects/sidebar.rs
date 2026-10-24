@@ -285,7 +285,7 @@ impl Tervia {
         let pinned = self.state.sidebar_expanded;
         let expanded = pinned || self.navigation.sidebar.peek;
         let projects = self.state.project_rows();
-        let height = projects.len() as f32 * 40.0 + if expanded { 40.0 } else { 32.0 };
+        let height = projects.len() as f32 * 40.0 + if expanded { 48.0 } else { 32.0 };
         let search = div()
             .h(px(32.0))
             .flex_shrink_0()
@@ -386,10 +386,12 @@ impl Tervia {
             .when(expanded, |panel| {
                 // Expand only the project area, below module navigation; global tools stay in the rail.
                 panel
+                    // Grow upward so search and project hit targets stay stationary on expansion.
+                    .top(px(-8.0))
                     .left(px(-8.0))
                     .w(px(232.0))
                     .px(px(8.0))
-                    .pb(px(8.0))
+                    .py(px(8.0))
                     .rounded(px(12.0))
                     .bg(if self.appearance.theme.is_light() {
                         p.background
