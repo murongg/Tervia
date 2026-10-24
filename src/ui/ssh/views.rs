@@ -1,3 +1,4 @@
+use super::super::theme::Palette;
 use super::*;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
 
@@ -7,7 +8,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Div {
-        let p = self.p();
+        let p = Palette::workbench(&self.appearance.theme);
         let query = self.ssh.search.read(cx).value().to_lowercase();
         let rows = self
             .ssh
@@ -31,13 +32,7 @@ impl Tervia {
             .border_r_1()
             .border_color(p.border)
             .child(
-                div()
-                    .h(px(42.0))
-                    .flex_shrink_0()
-                    .px(px(12.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.0))
+                toolbar(p)
                     .child(
                         div()
                             .flex_1()
@@ -64,9 +59,9 @@ impl Tervia {
                     ),
             )
             .child(
-                div().px(px(10.0)).pb(px(8.0)).child(
+                div().px(px(12.0)).py(px(8.0)).flex_shrink_0().child(
                     Input::new(&self.ssh.search)
-                        .small()
+                        .w_full()
                         .prefix(icon(IconName::Search, p.secondary))
                         .aria_label(self.t("ssh_search")),
                 ),
@@ -89,56 +84,48 @@ impl Tervia {
                                 let host = &this.ssh.hosts[index];
                                 let target = host.clone();
                                 let owner = cx.weak_entity();
-                                Button::new(("ssh-host", index))
-                                    .debug_selector(move || format!("ssh-host-{index}"))
-                                    .ghost()
-                                    .compact()
-                                    .w_full()
-                                    .h(px(54.0))
-                                    .justify_start()
-                                    .bg(if this.ssh.active_host == Some(index) {
-                                        p.selected
-                                    } else {
-                                        p.background.opacity(0.0)
-                                    })
-                                    .accessibility_label(format!(
-                                        "{} · {}",
-                                        host.name, host.address
-                                    ))
-                                    .child(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .flex()
-                                            .items_center()
-                                            .gap(px(8.0))
-                                            .px(px(10.0))
-                                            .child(icon(IconName::Server, p.secondary))
-                                            .child(
-                                                div()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .flex()
-                                                    .flex_col()
-                                                    .gap(px(2.0))
-                                                    .child(
-                                                        div()
-                                                            .text_ellipsis()
-                                                            .child(host.name.clone()),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_size(px(11.0))
-                                                            .text_color(p.secondary)
-                                                            .text_ellipsis()
-                                                            .child(host.address.clone()),
-                                                    ),
-                                            ),
-                                    )
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.select_ssh_host(index, window, cx)
-                                    }))
-                                    .context_menu(move |menu, _, cx| {
+                                list_row(
+                                    ("ssh-host", index),
+                                    this.ssh.active_host == Some(index),
+                                    p,
+                                    cx,
+                                )
+                                .debug_selector(move || format!("ssh-host-{index}"))
+                                .h(px(52.0))
+                                .accessibility_label(format!("{} · {}", host.name, host.address))
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .px(px(10.0))
+                                        .child(icon(IconName::Server, p.secondary))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .flex()
+                                                .flex_col()
+                                                .gap(px(2.0))
+                                                .child(
+                                                    div().text_ellipsis().child(host.name.clone()),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_size(px(11.0))
+                                                        .text_color(p.secondary)
+                                                        .text_ellipsis()
+                                                        .child(host.address.clone()),
+                                                ),
+                                        ),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.select_ssh_host(index, window, cx)
+                                }))
+                                .context_menu(
+                                    move |menu, _, cx| {
                                         if let Some(view) = owner.upgrade() {
                                             view.read(cx).ssh_host_menu(
                                                 &target,
@@ -148,7 +135,8 @@ impl Tervia {
                                         } else {
                                             menu
                                         }
-                                    })
+                                    },
+                                )
                             })
                             .collect()
                     }),
@@ -159,15 +147,7 @@ impl Tervia {
             });
         let session = self.selected_ssh_session();
         let content = if let Some(host) = self.ssh.selected().cloned() {
-            let toolbar = div()
-                .h(px(42.0))
-                .flex_shrink_0()
-                .px(px(12.0))
-                .gap(px(8.0))
-                .flex()
-                .items_center()
-                .border_b_1()
-                .border_color(p.border)
+            let toolbar = toolbar(p)
                 .child(
                     div()
                         .flex_1()
@@ -251,7 +231,7 @@ impl Tervia {
                     .items_center()
                     .justify_center()
                     .child(
-                        label_button("ssh-connect", self.t("ssh_connect"), p)
+                        label_button("ssh-connect", self.t("ssh_connect"), p, cx)
                             .icon(icon(IconName::SquareTerminal, p.accent))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.connect_ssh_terminal(window, cx)
@@ -283,7 +263,7 @@ impl Tervia {
                 .child(icon(IconName::Server, p.secondary).size(px(28.0)))
                 .child(self.t("ssh_choose"))
                 .child(
-                    label_button("ssh-first-host", self.t("ssh_add"), p).on_click(
+                    label_button("ssh-first-host", self.t("ssh_add"), p, cx).on_click(
                         cx.listener(|this, _, window, cx| this.edit_ssh_host(None, window, cx)),
                     ),
                 )

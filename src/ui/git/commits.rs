@@ -40,58 +40,48 @@ impl Tervia {
                             DiffFileStatus::Modified => ("M", p.accent),
                             _ => ("", p.muted),
                         };
-                        label_button(("git-commit-file", index), "", p)
-                            .debug_selector(move || format!("git-commit-file-{index}"))
-                            .w_full()
-                            .h(px(32.0))
-                            .rounded(px(0.0))
-                            .bg(
-                                if this.git_states[project].commit_file.as_ref() == Some(path) {
-                                    p.selected
-                                } else {
-                                    p.background
-                                },
-                            )
-                            .accessibility_label(path.clone())
-                            .tooltip(path.clone())
-                            .child(
-                                div()
-                                    .w_full()
-                                    .flex()
-                                    .min_w_0()
-                                    .items_center()
-                                    .gap(px(6.0))
-                                    .text_size(px(11.0))
-                                    .child(div().text_color(color).child(mark))
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_w_0()
-                                            .text_ellipsis()
-                                            .child(path.clone()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(10.0))
-                                            .text_color(p.green)
-                                            .child(format!("+{added}")),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(10.0))
-                                            .text_color(p.red)
-                                            .child(format!("−{removed}")),
-                                    ),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                let ui = &mut this.git_states[project];
-                                ui.commit_file = Some(target.clone());
-                                ui.diff.update(cx, |state, cx| {
-                                    state.set_file_collapsed(&target, false, cx);
-                                    state.scroll_to_file(&target, cx);
-                                });
-                                cx.notify();
-                            }))
+                        list_row(
+                            ("git-commit-file", index),
+                            this.git_states[project].commit_file.as_ref() == Some(path),
+                            p,
+                            cx,
+                        )
+                        .debug_selector(move || format!("git-commit-file-{index}"))
+                        .rounded(px(0.0))
+                        .accessibility_label(path.clone())
+                        .tooltip(path.clone())
+                        .child(
+                            div()
+                                .w_full()
+                                .flex()
+                                .min_w_0()
+                                .items_center()
+                                .gap(px(6.0))
+                                .text_size(px(11.0))
+                                .child(div().text_color(color).child(mark))
+                                .child(div().flex_1().min_w_0().text_ellipsis().child(path.clone()))
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(p.green)
+                                        .child(format!("+{added}")),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.0))
+                                        .text_color(p.red)
+                                        .child(format!("−{removed}")),
+                                ),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let ui = &mut this.git_states[project];
+                            ui.commit_file = Some(target.clone());
+                            ui.diff.update(cx, |state, cx| {
+                                state.set_file_collapsed(&target, false, cx);
+                                state.scroll_to_file(&target, cx);
+                            });
+                            cx.notify();
+                        }))
                     })
                     .collect()
             }),
@@ -176,6 +166,7 @@ impl Tervia {
                     ("git-parent-commit", index),
                     &parent.chars().take(7).collect::<String>(),
                     p,
+                    cx,
                 )
                 .h(px(22.0))
                 .text_size(px(11.0))

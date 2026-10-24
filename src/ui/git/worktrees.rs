@@ -125,7 +125,7 @@ impl Tervia {
             (2, Checkout::Detached, "worktree_detached"),
         ] {
             modes = modes.child(
-                label_button(("worktree-checkout", index), self.t(key), p)
+                label_button(("worktree-checkout", index), self.t(key), p, cx)
                     .bg(if ui.checkout == mode {
                         p.selected
                     } else {
@@ -236,7 +236,7 @@ impl Tervia {
                         })),
                 )
                 .child(
-                    label_button("worktree-create", self.t("worktree_create"), p)
+                    label_button("worktree-create", self.t("worktree_create"), p, cx)
                         .icon(icon(IconName::Plus, p.accent))
                         .disabled(
                             busy || snapshot.status.unborn
@@ -249,15 +249,7 @@ impl Tervia {
                         })),
                 ),
         );
-        let mut toolbar = div()
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(px(7.0))
-            .px(px(12.0))
-            .py(px(8.0))
-            .border_b_1()
-            .border_color(p.border)
+        let mut toolbar = toolbar(p)
             .child(
                 div()
                     .flex_1()
@@ -265,7 +257,7 @@ impl Tervia {
                     .child(self.t("worktree_directories")),
             )
             .child(
-                label_button("worktree-prune", self.t("worktree_prune"), p)
+                label_button("worktree-prune", self.t("worktree_prune"), p, cx)
                     .disabled(busy || targets.is_empty())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.request_worktree_operation(
@@ -280,7 +272,7 @@ impl Tervia {
             let tree = tree.clone();
             let current = self.state.projects[owner].root == tree.path;
             toolbar = toolbar.child(
-                label_button("worktree-open", self.t("worktree_open"), p)
+                label_button("worktree-open", self.t("worktree_open"), p, cx)
                     .disabled(current || tree.bare || tree.missing || tree.prunable.is_some())
                     .on_click(cx.listener({
                         let tree = tree.clone();
@@ -300,6 +292,7 @@ impl Tervia {
                                 "worktree_lock"
                             }),
                             p,
+                            cx,
                         )
                         .disabled(busy)
                         .on_click(cx.listener({
@@ -323,7 +316,7 @@ impl Tervia {
                         })),
                     )
                     .child(
-                        label_button("worktree-remove", self.t("worktree_remove"), p)
+                        label_button("worktree-remove", self.t("worktree_remove"), p, cx)
                             .text_color(p.red)
                             .disabled(!self.worktree_removable(owner, &tree))
                             .on_click(cx.listener(move |this, _, window, cx| {
@@ -415,11 +408,9 @@ impl Tervia {
             .unwrap_or(tree.path == self.state.projects[owner].root);
         let path = tree.path.clone();
         let caption = self.worktree_caption(tree);
-        label_button(("worktree-row", index), "", p)
+        list_row(("worktree-row", index), selected, p, cx)
             .h(px(52.0))
-            .w_full()
             .rounded(px(0.0))
-            .bg(if selected { p.selected } else { p.background })
             .tooltip(format!(
                 "{}\n{}",
                 tree.path.display(),

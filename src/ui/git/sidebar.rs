@@ -155,11 +155,8 @@ impl Tervia {
                 let mode = *mode;
                 let active =
                     ui.mode == mode && (mode != Mode::History || ui.history.target.is_none());
-                label_button(("git-mode", *index), "", p)
-                    .h(px(32.0))
-                    .w_full()
+                list_row(("git-mode", *index), active, p, cx)
                     .rounded(px(0.0))
-                    .bg(if active { p.selected } else { p.sidebar })
                     .accessibility_label(self.t(key))
                     .child(
                         div()
@@ -199,7 +196,7 @@ impl Tervia {
                     .border_t_1()
                     .border_color(p.border)
                     .child(
-                        label_button(key, "", p)
+                        label_button(key, "", p, cx)
                             .text()
                             .h_full()
                             .flex_1()
@@ -273,15 +270,12 @@ impl Tervia {
                     ui.mode == Mode::History && ui.history.target.as_ref() == Some(&reference);
                 let menu_reference = reference.clone();
                 let owner = cx.weak_entity();
-                label_button(("git-sidebar-branch", *index), "", p)
+                list_row(("git-sidebar-branch", *index), selected, p, cx)
                     .debug_selector({
                         let index = *index;
                         move || format!("git-sidebar-branch-{index}")
                     })
-                    .h(px(32.0))
-                    .w_full()
                     .rounded(px(0.0))
-                    .bg(if selected { p.selected } else { p.sidebar })
                     .accessibility_label(name.clone())
                     .tooltip(name.clone())
                     .child(
@@ -337,12 +331,9 @@ impl Tervia {
                 let menu_tree = tree.clone();
                 let owner = cx.weak_entity();
                 let index = *index;
-                label_button(("git-sidebar-worktree", index), "", p)
+                list_row(("git-sidebar-worktree", index), current, p, cx)
                     .debug_selector(move || format!("git-sidebar-worktree-{index}"))
-                    .h(px(32.0))
-                    .w_full()
                     .rounded(px(0.0))
-                    .bg(if current { p.selected } else { p.sidebar })
                     .accessibility_label(format!("{} · {}", self.t("worktree_open"), caption))
                     .tooltip(format!("{}\n{}", caption, tree.path.display()))
                     .disabled(tree.bare || tree.missing || tree.prunable.is_some())
@@ -420,54 +411,44 @@ impl Tervia {
                 let reference = Reference::Tag(tag.clone());
                 let menu_reference = reference.clone();
                 let owner = cx.weak_entity();
-                label_button(("git-sidebar-tag", *index), "", p)
-                    .h(px(32.0))
-                    .w_full()
-                    .rounded(px(0.0))
-                    .bg(
-                        if ui.mode == Mode::History
-                            && ui.history.target.as_ref() == Some(&reference)
-                        {
-                            p.selected
-                        } else {
-                            p.sidebar
-                        },
-                    )
-                    .accessibility_label(tag.clone())
-                    .tooltip(tag.clone())
-                    .child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.0))
-                            .px(px(4.0))
-                            .child(icon(IconName::Tag, p.muted))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_ellipsis()
-                                    .text_size(px(12.0))
-                                    .child(tag.clone()),
-                            ),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.select_git_reference(project, reference.clone(), window, cx)
-                    }))
-                    .context_menu(move |menu, _, cx| {
-                        if let Some(view) = owner.upgrade() {
-                            view.read(cx).reference_menu(
-                                project,
-                                &menu_reference,
-                                menu,
-                                owner.clone(),
-                            )
-                        } else {
-                            menu
-                        }
-                    })
-                    .into_any_element()
+                list_row(
+                    ("git-sidebar-tag", *index),
+                    ui.mode == Mode::History && ui.history.target.as_ref() == Some(&reference),
+                    p,
+                    cx,
+                )
+                .rounded(px(0.0))
+                .accessibility_label(tag.clone())
+                .tooltip(tag.clone())
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.0))
+                        .px(px(4.0))
+                        .child(icon(IconName::Tag, p.muted))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_ellipsis()
+                                .text_size(px(12.0))
+                                .child(tag.clone()),
+                        ),
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.select_git_reference(project, reference.clone(), window, cx)
+                }))
+                .context_menu(move |menu, _, cx| {
+                    if let Some(view) = owner.upgrade() {
+                        view.read(cx)
+                            .reference_menu(project, &menu_reference, menu, owner.clone())
+                    } else {
+                        menu
+                    }
+                })
+                .into_any_element()
             }
             SidebarRow::Hint(key) => div()
                 .h(px(32.0))

@@ -97,7 +97,7 @@ impl PreferencesWindow {
                                 .child(format!("{} {error}", self.t("autostart_error"))),
                         )
                         .child(
-                            label_button("autostart-retry", self.t("autostart_retry"), p)
+                            label_button("autostart-retry", self.t("autostart_retry"), p, cx)
                                 .debug_selector(|| "autostart-retry".into())
                                 .flex_shrink_0()
                                 .on_click(

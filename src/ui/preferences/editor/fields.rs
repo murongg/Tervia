@@ -49,7 +49,7 @@ impl Editor {
                             .into_iter()
                             .enumerate()
                             .map(|(tab, key)| {
-                                label_button(format!("theme-editor-tab-{tab}"), self.t(key), p)
+                                label_button(format!("theme-editor-tab-{tab}"), self.t(key), p, cx)
                                     .flex_1()
                                     .toggled(self.tab == tab)
                                     .bg(if self.tab == tab {
@@ -88,6 +88,7 @@ impl Editor {
                                     "theme_advanced"
                                 }),
                                 p,
+                                cx,
                             )
                             .mt(px(12.0))
                             .w_full()

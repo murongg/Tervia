@@ -209,17 +209,8 @@ impl Tervia {
                                     this.state.project_root(found.owner)
                                 };
                                 let path = path.to_string_lossy().into_owned();
-                                Button::new(("project-match", row))
-                                    .custom(icon_style(p, cx))
-                                    .compact()
-                                    .w_full()
+                                list_row(("project-match", row), selected == row, p, cx)
                                     .h(px(52.0))
-                                    .justify_start()
-                                    .bg(if selected == row {
-                                        p.selected
-                                    } else {
-                                        p.sidebar.opacity(0.0)
-                                    })
                                     .debug_selector(move || format!("project-match-{row}"))
                                     .accessibility_label(format!("{name} · {path}"))
                                     .tooltip(path.clone())
@@ -277,11 +268,7 @@ impl Tervia {
             })
             .when_some(self.state.previous_project(), |content, previous| {
                 content.child(
-                    Button::new("previous-project")
-                        .ghost()
-                        .compact()
-                        .w_full()
-                        .h(px(30.0))
+                    list_row("previous-project", false, p, cx)
                         .label(self.f(
                             "project_previous_named",
                             &[(

@@ -202,7 +202,7 @@ impl Tervia {
                         .child(self.welcome_action(false, cx))
                         .child(self.welcome_action(true, cx))
                         .child(
-                            label_button("welcome-clone-open", self.t("git_clone_title"), p)
+                            label_button("welcome-clone-open", self.t("git_clone_title"), p, cx)
                                 .icon(icon(IconName::Download, p.secondary).size(px(14.0)))
                                 .text_size(px(12.0))
                                 .on_click(cx.listener(|this, _, window, cx| {
@@ -296,6 +296,7 @@ impl Tervia {
                                         "welcome-recent-projects",
                                         self.t("project_recent_closed"),
                                         p,
+                                        cx,
                                     )
                                     .debug_selector(|| "welcome-recent-projects".into())
                                     .on_click(cx.listener(
@@ -484,7 +485,7 @@ impl Tervia {
                             .gap(px(7.0))
                             .mt(px(6.0))
                             .child(
-                                label_button("welcome-clone-cancel", self.t("git_cancel"), p)
+                                label_button("welcome-clone-cancel", self.t("git_cancel"), p, cx)
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         this.welcome_cloning = false;
                                         this.focus.focus(window, cx);

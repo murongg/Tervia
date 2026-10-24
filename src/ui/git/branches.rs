@@ -204,7 +204,7 @@ impl Tervia {
         }
         let owner = cx.weak_entity();
         actions.child(
-            label_button("git-history-more", "", p)
+            label_button("git-history-more", "", p, cx)
                 .icon(icon(IconName::Ellipsis, p.secondary))
                 .accessibility_label(self.t("git_reference_actions"))
                 .tooltip(self.t("git_reference_actions"))
@@ -297,6 +297,7 @@ impl Tervia {
                     },
                     "",
                     p,
+                    cx,
                 )
                 .debug_selector(move || {
                     if tag {

@@ -77,7 +77,7 @@ impl PreferencesWindow {
                         .flex()
                         .gap(px(8.0))
                         .child(
-                            label_button(("agent-connect", index), self.t("agent_connect"), p)
+                            label_button(("agent-connect", index), self.t("agent_connect"), p, cx)
                                 .disabled(self.agent_busy.is_some())
                                 .accessibility_label(format!("{name} {}", self.t("agent_connect")))
                                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -85,7 +85,7 @@ impl PreferencesWindow {
                                 })),
                         )
                         .child(
-                            label_button(("agent-remove", index), self.t("agent_remove"), p)
+                            label_button(("agent-remove", index), self.t("agent_remove"), p, cx)
                                 .disabled(self.agent_busy.is_some())
                                 .accessibility_label(format!("{name} {}", self.t("agent_remove")))
                                 .on_click(cx.listener(move |this, _, _, cx| {

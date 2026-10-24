@@ -1,10 +1,9 @@
 use super::{
     Tervia,
-    controls::{icon, icon_button, label_button},
+    controls::{icon, icon_button, label_button, list_row},
 };
 use gpui_kit::component::{
     Disableable, Sizable,
-    button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -260,7 +259,7 @@ impl Tervia {
                         ),
                 )
                 .child(
-                    label_button(("task-rerun", session), self.t("tasks_rerun"), p)
+                    label_button(("task-rerun", session), self.t("tasks_rerun"), p, cx)
                         .debug_selector(move || format!("task-rerun-{session}"))
                         .icon(icon(gpui_kit::assets::IconName::RotateCcw, p.secondary))
                         .disabled(!can_rerun)

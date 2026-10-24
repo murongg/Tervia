@@ -197,7 +197,7 @@ impl Tervia {
                             .w(px(160.0)),
                     )
                     .child(
-                        label_button("git-more-history", self.t("git_load_more"), p)
+                        label_button("git-more-history", self.t("git_load_more"), p, cx)
                             .disabled(ui.busy || ui.history.loading || ui.limit >= 2000)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.git_states[project].limit =
@@ -233,7 +233,7 @@ impl Tervia {
                         .text_color(p.secondary)
                         .child(self.t("git_history_failed"))
                         .child(
-                            label_button("git-history-retry", self.t("files_retry"), p)
+                            label_button("git-history-retry", self.t("files_retry"), p, cx)
                                 .tooltip(error.to_string())
                                 .disabled(ui.history.loading)
                                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -303,13 +303,10 @@ impl Tervia {
         ui.rendered_rows.set(ui.rendered_rows.get() + 1);
         let hash = commit.hash.clone();
         let selected = matches!(&ui.selected, Some(Detail::Commit(selected)) if selected == &hash);
-        label_button(("git-commit-row", row.index), "", p)
-            .w_full()
-            .h(px(32.0))
+        list_row(("git-commit-row", row.index), selected, p, cx)
             .min_h(px(32.0))
             .p(px(0.0))
             .rounded(px(0.0))
-            .bg(if selected { p.selected } else { p.background })
             .accessibility_label(commit.message.clone())
             .tooltip(format!("{}\n{}", commit.message, commit.refs))
             .child(

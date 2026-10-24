@@ -1,10 +1,10 @@
 use super::{
     Tervia,
-    controls::{icon, icon_button, label_button},
+    controls::{icon, icon_button, label_button, list_row, toolbar},
 };
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    Disableable, Sizable, WindowExt,
+    Disableable, WindowExt,
     button::{Button, ButtonVariants},
     dialog::{DialogAction, DialogClose, DialogEntrance, DialogFooter},
     input::{Input, InputState},

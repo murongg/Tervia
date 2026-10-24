@@ -12,7 +12,7 @@ use tervia::state::{File, Tab};
 
 use super::{
     Tervia,
-    controls::{icon, icon_button, label_button},
+    controls::{icon, icon_button, label_button, list_row, toolbar},
     icons::file_icon,
 };
 pub(in crate::ui) mod management;
@@ -241,20 +241,15 @@ impl Tervia {
                 .text_color(p.secondary)
                 .child(self.t("files_select"))
                 .child(
-                    label_button("open-file-empty", self.t("git_open_file"), p)
+                    label_button("open-file-empty", self.t("git_open_file"), p, cx)
                         .on_click(cx.listener(|this, _, window, cx| this.choose_file(window, cx))),
                 );
         };
         let external = self.monitors[owner].external.get(&file.disk_path).copied();
         let tabs = self.file_tabs(cx);
         let context = self.file_context(owner, active, cx);
-        let breadcrumbs = div()
-            .h(px(35.0))
-            .flex_shrink_0()
-            .px(px(20.0))
-            .flex()
-            .items_center()
-            .gap(px(7.0))
+        let breadcrumbs = toolbar(p)
+            .h(px(36.0))
             .text_size(px(11.0))
             .text_color(p.secondary)
             .when_some(self.git_return_button(cx), |bar, button| bar.child(button))
@@ -287,7 +282,7 @@ impl Tervia {
                 .on_click(cx.listener(|this, _, window, cx| this.reload_file(window, cx))),
             )
             .child(
-                label_button("find-in-file", self.t("find"), p)
+                label_button("find-in-file", self.t("find"), p, cx)
                     .debug_selector(|| "find-in-file".into())
                     .disabled(file.is_image())
                     .icon(icon(IconName::Search, p.secondary))
@@ -303,7 +298,7 @@ impl Tervia {
                     })),
             )
             .child(
-                label_button("copy-file-context", self.t("copy_code_context"), p)
+                label_button("copy-file-context", self.t("copy_code_context"), p, cx)
                     .debug_selector(|| "file-copy-code-context".into())
                     .disabled(context.is_none())
                     .icon(icon(IconName::Copy, p.secondary))
@@ -318,7 +313,7 @@ impl Tervia {
                     })),
             )
             .child(
-                label_button("save-file", self.t("save"), p)
+                label_button("save-file", self.t("save"), p, cx)
                     .disabled(file.is_image() || !file.dirty())
                     .icon(icon(IconName::Save, p.accent))
                     .tooltip(tervia::platform::Platform::CURRENT.hint(self.t("save_shortcut")))

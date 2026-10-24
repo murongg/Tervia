@@ -78,6 +78,7 @@ impl Tervia {
                 "files_source"
             }),
             super::super::theme::Palette::workbench(&self.appearance.theme),
+            cx,
         )
         .debug_selector(|| "files-source-toggle".into())
         .on_click(cx.listener(move |this, _, window, cx| {

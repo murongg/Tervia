@@ -160,18 +160,9 @@ impl Tervia {
                                 let index = rows[row];
                                 let task = &this.tasks.catalog.tasks[index];
                                 let command = task.display();
-                                Button::new(("project-task", row))
-                                    .ghost()
-                                    .compact()
-                                    .w_full()
+                                list_row(("project-task", row), selected == row, p, cx)
                                     .h(px(52.0))
-                                    .justify_start()
                                     .debug_selector(move || format!("project-task-{row}"))
-                                    .bg(if selected == row {
-                                        p.selected
-                                    } else {
-                                        p.sidebar.opacity(0.0)
-                                    })
                                     .accessibility_label(format!(
                                         "{} · {} · {command}",
                                         task.label, task.source
