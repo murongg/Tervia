@@ -126,7 +126,7 @@ impl Tervia {
                             ),
                         )
                         .child(
-                            label_button("git-clone-remote-url", self.t("git_clone"), p)
+                            label_button("git-clone-remote-url", self.t("git_clone"), p, cx)
                                 .disabled(
                                     ui.busy
                                         || self.git_mutating

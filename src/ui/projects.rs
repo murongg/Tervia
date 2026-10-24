@@ -1,6 +1,6 @@
 use super::{
     Tervia,
-    controls::{icon, icon_style},
+    controls::{action_style, icon, list_row},
 };
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;

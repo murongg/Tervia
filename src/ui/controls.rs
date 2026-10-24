@@ -12,6 +12,9 @@ use tervia::platform::Platform;
 
 use super::theme::Palette;
 
+const CONTROL_HEIGHT: f32 = 28.0;
+const CONTROL_RADIUS: f32 = 5.0;
+
 pub(super) fn titlebar_drag_region(region: Div) -> Div {
     if Platform::CURRENT == Platform::Windows {
         // Windows needs a native caption hitbox: GPUI's move API is a no-op here,
@@ -230,29 +233,65 @@ pub fn icon_button(
     cx: &App,
 ) -> Button {
     Button::new(id)
-        .custom(icon_style(p, cx))
+        .custom(action_style(p, cx))
         .small()
         .icon(icon(name, p.secondary))
         .tooltip(tervia::platform::Platform::CURRENT.hint(tooltip.into().as_ref()))
-        .size(px(28.0))
-        .rounded(px(5.0))
+        .size(px(CONTROL_HEIGHT))
+        .rounded(px(CONTROL_RADIUS))
 }
 
-pub fn icon_style(p: Palette, cx: &App) -> ButtonCustomVariant {
+pub fn action_style(p: Palette, cx: &App) -> ButtonCustomVariant {
     ButtonCustomVariant::new(cx)
         .foreground(p.secondary)
         .hover(p.text.opacity(0.12))
         .active(p.text.opacity(0.20))
 }
 
-pub fn label_button(id: impl Into<ElementId>, label: &str, p: Palette) -> Button {
+pub fn label_button(id: impl Into<ElementId>, label: &str, p: Palette, cx: &App) -> Button {
     Button::new(id)
-        .ghost()
+        .custom(action_style(p, cx))
         .small()
         .label(label.to_owned())
-        .text_color(p.secondary)
-        .h(px(28.0))
-        .rounded(px(5.0))
+        .h(px(CONTROL_HEIGHT))
+        .rounded(px(CONTROL_RADIUS))
+}
+
+/// A selectable row; callers own its content, height and actions.
+pub fn list_row(id: impl Into<ElementId>, selected: bool, p: Palette, cx: &App) -> Button {
+    Button::new(id)
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .foreground(p.text)
+                .hover(p.raised)
+                .active(p.selected),
+        )
+        // Custom variants tint their base fill; preserve the palette's exact selection opacity.
+        .bg(if selected {
+            p.selected
+        } else {
+            p.background.opacity(0.0)
+        })
+        .compact()
+        .w_full()
+        .h(px(32.0))
+        .justify_start()
+        .rounded(px(CONTROL_RADIUS))
+}
+
+/// Main pane toolbar. Compact subheaders may override the height.
+pub fn toolbar(p: Palette) -> Div {
+    div()
+        .h(px(44.0))
+        .flex_shrink_0()
+        .min_w_0()
+        .px(px(12.0))
+        .flex()
+        .items_center()
+        .gap(px(6.0))
+        .bg(p.toolbar)
+        .border_b_1()
+        .border_color(p.border)
 }
 
 pub fn separator(p: Palette) -> Div {
@@ -287,6 +326,178 @@ mod tests {
         preferences::Preferences,
         state::{Screen, Tab},
     };
+
+    struct Actions {
+        light: bool,
+        clicks: Rc<Cell<usize>>,
+    }
+
+    impl Render for Actions {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            use gpui_kit::component::Disableable as _;
+            let p = Palette::workbench(self.light);
+            div()
+                .size_full()
+                .flex()
+                .items_start()
+                .gap(px(8.0))
+                .p(px(16.0))
+                .child(
+                    icon_button("test-icon", IconName::Plus, "Add", p, cx)
+                        .debug_selector(|| "test-icon".into())
+                        .on_click(cx.listener(|this, _, _, _| {
+                            this.clicks.set(this.clicks.get() + 1);
+                        })),
+                )
+                .child(
+                    label_button("test-label", "Add item", p, cx)
+                        .debug_selector(|| "test-label".into())
+                        .on_click(cx.listener(|this, _, _, _| {
+                            this.clicks.set(this.clicks.get() + 1);
+                        })),
+                )
+                .child(
+                    label_button("test-disabled", "Unavailable", p, cx)
+                        .debug_selector(|| "test-disabled".into())
+                        .disabled(true)
+                        .on_click(|_, _, _| panic!("Disabled actions must not run")),
+                )
+        }
+    }
+
+    #[gpui_test::test]
+    fn action_buttons_share_neutral_feedback_and_keep_disabled_actions_inert(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_kit::init);
+        let clicks = Rc::new(Cell::new(0));
+        let (view, cx) = cx.add_window_view(|_, _| Actions {
+            light: false,
+            clicks: clicks.clone(),
+        });
+        for light in [false, true] {
+            view.update(cx, |view, cx| {
+                view.light = light;
+                super::super::theme::apply_palette(light, cx);
+                cx.notify();
+            });
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let p = Palette::workbench(light);
+            for selector in ["test-icon", "test-label"] {
+                let bounds = cx.debug_bounds(selector).unwrap();
+                assert_eq!(bounds.size.height, px(28.0));
+                cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.draw(cx).clear(cx);
+                    assert!(
+                        window.painted_quads().iter().any(|quad| {
+                            quad.bounds == bounds.scale(window.scale_factor())
+                                && quad.background == p.text.opacity(0.12).into()
+                        }),
+                        "{selector} must use neutral hover feedback (light={light})"
+                    );
+                });
+                cx.simulate_mouse_down(bounds.center(), MouseButton::Left, Modifiers::default());
+                cx.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    assert!(window.painted_quads().iter().any(|quad| {
+                        quad.bounds == bounds.scale(window.scale_factor())
+                            && quad.background == p.text.opacity(0.20).into()
+                    }));
+                });
+                cx.simulate_mouse_up(bounds.center(), MouseButton::Left, Modifiers::default());
+            }
+            let disabled = cx.debug_bounds("test-disabled").unwrap();
+            cx.simulate_click(disabled.center(), Modifiers::default());
+        }
+        assert_eq!(clicks.get(), 4);
+    }
+
+    struct Rows {
+        light: bool,
+        selected: bool,
+    }
+
+    impl Render for Rows {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let p = Palette::workbench(self.light);
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(
+                    toolbar(p).debug_selector(|| "test-toolbar".into()).child(
+                        icon_button("toolbar-add", IconName::Plus, "Add", p, cx)
+                            .debug_selector(|| "toolbar-add".into()),
+                    ),
+                )
+                .child(
+                    list_row("test-row", self.selected, p, cx)
+                        .debug_selector(|| "test-row".into())
+                        .h(px(52.0))
+                        .label("Synthetic item")
+                        .on_click(|_, _, _| {}),
+                )
+        }
+    }
+
+    #[gpui_test::test]
+    fn toolbar_and_list_rows_share_geometry_and_theme_states(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let (view, cx) = cx.add_window_view(|_, _| Rows {
+            light: false,
+            selected: false,
+        });
+        for light in [false, true] {
+            let p = Palette::workbench(light);
+            for selected in [false, true] {
+                view.update(cx, |view, cx| {
+                    view.light = light;
+                    view.selected = selected;
+                    super::super::theme::apply_palette(light, cx);
+                    cx.notify();
+                });
+                cx.simulate_mouse_move(point(px(0.0), px(200.0)), None, Modifiers::default());
+                cx.update(|window, cx| window.draw(cx).clear(cx));
+                let toolbar = cx.debug_bounds("test-toolbar").unwrap();
+                let row = cx.debug_bounds("test-row").unwrap();
+                assert_eq!(toolbar.size.height, px(44.0));
+                let action = cx.debug_bounds("toolbar-add").unwrap();
+                assert_eq!(action.left(), toolbar.left() + px(12.0));
+                assert!(f32::from(action.center().y - toolbar.center().y).abs() <= 1.0);
+                assert_eq!(row.size.height, px(52.0));
+                assert_eq!(row.top(), toolbar.bottom());
+                assert_eq!(row.size.width, toolbar.size.width);
+                for (hovered, expected) in [
+                    (false, if selected { p.selected } else { p.background }),
+                    (true, p.raised),
+                ] {
+                    if hovered {
+                        cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+                    }
+                    cx.update(|window, cx| {
+                        window.draw(cx).clear(cx);
+                        window.draw(cx).clear(cx);
+                        let bounds = row.scale(window.scale_factor());
+                        let backgrounds: Vec<_> = window
+                            .painted_quads()
+                            .into_iter()
+                            .filter(|quad| {
+                                quad.bounds == bounds && !quad.background.is_transparent()
+                            })
+                            .collect();
+                        if expected.is_transparent() {
+                            assert!(backgrounds.is_empty());
+                        } else {
+                            assert_eq!(backgrounds.len(), 1);
+                            assert_eq!(backgrounds[0].background, expected.into());
+                        }
+                    });
+                }
+            }
+        }
+    }
 
     #[test]
     fn caption_ownership_follows_the_actual_linux_decoration_mode() {

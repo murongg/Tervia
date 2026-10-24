@@ -535,7 +535,7 @@ impl Render for Editor {
                             .child(status),
                     )
                     .child(
-                        label_button("theme-editor-cancel", self.t("git_cancel"), p)
+                        label_button("theme-editor-cancel", self.t("git_cancel"), p, cx)
                             .disabled(self.saving)
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.request_close(window, cx)),
@@ -550,6 +550,7 @@ impl Render for Editor {
                                 "theme_save_use"
                             }),
                             p,
+                            cx,
                         )
                         .debug_selector(|| "theme-editor-save".into())
                         .disabled(self.saving || !self.draft.can_save())

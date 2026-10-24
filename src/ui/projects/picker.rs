@@ -81,7 +81,7 @@ impl Tervia {
             .anchor(Anchor::TopLeft)
             .trigger(
                 Button::new("working-directory-trigger")
-                    .custom(icon_style(p, cx))
+                    .custom(action_style(p, cx))
                     .compact()
                     .h(px(30.0))
                     .min_w_0()
@@ -266,47 +266,44 @@ impl Tervia {
                                 let index = rows[row];
                                 let active = this.state.active_project == index;
                                 let close = close.clone();
-                                Button::new(("working-directory", index))
-                                    .custom(icon_style(p, cx))
-                                    .compact()
-                                    .h(px(36.0))
-                                    .w_full()
-                                    .justify_start()
-                                    .bg(if this.navigation.selected == row {
-                                        p.raised
-                                    } else {
-                                        p.sidebar.opacity(0.0)
-                                    })
-                                    .debug_selector(move || format!("working-directory-{index}"))
-                                    .tooltip(this.state.projects[index].path.clone())
-                                    .accessibility_label(this.working_directory_name(parent, index))
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .gap(px(8.0))
-                                            .min_w_0()
-                                            .w_full()
-                                            .child(icon(
-                                                if active {
-                                                    IconName::Check
-                                                } else {
-                                                    IconName::Folder
-                                                },
-                                                if active { p.accent } else { p.secondary },
-                                            ))
-                                            .child(
-                                                div().flex_1().min_w_0().text_ellipsis().child(
-                                                    this.working_directory_name(parent, index),
-                                                ),
-                                            ),
-                                    )
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        let _ =
-                                            close.update(cx, |state, cx| state.dismiss(window, cx));
-                                        this.select_working_directory(parent, index, window, cx);
-                                    }))
-                                    .into_any_element()
+                                list_row(
+                                    ("working-directory", index),
+                                    this.navigation.selected == row,
+                                    p,
+                                    cx,
+                                )
+                                .h(px(36.0))
+                                .debug_selector(move || format!("working-directory-{index}"))
+                                .tooltip(this.state.projects[index].path.clone())
+                                .accessibility_label(this.working_directory_name(parent, index))
+                                .child(
+                                    div()
+                                        .flex()
+                                        .items_center()
+                                        .gap(px(8.0))
+                                        .min_w_0()
+                                        .w_full()
+                                        .child(icon(
+                                            if active {
+                                                IconName::Check
+                                            } else {
+                                                IconName::Folder
+                                            },
+                                            if active { p.accent } else { p.secondary },
+                                        ))
+                                        .child(
+                                            div()
+                                                .flex_1()
+                                                .min_w_0()
+                                                .text_ellipsis()
+                                                .child(this.working_directory_name(parent, index)),
+                                        ),
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    let _ = close.update(cx, |state, cx| state.dismiss(window, cx));
+                                    this.select_working_directory(parent, index, window, cx);
+                                }))
+                                .into_any_element()
                             })
                             .collect()
                     }),
@@ -321,12 +318,7 @@ impl Tervia {
                     .border_color(p.chrome_border())
                     .pt(px(6.0))
                     .child(
-                        Button::new("working-directory-add")
-                            .ghost()
-                            .compact()
-                            .h(px(32.0))
-                            .w_full()
-                            .justify_start()
+                        list_row("working-directory-add", false, p, cx)
                             .debug_selector(|| "working-directory-add".into())
                             .icon(icon(IconName::Plus, p.secondary))
                             .label(self.t("working_directory_add"))

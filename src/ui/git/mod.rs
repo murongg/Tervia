@@ -24,11 +24,11 @@ mod worktrees;
 
 use super::{
     Tervia,
-    controls::{icon_style, label_button},
+    controls::{label_button, list_row, toolbar},
 };
 use gpui_kit::component::{
     Disableable as _,
-    button::{Button, ButtonVariants as _},
+    button::Button,
     diff::{DiffFile, DiffMode, DiffState},
     input::{Input, InputEvent, InputState, Textarea, TextareaState},
     resizable::ResizableState,
@@ -921,7 +921,7 @@ impl Tervia {
     ) -> Button {
         self.git_button(
             project,
-            label_button(id, self.t(key), self.git_p()),
+            label_button(id, self.t(key), self.git_p(), cx),
             key,
             operation,
             cx,
@@ -944,7 +944,6 @@ impl Tervia {
         cx: &mut Context<Self>,
     ) -> Button {
         button
-            .custom(icon_style(self.git_p(), cx))
             .disabled(self.git_action_busy(project))
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.run_git_action(project, key, operation.clone(), window, cx)

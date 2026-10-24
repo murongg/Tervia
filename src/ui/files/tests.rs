@@ -161,6 +161,7 @@ fn text_search_paints_every_match_in_both_themes_and_selection_states(cx: &mut T
         });
         for selector in ["files-search-result-0", "files-search-result-1"] {
             let bounds = cx.debug_bounds(selector).unwrap();
+            assert_eq!(bounds.size.height, px(52.0));
             cx.update(|window, _| {
                 let bounds = bounds.scale(window.scale_factor());
                 let theme: tervia::preferences::Themes = light.into();

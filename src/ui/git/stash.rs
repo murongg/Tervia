@@ -39,7 +39,7 @@ impl Tervia {
                     .bg(p.toolbar)
                     .hover(|style| style.bg(p.raised))
                     .child(
-                        label_button("git-stash-fold", self.t("git_stash"), p)
+                        label_button("git-stash-fold", self.t("git_stash"), p, cx)
                             .text()
                             .h_full()
                             .w_full()
@@ -127,7 +127,7 @@ impl Tervia {
             .border_b_1()
             .border_color(p.border)
             .child(
-                label_button(("git-stash-row", index), "", p)
+                label_button(("git-stash-row", index), "", p, cx)
                     .debug_selector(move || format!("git-stash-row-{index}"))
                     // Keep one hover surface across the content, actions, and outer padding.
                     .custom(ButtonCustomVariant::new(cx).foreground(p.secondary))

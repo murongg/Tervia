@@ -159,7 +159,7 @@ impl Tervia {
                             .child(summary(&failure.error, self.appearance.language)),
                     )
                     .child(
-                        label_button("git-toggle-error-details", self.t(key), p)
+                        label_button("git-toggle-error-details", self.t(key), p, cx)
                             .debug_selector(|| "git-toggle-error-details".into())
                             .accessibility_label(self.t(key))
                             .on_click(cx.listener(move |this, _, _, cx| {

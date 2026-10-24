@@ -106,7 +106,7 @@ impl Tervia {
                     .bg(if selected { p.selected } else { p.background })
                     .hover(|style| style.bg(p.raised))
                     .child(
-                        label_button(("editor-tab", index), "", p)
+                        label_button(("editor-tab", index), "", p, cx)
                             .text()
                             .flex_1()
                             .min_w_0()
