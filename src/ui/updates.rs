@@ -412,6 +412,7 @@ impl Render for Updater {
                                     "updates-check-button",
                                     language.text("update_check"),
                                     p,
+                                    cx,
                                 )
                                 .outline()
                                 .h(px(32.0))
@@ -469,6 +470,7 @@ impl Render for Updater {
                                                             "updates-install-button",
                                                             language.text("update_install"),
                                                             p,
+                                                            cx,
                                                         )
                                                         .primary()
                                                         .bg(if install_disabled {
@@ -496,6 +498,7 @@ impl Render for Updater {
                                                     "updates-notes",
                                                     language.text("update_notes"),
                                                     p,
+                                                    cx,
                                                 )
                                                 .on_click(move |_, _, cx| cx.open_url(&url)),
                                             ),
@@ -508,6 +511,7 @@ impl Render for Updater {
                                                 "updates-restart-button",
                                                 language.text("update_restart"),
                                                 p,
+                                                cx,
                                             )
                                             .primary()
                                             .bg(p.accent)

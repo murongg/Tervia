@@ -26,6 +26,47 @@ fn workspace(cx: &mut TestAppContext) -> (Entity<Tervia>, &mut gpui_test::Visual
 }
 
 #[gpui_test::test]
+fn ssh_sidebar_reveals_the_workspace_and_spaces_its_search_in_both_themes(cx: &mut TestAppContext) {
+    use gpui_kit::component::ActiveTheme as _;
+    let (view, cx) = workspace(cx);
+    for light in [false, true] {
+        view.update(cx, |this, cx| {
+            this.preferences.update(cx, |preferences, cx| {
+                preferences.theme = light.into();
+                cx.notify();
+            });
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let workspace = cx.debug_bounds("ssh-workspace").unwrap();
+        let row = cx.debug_bounds("ssh-host-0").unwrap();
+        cx.update(|window, cx| {
+            let scale = window.scale_factor();
+            let header = Bounds::new(workspace.origin, size(row.size.width, px(44.0)));
+            let quads = window.painted_quads();
+            assert!(
+                !quads.iter().any(|quad| {
+                    quad.bounds == header.scale(scale) && !quad.background.is_transparent()
+                }),
+                "SSH headers must reveal the continuous workspace background"
+            );
+            let field = Bounds::new(
+                point(header.left() + px(12.0), header.bottom() + px(8.0)),
+                size(row.size.width - px(24.0), window.rem_size() * 2.0),
+            );
+            assert!(
+                quads.iter().any(|quad| {
+                    quad.bounds == field.scale(scale)
+                        && quad.background == cx.theme().input_background().into()
+                }),
+                "The search field uses the standard input height and aligned insets"
+            );
+            assert_eq!(row.top(), field.bottom() + px(8.0));
+        });
+    }
+}
+
+#[gpui_test::test]
 fn selecting_hosts_keeps_ssh_visible_and_reuses_their_owned_terminal(cx: &mut TestAppContext) {
     let (view, cx) = workspace(cx);
     cx.update(|window, cx| {

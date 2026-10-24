@@ -236,14 +236,14 @@ impl Tervia {
                     .justify_end()
                     .gap(px(6.0))
                     .child(
-                        label_button("file-entry-cancel", self.t("git_cancel"), p)
+                        label_button("file-entry-cancel", self.t("git_cancel"), p, cx)
                             .disabled(self.saving_file)
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.cancel_entry(project, window, cx)
                             })),
                     )
                     .child(
-                        label_button("file-entry-submit", self.t("git_confirm"), p)
+                        label_button("file-entry-submit", self.t("git_confirm"), p, cx)
                             .disabled(
                                 !self.can_manage_files()
                                     || management.input.read(cx).value().trim().is_empty(),

@@ -342,7 +342,7 @@ impl Tervia {
             .when(!footer_shares_border, |footer| footer.border_t_1())
             .border_color(p.border)
             .child(
-                label_button("git-toggle-commit", self.t("git_commit_toggle"), p)
+                label_button("git-toggle-commit", self.t("git_commit_toggle"), p, cx)
                     .debug_selector(|| "git-toggle-commit".into())
                     .icon(icon(
                         if ui.review.commit_expanded {
@@ -446,7 +446,7 @@ impl Tervia {
                     .border_color(p.border)
                     .pr(px(5.0))
                     .child(
-                        label_button(("git-change-group", group as usize), "", p)
+                        label_button(("git-change-group", group as usize), "", p, cx)
                             .text()
                             .flex_1()
                             .h_full()
@@ -583,6 +583,7 @@ impl Tervia {
                     format!("git-folder-{}-{}", group, path.to_string_lossy()),
                     "",
                     p,
+                    cx,
                 )
                 .w_full()
                 .h(px(34.0))
@@ -711,7 +712,7 @@ impl Tervia {
                         )
                     })
                     .child(
-                        label_button(("git-file", row_id), "", p)
+                        label_button(("git-file", row_id), "", p, cx)
                             .debug_selector(move || format!("git-file-{row_id}"))
                             // The row owns hover; its content must not paint a second surface.
                             .custom(ButtonCustomVariant::new(cx).foreground(p.secondary))

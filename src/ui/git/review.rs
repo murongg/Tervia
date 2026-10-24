@@ -226,6 +226,7 @@ impl Tervia {
                 "git-return-to-diff",
                 self.t("git_return_to_diff"),
                 self.git_p(),
+                cx,
             )
             .debug_selector(|| "git-return-to-diff".into())
             .icon(super::super::controls::icon(

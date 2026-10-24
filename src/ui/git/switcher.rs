@@ -230,7 +230,7 @@ impl Tervia {
             })
             .track_focus(&ui.switcher.input.focus_handle(cx))
             .trigger(
-                label_button(("git-branch-switcher", anchor as usize), "", p)
+                label_button(("git-branch-switcher", anchor as usize), "", p, cx)
                     .h(px(30.0))
                     .max_w(px(250.0))
                     .min_w_0()
@@ -410,24 +410,18 @@ impl Tervia {
                                     .switcher
                                     .recent
                                     .contains(&reference);
-                                label_button(
+                                list_row(
                                     SharedString::from(format!(
                                         "git-quick-branch-{}-{}",
                                         branch.remote, branch.name
                                     )),
-                                    "",
+                                    selected,
                                     p,
+                                    cx,
                                 )
                                 .debug_selector(move || format!("git-quick-branch-row-{row}"))
                                 .h(px(36.0))
-                                .w_full()
-                                .justify_start()
                                 .disabled(busy)
-                                .bg(if selected {
-                                    p.raised
-                                } else {
-                                    p.sidebar.opacity(0.0)
-                                })
                                 .accessibility_label(branch.name.clone())
                                 .tooltip(branch.name.clone())
                                 .child(

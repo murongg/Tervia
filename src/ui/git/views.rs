@@ -93,7 +93,7 @@ impl Tervia {
                     })
                     .when(!ordinary, |body| {
                         body.child(
-                            label_button("git-retry", self.t("refresh_git"), p)
+                            label_button("git-retry", self.t("refresh_git"), p, cx)
                                 .debug_selector(|| "git-retry".into())
                                 .accessibility_label(self.t("refresh_git"))
                                 .disabled(ui.busy || self.git_mutating)
@@ -104,7 +104,7 @@ impl Tervia {
                     })
                     .when(ordinary, |body| {
                         body.child(
-                            label_button("git-init", self.t("git_init"), p)
+                            label_button("git-init", self.t("git_init"), p, cx)
                                 .debug_selector(|| "git-init".into())
                                 .disabled(ui.busy || self.git_mutating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -117,7 +117,7 @@ impl Tervia {
                                 .w(px(380.0)),
                         )
                         .child(
-                            label_button("git-clone", self.t("git_clone"), p)
+                            label_button("git-clone", self.t("git_clone"), p, cx)
                                 .debug_selector(|| "git-clone".into())
                                 .disabled(ui.busy || self.git_mutating)
                                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -128,16 +128,7 @@ impl Tervia {
             );
         };
         let status = &snapshot.status;
-        let mut toolbar = div()
-            .h(px(44.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .gap(px(5.0))
-            .px(px(12.0))
-            .bg(p.toolbar)
-            .border_b_1()
-            .border_color(p.border)
+        let mut toolbar = toolbar(p)
             .child(self.branch_switcher(SwitchAnchor::Toolbar, cx))
             .child(
                 div()
@@ -370,15 +361,8 @@ impl Tervia {
 
     pub(super) fn git_panel_title(&self, title: &'static str) -> Div {
         let p = self.git_p();
-        div()
+        toolbar(p)
             .h(px(36.0))
-            .flex_shrink_0()
-            .px(px(12.0))
-            .flex()
-            .items_center()
-            .border_b_1()
-            .border_color(p.border)
-            .bg(p.toolbar)
             .text_size(px(12.0))
             .font_weight(FontWeight::MEDIUM)
             .child(self.t(title))

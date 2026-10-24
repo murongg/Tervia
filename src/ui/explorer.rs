@@ -11,7 +11,7 @@ use tervia::files::{EntryKind, Row, Tree};
 
 use super::{
     Tervia,
-    controls::{icon, icon_button, label_button},
+    controls::{icon, icon_button, label_button, toolbar},
     icons::file_icon,
     theme::Palette,
 };
@@ -195,13 +195,7 @@ impl Tervia {
             .min_h_0()
             .min_w_0()
             .child(
-                div()
-                    .h(px(44.0))
-                    .flex_shrink_0()
-                    .px(px(12.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(2.0))
+                toolbar(p)
                     .child(
                         div()
                             .flex_1()
@@ -517,7 +511,7 @@ impl Tervia {
                             .min_w_0()
                             .h_full()
                             .child(
-                                label_button(("explorer-entry", index), "", p)
+                                label_button(("explorer-entry", index), "", p, cx)
                                     .text()
                                     .h_full()
                                     .w_full()
@@ -651,7 +645,7 @@ impl Tervia {
                 message,
             } => {
                 let path = path.clone();
-                label_button(("explorer-retry", index), self.t("files_retry"), p)
+                label_button(("explorer-retry", index), self.t("files_retry"), p, cx)
                     .text()
                     .h(px(30.0))
                     .w_full()

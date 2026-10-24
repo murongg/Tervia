@@ -146,7 +146,7 @@ impl Tervia {
             // Keep transient actions before the fixed controls so their click targets never move.
             .when(!self.state.has_project(), |bar| {
                 bar.child(
-                    label_button("local-open-project", self.t("welcome_open_project"), p)
+                    label_button("local-open-project", self.t("welcome_open_project"), p, cx)
                         .icon(icon(IconName::FolderOpen, p.secondary))
                         .on_click(
                             cx.listener(|this, _, window, cx| this.choose_repository(window, cx)),
@@ -157,7 +157,7 @@ impl Tervia {
                 titlebar.child(div().mr(px(8.0)).child(update))
             })
             .child(
-                label_button("open-palette", self.t("quick_actions"), p)
+                label_button("open-palette", self.t("quick_actions"), p, cx)
                     .debug_selector(|| "titlebar-quick-actions".into())
                     .icon(icon(IconName::Command, p.secondary))
                     .tooltip(Platform::CURRENT.hint(self.t("quick_actions_shortcut")))
@@ -260,7 +260,7 @@ impl Tervia {
         }
         nav.child(div().flex_1())
             .child(
-                label_button("run-project-task", self.t("tasks_title"), p)
+                label_button("run-project-task", self.t("tasks_title"), p, cx)
                     .debug_selector(|| "run-project-task".into())
                     .icon(icon(IconName::Play, p.secondary))
                     .tooltip(Platform::CURRENT.hint(self.t("tasks_shortcut")))

@@ -217,7 +217,7 @@ impl PreferencesWindow {
             .pb(px(6.0))
             .child(
                 div().flex().justify_end().child(
-                    label_button("theme-create", self.t("theme_create"), p)
+                    label_button("theme-create", self.t("theme_create"), p, cx)
                         .debug_selector(|| "theme-create".into())
                         .disabled(self.config_path.is_none() || self.theme_deleting)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -232,7 +232,7 @@ impl PreferencesWindow {
                         .text_color(p.red)
                         .child(error)
                         .child(
-                            label_button("theme-reload", self.t("autostart_retry"), p)
+                            label_button("theme-reload", self.t("autostart_retry"), p, cx)
                                 .on_click(cx.listener(|this, _, _, cx| this.reload_themes(cx))),
                         ),
                 )

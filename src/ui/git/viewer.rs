@@ -39,16 +39,7 @@ impl Tervia {
         let project = self.state.active_project;
         let ui = &self.git_states[project];
         let p = self.git_p();
-        let mut header = div()
-            .h(px(36.0))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .px(px(14.0))
-            .gap(px(6.0))
-            .border_b_1()
-            .border_color(p.border)
-            .bg(p.toolbar);
+        let mut header = toolbar(p).h(px(36.0));
         if let Some(Detail::File(file, side)) = &ui.selected {
             let path = file.path.clone();
             // Button focus clears the live text selection before its click callback.
@@ -101,7 +92,7 @@ impl Tervia {
                         .child(self.t("git_conflict_hint")),
                 )
                 .child(
-                    label_button("git-edit-conflict", self.t("git_edit_result"), p).on_click(
+                    label_button("git-edit-conflict", self.t("git_edit_result"), p, cx).on_click(
                         cx.listener(move |this, _, window, cx| {
                             this.open_git_file(project, path.clone(), None, window, cx)
                         }),
@@ -154,17 +145,17 @@ impl Tervia {
             header = header
                 .debug_selector(|| "git-checkpoint-view".into())
                 .child(
-                    label_button("git-checkpoint-back", self.t("git_working_copy"), p).on_click(
-                        cx.listener(move |this, _, window, cx| {
+                    label_button("git-checkpoint-back", self.t("git_working_copy"), p, cx)
+                        .on_click(cx.listener(move |this, _, window, cx| {
                             this.return_working_diff(project, window, cx)
-                        }),
-                    ),
+                        })),
                 )
                 .child(
                     label_button(
                         "git-checkpoint-refresh",
                         self.t("git_checkpoint_compare"),
                         p,
+                        cx,
                     )
                     .disabled(ui.detail_loading || ui.review.busy)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -186,6 +177,7 @@ impl Tervia {
                             "git_mark_reviewed"
                         }),
                         p,
+                        cx,
                     )
                     .debug_selector(|| "git-mark-reviewed".into())
                     .disabled(ui.detail_loading || ui.busy || ui.review.busy || file.conflicted)
@@ -286,6 +278,7 @@ impl Tervia {
                     "git-capture-checkpoint",
                     self.t("git_checkpoint_capture"),
                     p,
+                    cx,
                 )
                 .debug_selector(|| "git-capture-checkpoint".into())
                 .h(px(24.0))
@@ -314,6 +307,7 @@ impl Tervia {
                             "git-compare-checkpoint",
                             self.t("git_checkpoint_compare"),
                             p,
+                            cx,
                         )
                         .h(px(24.0))
                         .text_size(px(11.0))
@@ -329,7 +323,7 @@ impl Tervia {
             (1, DiffMode::Split, "diff_split"),
         ] {
             tools = tools.child(
-                label_button(("real-diff-mode", index), self.t(key), p)
+                label_button(("real-diff-mode", index), self.t(key), p, cx)
                     .h(px(24.0))
                     .text_size(px(11.0))
                     .bg(if ui.diff.read(cx).mode() == mode {
@@ -376,7 +370,7 @@ impl Tervia {
         tools = tools.child({
             let context = super::super::context::diff_context(ui.diff.read(cx), cx);
             let pressed_context = context.clone();
-            label_button("git-copy-code-context", self.t("copy_code_context"), p)
+            label_button("git-copy-code-context", self.t("copy_code_context"), p, cx)
                 .h(px(24.0))
                 .text_size(px(11.0))
                 .debug_selector(|| "git-copy-code-context".into())

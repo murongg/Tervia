@@ -237,14 +237,9 @@ impl Tervia {
                 }
             }))
             .child(
-                div()
-                    .h(px(44.0))
-                    .px(px(8.0))
-                    .flex()
-                    .items_center()
-                    .gap(px(4.0))
+                toolbar(p)
                     .child(
-                        label_button("files-search-back", self.t("file_explorer"), p)
+                        label_button("files-search-back", self.t("file_explorer"), p, cx)
                             .icon(icon(IconName::ArrowLeft, p.secondary))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.show_file_search(Mode::Browse, window, cx)
@@ -354,92 +349,89 @@ impl Tervia {
                                             .map(|range| (range, subtitle_highlight)),
                                     )
                                 });
-                                label_button(("files-search-result", index), "", p)
-                                    .debug_selector(move || format!("files-search-result-{index}"))
-                                    .w_full()
-                                    .h(px(if text.is_some() { 54.0 } else { 36.0 }))
-                                    .rounded(px(0.0))
-                                    .bg(if this.explorers[project].finder.selected == index {
-                                        p.selected
-                                    } else {
-                                        p.background
-                                    })
-                                    .accessibility_label(path.clone())
-                                    .tooltip(path.clone())
-                                    .child(
-                                        div()
-                                            .w_full()
-                                            .min_w_0()
-                                            .flex()
-                                            .flex_col()
-                                            .items_start()
-                                            .text_size(px(12.0))
-                                            .child(
+                                list_row(
+                                    ("files-search-result", index),
+                                    this.explorers[project].finder.selected == index,
+                                    p,
+                                    cx,
+                                )
+                                .debug_selector(move || format!("files-search-result-{index}"))
+                                .h(px(if text.is_some() { 52.0 } else { 36.0 }))
+                                .rounded(px(0.0))
+                                .accessibility_label(path.clone())
+                                .tooltip(path.clone())
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .flex()
+                                        .flex_col()
+                                        .items_start()
+                                        .text_size(px(12.0))
+                                        .child(
+                                            div()
+                                                .w_full()
+                                                .min_w_0()
+                                                .flex()
+                                                .items_center()
+                                                .gap(px(6.0))
+                                                .child(file_icon(
+                                                    file_path,
+                                                    this.appearance.theme.is_light(),
+                                                    None,
+                                                ))
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .text_ellipsis()
+                                                        .child(title),
+                                                ),
+                                        )
+                                        .when_some(text, |item, text| {
+                                            item.child(
                                                 div()
                                                     .w_full()
-                                                    .min_w_0()
-                                                    .flex()
-                                                    .items_center()
-                                                    .gap(px(6.0))
-                                                    .child(file_icon(
-                                                        file_path,
-                                                        this.appearance.theme.is_light(),
-                                                        None,
-                                                    ))
-                                                    .child(
-                                                        div()
-                                                            .flex_1()
-                                                            .min_w_0()
-                                                            .text_ellipsis()
-                                                            .child(title),
-                                                    ),
+                                                    .pl(px(22.0))
+                                                    .text_ellipsis()
+                                                    .text_size(px(11.0))
+                                                    .text_color(p.muted)
+                                                    .child(text),
                                             )
-                                            .when_some(text, |item, text| {
-                                                item.child(
-                                                    div()
-                                                        .w_full()
-                                                        .pl(px(22.0))
-                                                        .text_ellipsis()
-                                                        .text_size(px(11.0))
-                                                        .text_color(p.muted)
-                                                        .child(text),
-                                                )
-                                            }),
-                                    )
-                                    .on_click(cx.listener(
-                                        move |this, event: &ClickEvent, window, cx| {
-                                            if this.explorers[project].finder.generation
-                                                != generation
-                                            {
-                                                return;
-                                            }
-                                            this.explorers[project].finder.selected = index;
-                                            match &row {
-                                                Row::File(path) if event.click_count() < 2 => this
-                                                    .open_preview_file(
-                                                        project,
-                                                        path.clone(),
-                                                        window,
-                                                        cx,
-                                                    ),
-                                                Row::File(path) => this.open_real_file(
+                                        }),
+                                )
+                                .on_click(cx.listener(
+                                    move |this, event: &ClickEvent, window, cx| {
+                                        if this.explorers[project].finder.generation != generation {
+                                            return;
+                                        }
+                                        this.explorers[project].finder.selected = index;
+                                        match &row {
+                                            Row::File(path) if event.click_count() < 2 => this
+                                                .open_preview_file(
                                                     project,
                                                     path.clone(),
                                                     window,
                                                     cx,
                                                 ),
-                                                Row::Text(hit) => this.open_file_match(
-                                                    project,
-                                                    hit.path.clone(),
-                                                    hit.line,
-                                                    hit.column,
-                                                    window,
-                                                    cx,
-                                                ),
-                                            }
-                                        },
-                                    ))
-                                    .into_any_element()
+                                            Row::File(path) => this.open_real_file(
+                                                project,
+                                                path.clone(),
+                                                window,
+                                                cx,
+                                            ),
+                                            Row::Text(hit) => this.open_file_match(
+                                                project,
+                                                hit.path.clone(),
+                                                hit.line,
+                                                hit.column,
+                                                window,
+                                                cx,
+                                            ),
+                                        }
+                                    },
+                                ))
+                                .into_any_element()
                             })
                             .collect()
                     }),

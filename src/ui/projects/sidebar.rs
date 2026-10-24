@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::controls::icon_style;
+use crate::ui::controls::action_style;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use std::time::Duration;
 
@@ -107,7 +107,7 @@ impl Tervia {
         let target = self.state.project_target(parent);
         let branch = self.state.projects[target].branch.clone();
         let button = Button::new(("project", parent))
-            .custom(icon_style(p, cx))
+            .custom(action_style(p, cx))
             .compact()
             .w_full()
             .h(px(40.0))
@@ -203,7 +203,7 @@ impl Tervia {
             .when(expanded, |row| {
                 row.child(
                     Button::new(("favorite-project", parent))
-                        .custom(icon_style(p, cx))
+                        .custom(action_style(p, cx))
                         .compact()
                         .absolute()
                         .top(px(8.0))
@@ -285,7 +285,7 @@ impl Tervia {
         let pinned = self.state.sidebar_expanded;
         let expanded = pinned || self.navigation.sidebar.peek;
         let projects = self.state.project_rows();
-        let height = projects.len() as f32 * 40.0 + if expanded { 40.0 } else { 32.0 };
+        let height = projects.len() as f32 * 40.0 + if expanded { 48.0 } else { 32.0 };
         let search = div()
             .h(px(32.0))
             .flex_shrink_0()
@@ -294,7 +294,7 @@ impl Tervia {
             .gap(px(4.0))
             .child(
                 Button::new("search-projects")
-                    .custom(icon_style(p, cx))
+                    .custom(action_style(p, cx))
                     .compact()
                     .w_full()
                     // Separate hitboxes keep pinning from also invoking project search.
@@ -352,7 +352,7 @@ impl Tervia {
                 });
                 row.child(
                     Button::new("pin-project-sidebar")
-                        .custom(icon_style(p, cx))
+                        .custom(action_style(p, cx))
                         .compact()
                         .mr(px(4.0))
                         .size(px(24.0))
@@ -386,10 +386,12 @@ impl Tervia {
             .when(expanded, |panel| {
                 // Expand only the project area, below module navigation; global tools stay in the rail.
                 panel
+                    // Grow upward so search and project hit targets stay stationary on expansion.
+                    .top(px(-8.0))
                     .left(px(-8.0))
                     .w(px(232.0))
                     .px(px(8.0))
-                    .pb(px(8.0))
+                    .py(px(8.0))
                     .rounded(px(12.0))
                     .bg(if self.appearance.theme.is_light() {
                         p.background

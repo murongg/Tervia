@@ -79,6 +79,7 @@ impl Updater {
                                     "update-check-interval",
                                     &interval_label(language, settings.interval_minutes),
                                     p,
+                                    cx,
                                 )
                                 .outline()
                                 .h(px(32.0))

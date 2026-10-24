@@ -19,7 +19,8 @@ use tervia::shell::Profile;
 
 use super::{
     controls::{
-        has_window_controls, icon, icon_button, label_button, titlebar_drag_region, window_controls,
+        has_window_controls, icon, icon_button, label_button, list_row, titlebar_drag_region,
+        window_controls,
     },
     theme::Palette,
 };
@@ -474,9 +475,7 @@ impl PreferencesWindow {
                 .map(|(category, id, glyph)| {
                     let selected = self.category == category;
                     div().debug_selector(move || id.to_owned()).child(
-                        Button::new(id)
-                            .ghost()
-                            .w_full()
+                        list_row(id, selected, p, cx)
                             .h(px(36.0))
                             .accessibility_label(self.t(category.key()))
                             .child(
@@ -491,8 +490,6 @@ impl PreferencesWindow {
                                     ),
                             )
                             .toggled(selected)
-                            .when(selected, |button| button.bg(p.selected))
-                            .text_color(p.text)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.category = category;
                                 this.scroll.set_offset(point(px(0.0), px(0.0)));
@@ -504,22 +501,11 @@ impl PreferencesWindow {
             .child(div().flex_1())
             .when_some(self.config_path.clone(), |sidebar, path| {
                 sidebar.child(
-                    Button::new("reveal-config")
-                        .ghost()
-                        .small()
-                        .h(px(28.0))
-                        .text_color(p.secondary)
+                    label_button("reveal-config", "config.toml", p, cx)
                         .w_full()
+                        .justify_start()
                         .accessibility_label(self.t("show_config"))
-                        .child(
-                            div()
-                                .flex()
-                                .w_full()
-                                .items_center()
-                                .gap(px(8.0))
-                                .child(icon(IconName::FolderOpen, p.secondary))
-                                .child("config.toml"),
-                        )
+                        .icon(icon(IconName::FolderOpen, p.secondary))
                         .tooltip(format!("{}\n{}", self.t("show_config"), path.display()))
                         .on_click(move |_, _, cx| cx.reveal_path(&path)),
                 )
@@ -588,7 +574,7 @@ impl Render for PreferencesWindow {
                     )
                     .when_some(error, |status, error| {
                         status.child(
-                            label_button("config-error", self.t("config_details"), p)
+                            label_button("config-error", self.t("config_details"), p, cx)
                                 .text_size(px(11.0))
                                 .text_color(p.red)
                                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -605,7 +591,7 @@ impl Render for PreferencesWindow {
             )
             .when(self.category != Category::Updates, |footer| {
                 footer.child(
-                    label_button("reset-preferences", self.t("reset_defaults"), p)
+                    label_button("reset-preferences", self.t("reset_defaults"), p, cx)
                         .debug_selector(|| "settings-reset-defaults".into())
                         .flex_shrink_0()
                         .on_click(cx.listener(|this, _, window, cx| {
