@@ -1,4 +1,5 @@
 use super::super::controls::icon;
+use super::super::icons::file_icon;
 use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
@@ -740,7 +741,11 @@ impl Tervia {
                                             .text_color(color)
                                             .child(status.to_string()),
                                     )
-                                    .child(icon(IconName::FileText, p.muted))
+                                    .child(file_icon(
+                                        &file.path,
+                                        self.appearance.theme.is_light(),
+                                        None,
+                                    ))
                                     .child(
                                         div()
                                             .flex_1()
