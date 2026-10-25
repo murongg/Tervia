@@ -1,4 +1,5 @@
 use super::super::controls::icon_button;
+use super::super::icons::file_icon;
 use super::*;
 use crate::ui::scroll::ListScrollbars as _;
 use gpui_kit::assets::IconName;
@@ -59,6 +60,11 @@ impl Tervia {
                                 .gap(px(6.0))
                                 .text_size(px(11.0))
                                 .child(div().text_color(color).child(mark))
+                                .child(file_icon(
+                                    std::path::Path::new(path.as_ref()),
+                                    this.appearance.theme.is_light(),
+                                    None,
+                                ))
                                 .child(div().flex_1().min_w_0().text_ellipsis().child(path.clone()))
                                 .child(
                                     div()

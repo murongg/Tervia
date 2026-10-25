@@ -1185,6 +1185,25 @@ fn commit_file_navigation_selects_the_target_and_full_metadata_can_be_expanded(
             ui.install_detail(generation, Ok(patch), cx);
         })
     });
+    for light in [false, true] {
+        view.update(cx, |this, cx| {
+            this.appearance.theme = light.into();
+            cx.notify();
+        });
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let icon = cx
+            .debug_bounds("file-icon-rust")
+            .expect("Commit files use the shared file type icons in both themes");
+        assert_eq!(
+            icon.size,
+            gpui_kit::size(gpui_kit::px(16.0), gpui_kit::px(16.0))
+        );
+        assert!(
+            cx.debug_bounds("git-commit-file-1")
+                .unwrap()
+                .contains(&icon.center())
+        );
+    }
     cx.update(|window, cx| window.draw(cx).clear(cx));
     let file = cx
         .debug_bounds("git-commit-file-1")
@@ -1825,6 +1844,12 @@ fn composite_rows_share_hover_across_content_actions_and_padding(cx: &mut TestAp
                     window.draw(cx).clear(cx);
                     window.draw(cx).clear(cx);
                 });
+                if mode == Mode::Changes {
+                    let icon = cx
+                        .debug_bounds("file-icon-rust")
+                        .expect("Working copy files use the shared file type icons");
+                    assert_eq!(icon.size, size(px(16.0), px(16.0)));
+                }
                 let bounds = cx.debug_bounds(row).unwrap();
                 let content = cx.debug_bounds(content).unwrap();
                 let action = cx.debug_bounds(action).unwrap();
