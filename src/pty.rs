@@ -49,17 +49,16 @@ pub fn shell_command(cwd: &Path) -> CommandBuilder {
 }
 
 pub fn ssh_command_for(cwd: &Path, host: &crate::ssh::Host) -> Result<CommandBuilder, String> {
-    let mut command = CommandBuilder::new("ssh");
+    let mut command = terminal_command("ssh");
     command.args(host.arguments()?);
     #[cfg(windows)]
     let cwd = dunce::simplified(cwd);
     command.cwd(cwd);
-    configure_terminal_environment(&mut command);
     Ok(command)
 }
 
 pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder {
-    let mut command = CommandBuilder::new(shell);
+    let mut command = terminal_command(shell);
     command.args(crate::platform::Platform::shell_args(
         &shell.to_string_lossy(),
     ));
@@ -68,6 +67,14 @@ pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder 
     #[cfg(windows)]
     let cwd = dunce::simplified(cwd);
     command.cwd(cwd);
+    command
+}
+
+fn terminal_command(program: impl AsRef<std::ffi::OsStr>) -> CommandBuilder {
+    let mut command = CommandBuilder::new(program);
+    // portable-pty overlays registry values on Windows; replace them before terminal overrides.
+    #[cfg(windows)]
+    inherit_environment(&mut command, std::env::vars_os());
     configure_terminal_environment(&mut command);
     command
 }
@@ -88,6 +95,17 @@ fn configure_terminal_environment(command: &mut CommandBuilder) {
     command.env("COLORTERM", "truecolor");
     command.env("TERM_PROGRAM", "Tervia");
     command.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+}
+
+#[cfg(any(windows, test))]
+fn inherit_environment(
+    command: &mut CommandBuilder,
+    environment: impl IntoIterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+) {
+    command.env_clear();
+    for (name, value) in environment {
+        command.env(name, value);
+    }
 }
 
 impl PtySession {
@@ -337,6 +355,52 @@ impl Drop for PtySession {
 mod tests {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn parent_environment_replaces_registry_values_and_removes_registry_only_entries() {
+        let mut command = CommandBuilder::new("synthetic-shell");
+        command.env_clear();
+        command.env("Path", r"C:\synthetic registry\bin");
+        command.env("TEMP", r"C:\synthetic registry\temp");
+        command.env("SYNTHETIC_REGISTRY_ONLY", "registry-value");
+        let environment = [
+            ("PATH", r"C:\synthetic parent\bin;C:\synthetic tools\bin"),
+            ("TEMP", r"C:\synthetic parent\temp"),
+            ("SYNTHETIC_CUSTOM", "synthetic value 项目"),
+            ("SYNTHETIC_EMPTY", ""),
+        ];
+
+        inherit_environment(
+            &mut command,
+            environment.map(|(name, value)| (name.into(), value.into())),
+        );
+
+        for (name, value) in environment {
+            assert_eq!(command.get_env(name), Some(OsStr::new(value)), "{name}");
+        }
+        assert_eq!(command.get_env("SYNTHETIC_REGISTRY_ONLY"), None);
+        assert_eq!(command.iter_full_env_as_str().count(), environment.len());
+    }
+
+    #[test]
+    fn parent_environment_preserves_missing_and_empty_paths() {
+        for path in [None, Some("")] {
+            let mut command = CommandBuilder::new("synthetic-shell");
+            command.env_clear();
+            command.env("PATH", r"C:\synthetic registry\bin");
+
+            inherit_environment(
+                &mut command,
+                path.map(|value| ("PATH".into(), value.into())),
+            );
+
+            assert_eq!(command.get_env("PATH"), path.map(OsStr::new));
+            assert_eq!(
+                command.iter_full_env_as_str().count(),
+                usize::from(path.is_some())
+            );
+        }
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

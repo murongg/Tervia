@@ -20,6 +20,8 @@ On Windows, use the MSVC Rust toolchain and Visual Studio C++ Build Tools, then 
 
 On Windows, choose the default shell in Settings → Workspace → Terminal, or use the arrow beside New Terminal to choose a shell for one new session. Installed PowerShell 7, Windows PowerShell and Command Prompt (CMD) are supported. Default follows `SHELL` or the platform default. The configuration is `[terminal] shell = "default"`, with `"pwsh"`, `"powershell"` and `"cmd"` also accepted. Changes affect new terminals; existing and reconnected sessions keep their original shell.
 
+New terminal processes on Windows inherit Tervia's environment, including temporary `PATH` changes from its launcher. Shell startup files can still modify that environment; reconnected sessions retain the environment of their existing process.
+
 ![Windows shell selection in workspace settings](screenshots/windows-shells.jpg)
 
 Tervia owns the Windows application manifest. A [scoped patch to the pinned GPUI dependency](../vendor/gpui-pre/PATCH.md) prevents duplicate manifest resources while preserving DPI awareness, Common Controls v6, long-path and UTF-8 settings. Windows CI checks these settings in the linked executable.

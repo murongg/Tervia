@@ -5,6 +5,73 @@ use portable_pty::CommandBuilder;
 use portable_pty::PtySize;
 use tervia::pty::{PtyEvent, PtySession, initial_directory};
 
+#[cfg(windows)]
+#[test]
+fn windows_terminal_commands_inherit_the_parent_environment() {
+    use std::{ffi::OsStr, path::Path, process::Command};
+    const PROBE: &str = "TERVIA_TEST_PARENT_ENVIRONMENT";
+    const PATH: &str = r"C:\synthetic parent\项目;C:\synthetic tools\bin";
+    const TEMP: &str = r"C:\synthetic parent\temp";
+    if std::env::var_os(PROBE).as_deref() != Some(OsStr::new("synthetic")) {
+        // Isolate environment changes from tests running in parallel in this process.
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "windows_terminal_commands_inherit_the_parent_environment",
+                "--nocapture",
+            ])
+            .env(PROBE, "synthetic")
+            .env("Path", PATH)
+            .env("TEMP", TEMP)
+            .env("TERVIA_TEST_CUSTOM", "synthetic value 项目")
+            .env("TERVIA_TEST_EMPTY", "")
+            .env("NO_COLOR", "1")
+            .env("TERM", "dumb")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+
+    let cwd = Path::new(r"C:\synthetic project");
+    let task = tervia::tasks::Task {
+        label: "synthetic-task".into(),
+        source: "package.json".into(),
+        program: "npm".into(),
+        args: vec!["run".into(), "synthetic-task".into()],
+    };
+    let host = tervia::ssh::Host {
+        name: "synthetic-host".into(),
+        address: "synthetic.example.test".into(),
+        user: String::new(),
+        port: None,
+        identity: None,
+    };
+    for command in [
+        tervia::pty::shell_command_for(OsStr::new("cmd.exe"), cwd),
+        tervia::pty::task_command_for(OsStr::new("cmd.exe"), cwd, &task).unwrap(),
+        tervia::pty::ssh_command_for(cwd, &host).unwrap(),
+    ] {
+        for (name, value) in [
+            ("PATH", PATH),
+            ("TEMP", TEMP),
+            ("TERVIA_TEST_CUSTOM", "synthetic value 项目"),
+            ("TERVIA_TEST_EMPTY", ""),
+            ("TERM", "xterm-256color"),
+            ("COLORTERM", "truecolor"),
+            ("TERM_PROGRAM", "Tervia"),
+        ] {
+            assert_eq!(command.get_env(name), Some(OsStr::new(value)), "{name}");
+        }
+        assert_eq!(command.get_env("NO_COLOR"), None);
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn a_discovered_make_task_runs_in_its_directory_and_reports_failure() {
