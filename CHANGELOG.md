@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.19.0 (2026-10-26)
+
+### Features
+
+- **terminal:** configure shell paths and startup arguments (9598ee24)
+- **git:** show file type icons in file lists (992baccb)
+
+### Fixes
+
+- **terminal:** match Windows clipboard shortcuts (c560a309)
+- **pty:** inherit parent environment on Windows (614ad213)
+- **ui:** improve sidebar search spacing and surfaces (ec7a235d)
+- **ui:** unify shared controls and interaction styles (70fdcd47)
+
 ## v0.18.0 (2026-10-23)
 
 ### Features
