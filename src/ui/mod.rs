@@ -96,6 +96,7 @@ pub struct Tervia {
     monitors: Vec<monitor::Monitor>,
     terminals: Vec<Vec<Option<Entity<console::Console>>>>,
     local_terminals: Vec<Option<Entity<console::Console>>>,
+    launch_directory: Option<PathBuf>,
     shell_profiles: Vec<tervia::shell::Profile>,
     terminal_name: Entity<InputState>,
     terminal_rename: Option<(sessions::Owner, usize)>,
@@ -186,6 +187,8 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        // Later process-directory changes must not alter where new local sessions start.
+        let launch_directory = std::env::current_dir().ok();
         let mut appearance = appearance;
         appearance
             .theme
@@ -229,6 +232,7 @@ impl Tervia {
             monitors: Vec::new(),
             terminals: Vec::new(),
             local_terminals,
+            launch_directory,
             shell_profiles: tervia::shell::Profile::available(),
             terminal_name: cx.new(|cx| {
                 InputState::new(window, cx)

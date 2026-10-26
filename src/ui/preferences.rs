@@ -146,8 +146,8 @@ fn shell_choices(language: Language, current: Profile) -> Vec<ShellChoice> {
     profiles
         .into_iter()
         .map(|profile| ShellChoice {
+            label: profile.label(language).to_owned().into(),
             profile,
-            label: profile.label(language).into(),
         })
         .collect()
 }
@@ -252,7 +252,7 @@ impl PreferencesWindow {
             }
         });
         let shell_select = cx.new(|cx| {
-            let choices = shell_choices(current.language, current.shell);
+            let choices = shell_choices(current.language, current.shell.clone());
             let selected = choices
                 .iter()
                 .position(|choice| choice.profile == current.shell)
@@ -264,7 +264,11 @@ impl PreferencesWindow {
             move |_, _, event, _, cx| {
                 if let SelectEvent::Confirm(Some(profile)) = event {
                     preferences.update(cx, |prefs, cx| {
-                        prefs.shell = *profile;
+                        if prefs.shell != *profile {
+                            // Startup flags belong to one shell and can be invalid for the next one.
+                            prefs.shell_args = None;
+                            prefs.shell = profile.clone();
+                        }
                         cx.notify();
                     });
                 }
@@ -279,7 +283,11 @@ impl PreferencesWindow {
                 select.set_selected_value(&language, window, cx);
             });
             this.shell_select.update(cx, |select, cx| {
-                select.set_items(shell_choices(language, this.current.shell), window, cx);
+                select.set_items(
+                    shell_choices(language, this.current.shell.clone()),
+                    window,
+                    cx,
+                );
                 select.set_selected_value(&this.current.shell, window, cx);
             });
             cx.notify();

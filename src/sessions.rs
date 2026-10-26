@@ -34,6 +34,7 @@ pub struct Target {
     environment: Vec<(OsString, OsString)>,
     colors: Vec<[u8; 3]>,
     shell: Option<PathBuf>,
+    shell_args: Option<Vec<String>>,
     task: Option<crate::tasks::Task>,
     ssh: Option<crate::ssh::Host>,
 }
@@ -47,6 +48,7 @@ impl Target {
             environment: Vec::new(),
             colors: Vec::new(),
             shell: None,
+            shell_args: None,
             task: None,
             ssh: None,
         }
@@ -67,6 +69,11 @@ impl Target {
         self
     }
 
+    pub fn with_shell_args(mut self, arguments: Vec<String>) -> Self {
+        self.shell_args = Some(arguments);
+        self
+    }
+
     pub fn with_task(mut self, task: crate::tasks::Task) -> Self {
         self.task = Some(task);
         self
@@ -81,6 +88,10 @@ impl Target {
         self.shell
             .clone()
             .unwrap_or_else(|| crate::pty::default_shell().into())
+    }
+
+    pub fn shell_args(&self) -> Option<&[String]> {
+        self.shell_args.as_deref()
     }
 
     pub fn directory(&self) -> PathBuf {
@@ -112,6 +123,7 @@ impl Target {
                     "version": VERSION, "cwd": cwd, "cols": size.cols, "rows": size.rows,
                     "token": random_id()?, "colors": self.colors,
                     "shell": self.shell,
+                    "shell_args": self.shell_args(),
                     "task": self.task.as_ref().map(crate::tasks::Task::to_json),
                     "ssh": self.ssh.as_ref().map(crate::ssh::Host::to_json),
                     "agent_token": agent_token,
@@ -217,7 +229,7 @@ pub fn run_from_args() -> Result<(), String> {
         host::run(&path)
     })();
     if let Err(error) = result {
-        let _ = fs::write(path.join("error"), error.to_string());
+        let _ = runtime::write_private_bytes(&path.join("error"), error.to_string().as_bytes());
         return Err(error.to_string());
     }
     Ok(())

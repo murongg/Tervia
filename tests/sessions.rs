@@ -34,6 +34,82 @@ impl Drop for Cleanup {
 }
 
 #[test]
+fn configured_shell_arguments_and_directory_survive_host_reconnect() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let bin = root.path().join("synthetic tools");
+    std::fs::create_dir(&bin).unwrap();
+    let shell = bin.join("bash");
+    std::fs::write(&shell, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$MOCK_ARGS_FILE\"\nprintf '%s\\n' \"$PWD\" > \"$MOCK_CWD_FILE\"\nprintf 'run\\n' >> \"$MOCK_RUNS_FILE\"\nprintf 'synthetic-custom-ready\\n'\nexec /bin/sh\n").unwrap();
+    std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let arguments = vec![
+        "-Command".into(),
+        "synthetic space 项目".into(),
+        "".into(),
+        "'quoted' ; $(synthetic) \\ literal".into(),
+    ];
+    let target = target(&root, 'a')
+        .with_shell(&shell)
+        .with_shell_args(arguments.clone())
+        .with_env("MOCK_ARGS_FILE", root.path().join("arguments"))
+        .with_env("MOCK_CWD_FILE", root.path().join("directory"))
+        .with_env("MOCK_RUNS_FILE", root.path().join("runs"));
+    let _cleanup = Cleanup(target.clone());
+    let (session, events, tracker) = target.open(root.path(), size()).unwrap();
+    let mut buffer = TerminalBuffer::new(90, 12);
+    output(&events, &mut buffer, "synthetic-custom-ready");
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("arguments")).unwrap(),
+        format!("{}\n", arguments.join("\n"))
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("directory"))
+            .unwrap()
+            .trim(),
+        root.path().canonicalize().unwrap().to_str().unwrap()
+    );
+    assert!(
+        tracker.is_none(),
+        "custom argv must not inject a startup command"
+    );
+    let pid = session.process_id();
+    drop(session);
+    drop(events);
+    let (session, _, tracker) = target
+        .with_shell_args(vec!["synthetic-new-setting".into()])
+        .reconnect()
+        .unwrap();
+    assert_eq!(session.process_id(), pid);
+    assert_eq!(session.shell(), shell.to_string_lossy());
+    assert!(tracker.is_none());
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("runs")).unwrap(),
+        "run\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("arguments")).unwrap(),
+        format!("{}\n", arguments.join("\n"))
+    );
+    session.terminate().unwrap();
+}
+
+#[test]
+fn a_terminal_host_rejects_nul_startup_arguments() {
+    let root = tempfile::tempdir().unwrap();
+    let target = target(&root, 'a')
+        .with_shell("/bin/sh")
+        .with_shell_args(vec!["synthetic\0argument".into()]);
+    let _cleanup = Cleanup(target.clone());
+    match target.open(root.path(), size()) {
+        Err(error) => assert!(error.contains("shell_args"), "{error}"),
+        Ok((session, _, _)) => {
+            session.terminate().unwrap();
+            panic!("NUL startup arguments must be rejected before launching a shell");
+        }
+    }
+}
+
+#[test]
 fn task_runner_hosts_keep_the_selected_file_and_replay_without_rerunning() {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
@@ -55,6 +131,7 @@ fn task_runner_hosts_keep_the_selected_file_and_replay_without_rerunning() {
     }
     for (index, task) in tasks.iter().enumerate() {
         let target = target(&root, ['b', 'c', 'd'][index])
+            .with_shell_args(vec!["-c".into(), "exit 99".into()])
             .with_env("MOCK_TASK_BIN", &bin)
             .with_task(task.clone());
         std::fs::write(

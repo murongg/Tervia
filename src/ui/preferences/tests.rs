@@ -8,6 +8,52 @@ use tervia::{config::Config, locale::Language, preferences::Preferences};
 use super::super::Tervia;
 
 #[gpui_test::test]
+fn changing_shell_profiles_discards_only_the_previous_shells_arguments(cx: &mut TestAppContext) {
+    use tervia::shell::Profile;
+    cx.update(gpui_kit::init);
+    let mut settings = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let preferences = cx.new(|_| Preferences {
+            shell: Profile::Cmd,
+            shell_args: Some(vec!["/D".into(), "/K".into()]),
+            ..Preferences::default()
+        });
+        let error = cx.new(|_| None);
+        let updater = cx.new(|cx| super::super::updates::Updater::new(preferences.clone(), cx));
+        let entity = cx
+            .new(|cx| super::PreferencesWindow::new(preferences, None, error, updater, window, cx));
+        settings = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let settings = settings.unwrap();
+    cx.update(|_, cx| {
+        let select = settings.read(cx).shell_select.clone();
+        select.update(cx, |_, cx| {
+            cx.emit(super::SelectEvent::Confirm(Some(Profile::Cmd)))
+        });
+    });
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).preferences.read(cx).shell_args,
+            Some(vec!["/D".into(), "/K".into()])
+        );
+        let select = settings.read(cx).shell_select.clone();
+        select.update(cx, |_, cx| {
+            cx.emit(super::SelectEvent::Confirm(Some(
+                Profile::WindowsPowerShell,
+            )))
+        });
+    });
+    cx.update(|_, cx| {
+        assert_eq!(
+            settings.read(cx).preferences.read(cx).shell,
+            Profile::WindowsPowerShell
+        );
+        assert_eq!(settings.read(cx).preferences.read(cx).shell_args, None);
+    });
+}
+
+#[gpui_test::test]
 fn custom_themes_appear_in_their_mode_and_deletion_restores_only_that_choice(
     cx: &mut TestAppContext,
 ) {
@@ -744,6 +790,7 @@ fn settings_categories_keep_controls_and_resets_scoped(cx: &mut TestAppContext) 
         file_nesting: true,
         command_suggestions: false,
         shell: tervia::shell::Profile::Default,
+        shell_args: None,
         updates: tervia::updates::Settings {
             auto_check: false,
             interval_minutes: 37,

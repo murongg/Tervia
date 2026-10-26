@@ -14,10 +14,25 @@ fn platforms_have_native_fonts_shells_and_clear_shortcuts() {
 
 #[test]
 fn shell_arguments_keep_interactive_profiles_enabled() {
-    assert_eq!(Platform::shell_args("/mock/bin/zsh"), &["-l", "-i"]);
+    for shell in ["bash", "zsh", "fish", "sh"] {
+        assert_eq!(
+            Platform::shell_args(&format!("/mock/bin/{shell}")),
+            &["-l", "-i"]
+        );
+    }
     assert_eq!(
         Platform::shell_args("C:\\Windows\\PowerShell.EXE"),
         &["-NoLogo", "-NoExit"]
     );
+    assert_eq!(
+        Platform::shell_args(r"C:\mock\pwsh.exe"),
+        &["-NoLogo", "-NoExit"]
+    );
     assert_eq!(Platform::shell_args("C:\\mock\\cmd.exe"), &["/K"]);
+}
+
+#[test]
+fn unknown_shells_do_not_receive_guessed_startup_flags() {
+    assert!(Platform::shell_args("/synthetic tools/mock-shell").is_empty());
+    assert!(Platform::shell_args(r"C:\synthetic tools\mock-shell.exe").is_empty());
 }

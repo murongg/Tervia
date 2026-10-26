@@ -2685,6 +2685,60 @@ mod tests {
     }
 
     #[gpui_test::test]
+    fn configured_shell_arguments_reach_new_targets_and_other_presets_use_defaults(
+        cx: &mut TestAppContext,
+    ) {
+        use super::super::Tervia;
+        use tervia::{config::Config, shell::Profile};
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+        });
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("synthetic tools").join("mock-shell");
+        let arguments = vec![
+            "synthetic space".to_owned(),
+            String::new(),
+            "'quoted' \\ literal".to_owned(),
+        ];
+        let mut workspace = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let view = cx.new(|cx| {
+                let mut view = Tervia::new(window, cx);
+                view.config = Some(Config::new(root.path().join("config.toml")));
+                view.preferences.update(cx, |prefs, cx| {
+                    prefs.shell = Profile::Custom(executable.to_str().unwrap().to_owned());
+                    prefs.shell_args = Some(arguments.clone());
+                    cx.notify();
+                });
+                view.open_local_terminal(window, cx);
+                view
+            });
+            workspace = Some(view.clone());
+            gpui_kit::base::Root::new(view, window, cx)
+        });
+        let workspace = workspace.unwrap();
+        cx.update(|window, cx| {
+            workspace.update(cx, |view, cx| {
+                let console = view.local_terminals[0].as_ref().unwrap().read(cx);
+                let target = console.target.as_ref().unwrap();
+                assert_eq!(target.shell(), executable);
+                assert_eq!(target.shell_args(), Some(arguments.as_slice()));
+                view.new_session_with_shell(Profile::Cmd, window, cx);
+                let console = view.local_terminals[1].as_ref().unwrap().read(cx);
+                let target = console.target.as_ref().unwrap();
+                assert!(target.shell().ends_with("cmd.exe"));
+                assert_eq!(target.shell_args(), None);
+                let original = view.local_terminals[0].as_ref().unwrap().read(cx);
+                assert_eq!(
+                    original.target.as_ref().unwrap().shell_args(),
+                    Some(arguments.as_slice())
+                );
+            });
+        });
+    }
+
+    #[gpui_test::test]
     fn escape_reaches_the_terminal_with_workspace_bindings(cx: &mut TestAppContext) {
         use super::super::Tervia;
         use tervia::state::Tab;
