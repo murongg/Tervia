@@ -32,6 +32,7 @@ gpui_kit::actions!(
     console,
     [
         CopySelection,
+        CopyOrInterrupt,
         Paste,
         Escape,
         SelectAll,
@@ -65,9 +66,13 @@ pub(super) struct ActivityChanged(pub Option<tervia::agent::activity::Snapshot>)
 impl EventEmitter<ActivityChanged> for Console {}
 
 pub fn init(cx: &mut App) {
+    init_for_platform(cx, Platform::CURRENT);
+}
+
+fn init_for_platform(cx: &mut App, platform: Platform) {
     cx.bind_keys([
         KeyBinding::new(
-            if Platform::CURRENT == Platform::Mac {
+            if platform == Platform::Mac {
                 "cmd-f"
             } else {
                 "ctrl-shift-f"
@@ -78,11 +83,11 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("escape", CloseSearch, Some("ConsoleSearch > Input")),
         KeyBinding::new("enter", NextMatch, Some("ConsoleSearch > Input")),
         KeyBinding::new("shift-enter", PreviousMatch, Some("ConsoleSearch > Input")),
-        KeyBinding::new(Platform::CURRENT.copy_key(), CopySelection, Some("Console")),
-        KeyBinding::new(Platform::CURRENT.paste_key(), Paste, Some("Console")),
+        KeyBinding::new(platform.copy_key(), CopySelection, Some("Console")),
+        KeyBinding::new(platform.paste_key(), Paste, Some("Console")),
         KeyBinding::new("escape", Escape, Some("Console")),
-        KeyBinding::new(Platform::CURRENT.select_key(), SelectAll, Some("Console")),
-        KeyBinding::new(Platform::CURRENT.clear_key(), Clear, Some("Console")),
+        KeyBinding::new(platform.select_key(), SelectAll, Some("Console")),
+        KeyBinding::new(platform.clear_key(), Clear, Some("Console")),
     ]);
     // GPUI's Root handles Tab before raw key-down listeners. Explicit terminal
     // bindings must win for every non-text key, not merely for Escape and Copy.
@@ -159,7 +164,14 @@ pub fn init(cx: &mut App) {
         }
     }
     cx.bind_keys(bindings);
-    if Platform::CURRENT == Platform::Mac {
+    if platform == Platform::Windows {
+        // Register after SendKey so Windows clipboard shortcuts take precedence over shell input.
+        cx.bind_keys([
+            KeyBinding::new("ctrl-c", CopyOrInterrupt, Some("Console")),
+            KeyBinding::new("ctrl-v", Paste, Some("Console")),
+            KeyBinding::new("shift-insert", Paste, Some("Console")),
+        ]);
+    } else if platform == Platform::Mac {
         // Translate macOS editing chords into shell-owned control keys. Clearing
         // input must not use the separate action that erases terminal scrollback.
         cx.bind_keys(
@@ -701,6 +713,27 @@ impl Console {
         let selected = self.buffer.selected_text();
         if !selected.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(selected));
+        }
+    }
+
+    fn copy_or_interrupt(
+        &mut self,
+        _: &CopyOrInterrupt,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.focus.is_focused(window) || !self.composition.is_empty() {
+            cx.propagate();
+            return;
+        }
+        // A selection of blank cells must copy rather than fall through to an interrupt.
+        if let Some(selected) = self.buffer.term.selection_to_string() {
+            cx.write_to_clipboard(ClipboardItem::new_string(selected));
+            self.buffer.term.selection = None;
+            self.stop_selecting();
+            cx.notify();
+        } else {
+            self.send(b"\x03", cx);
         }
     }
 
@@ -2731,6 +2764,153 @@ mod tests {
     }
 
     #[gpui_test::test]
+    fn windows_clipboard_shortcuts_follow_selection(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init_for_platform(cx, Platform::Windows);
+        });
+        let mut console = None;
+        let (_, cx) = cx.add_window_view(|window, cx| {
+            let entity = cx.new(mock_console);
+            entity.read(cx).focus.clone().focus(window, cx);
+            console = Some(entity.clone());
+            gpui_kit::base::Root::new(entity, window, cx)
+        });
+        let console = console.unwrap();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+            cx.write_to_clipboard(ClipboardItem::new_string("synthetic\n粘贴".into()));
+        });
+        for (mode, expected) in [
+            (&b""[..], "synthetic\r粘贴".as_bytes()),
+            (
+                &b"\x1b[?2004h"[..],
+                "\x1b[200~synthetic\n粘贴\x1b[201~".as_bytes(),
+            ),
+        ] {
+            console.update(cx, |this, _| this.buffer.feed(mode));
+            for key in ["ctrl-v", "shift-insert", "ctrl-shift-v"] {
+                console.update(cx, |this, _| this.transmitted.clear());
+                cx.simulate_keystrokes(key);
+                cx.update(|_, cx| {
+                    assert_eq!(console.read(cx).transmitted, [expected], "{key}");
+                });
+            }
+        }
+        for selection in [
+            None,
+            Some(Selection::new(
+                SelectionType::Simple,
+                CellPoint::new(Line(0), Column(0)),
+                Side::Left,
+            )),
+        ] {
+            console.update(cx, |this, _| {
+                this.transmitted.clear();
+                this.buffer.term.selection = selection;
+            });
+            cx.simulate_keystrokes("ctrl-c");
+            cx.update(|_, cx| {
+                assert_eq!(console.read(cx).transmitted, [vec![3]]);
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().unwrap(),
+                    "synthetic\n粘贴"
+                );
+            });
+        }
+        console.update(cx, |this, _| {
+            this.buffer
+                .feed("synthetic selection\r\n合成 selection".as_bytes());
+        });
+        for (line, end, expected) in [(0, 8, "synthetic"), (1, 3, "合成"), (2, 8, "")] {
+            console.update(cx, |this, _| {
+                this.transmitted.clear();
+                this.buffer.select(
+                    CellPoint::new(Line(line), Column(0)),
+                    CellPoint::new(Line(line), Column(end)),
+                );
+            });
+            cx.simulate_keystrokes("ctrl-c");
+            cx.update(|_, cx| {
+                let console = console.read(cx);
+                assert!(
+                    console.transmitted.is_empty(),
+                    "Copy must not interrupt the shell"
+                );
+                assert!(console.buffer.term.selection.is_none());
+                assert_eq!(
+                    cx.read_from_clipboard()
+                        .and_then(|clipboard| clipboard.text())
+                        .unwrap_or_default(),
+                    expected
+                );
+            });
+            cx.simulate_keystrokes("ctrl-c");
+            cx.update(|_, cx| {
+                assert_eq!(console.read(cx).transmitted, [vec![3]]);
+                assert_eq!(
+                    cx.read_from_clipboard()
+                        .and_then(|clipboard| clipboard.text())
+                        .unwrap_or_default(),
+                    expected
+                );
+            });
+        }
+        cx.update(|window, cx| {
+            console.update(cx, |this, cx| {
+                this.transmitted.clear();
+                this.buffer.select(
+                    CellPoint::new(Line(0), Column(0)),
+                    CellPoint::new(Line(0), Column(8)),
+                );
+                this.open_search(window, cx);
+            });
+        });
+        cx.simulate_keystrokes("ctrl-c");
+        cx.update(|_, cx| {
+            let console = console.read(cx);
+            assert!(console.transmitted.is_empty());
+            assert_eq!(console.buffer.selected_text(), "synthetic");
+        });
+        cx.simulate_keystrokes("escape");
+        console.update(cx, |this, _| {
+            this.buffer.select(
+                CellPoint::new(Line(0), Column(0)),
+                CellPoint::new(Line(0), Column(8)),
+            );
+            this.composition = "合成".into();
+        });
+        cx.simulate_keystrokes("ctrl-c");
+        cx.update(|_, cx| {
+            let console = console.read(cx);
+            assert!(console.transmitted.is_empty());
+            assert_eq!(console.buffer.selected_text(), "synthetic");
+        });
+        console.update(cx, |this, _| this.composition.clear());
+        for platform in [Platform::Mac, Platform::Linux] {
+            cx.update(|_, cx| {
+                cx.clear_key_bindings();
+                init_for_platform(cx, platform);
+                console.update(cx, |this, _| {
+                    this.transmitted.clear();
+                    this.buffer.select(
+                        CellPoint::new(Line(0), Column(0)),
+                        CellPoint::new(Line(0), Column(8)),
+                    );
+                });
+            });
+            cx.simulate_keystrokes("ctrl-v shift-insert ctrl-c");
+            cx.update(|_, cx| {
+                assert_eq!(
+                    console.read(cx).transmitted,
+                    [vec![0x16], b"\x1b[2;2~".to_vec(), vec![3]],
+                    "{platform:?} must keep forwarding these keys"
+                );
+            });
+        }
+    }
+
+    #[gpui_test::test]
     fn terminal_tab_reaches_the_pty_instead_of_changing_ui_focus(cx: &mut TestAppContext) {
         cx.update(|cx| {
             gpui_kit::init(cx);
@@ -2942,6 +3122,7 @@ impl Render for Console {
             .aria_value(self.buffer.visible_text())
             .on_key_down(cx.listener(Self::key_down))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::copy_or_interrupt))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::escape))
             .on_action(cx.listener(Self::select_all))

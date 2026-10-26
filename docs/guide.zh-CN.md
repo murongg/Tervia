@@ -93,7 +93,7 @@ macOS 使用用户 LaunchAgent，Windows 使用当前用户的 Run 启动项，L
 - 界面支持简体中文、繁体中文、英语、日语、韩语、法语、德语、西班牙语、葡萄牙语和俄语。默认使用系统首选语言，也可在设置中即时切换；偏好保存到可手动编辑的 TOML 配置文件。新增 Git 文案当前主要覆盖简体中文与英语，其他语言部分使用英语。
 - 终端识别 Claude / Codex / Gemini / Grok / Hermes / OpenCode / OpenClaw，显示对应品牌图标与标签；退出 Agent 后恢复 Shell 标签。macOS / Linux 使用前台进程组，Windows 使用当前 Shell 的子进程树；Windows 中的后台 Agent 也可能影响标签。不会扫描终端对话内容来识别程序。
 - 真实 PTY 终端：加载本机登录 / 交互 Shell 配置，新建、切换、关闭、分屏、滚动历史、键盘输入、UTF-8/输入法、ANSI/真彩色、全屏备用缓冲区。
-- 鼠标拖选后 ⌘C 复制，⌘V 粘贴；支持括号粘贴、控制键与应用光标键。全屏程序启用鼠标报告时，按住 Shift 拖选文本。
+- 鼠标拖选后 ⌘C 复制，⌘V 粘贴（Windows / Linux 为 Ctrl+Shift+C / Ctrl+Shift+V）。Windows 下，Ctrl+C 在有选区时复制并清除选区，无选区时发送中断；Ctrl+V 和 Shift+Insert 也可粘贴。支持括号粘贴、控制键与应用光标键。全屏程序启用鼠标报告时，按住 Shift 拖选文本。
 - ⌘点击终端中的文件路径（Windows / Linux 为 Ctrl 点击），可打开文件并跳转到对应行列，支持 `src/main.rs:42:7`、引号内含空格的路径和当前项目内的绝对路径。相对路径以所选项目目录为基准；普通拖选和 TUI 鼠标操作仍可使用。
 - 终端搜索支持 ⌘F（Windows / Linux 为 Ctrl+Shift+F）或工具栏搜索图标，搜索输出与滚动历史中的文字。小写查询忽略大小写，含大写的查询区分大小写；Enter / Shift+Enter 前后定位匹配，Esc 返回 Shell，最多显示 5,000 个匹配。后台终端发出铃声时，会话和所属项目显示请求关注标记；聚焦窗格后清除。
 - 终端提示符与输入由 Shell 自己绘制，兼容已有提示符主题的基础协议；没有独立输入框。
@@ -279,6 +279,8 @@ TOML 语法、配置值或读取出错时，使用默认设置启动并显示配
 | ⌘⇧P | Ctrl+Shift+P | 快捷操作 |
 | ⌘, | Ctrl+, | 打开独立设置窗口 |
 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V | 复制终端选区 / 粘贴到终端 |
+| — | Ctrl+C（Windows） | 复制并清除终端选区，无选区时发送中断 |
+| — | Ctrl+V / Shift+Insert（Windows） | 粘贴到终端 |
 | ⌘⇧C | Ctrl+Shift+C | 在文件源码 / Git Diff 中复制带路径和行号的选区上下文 |
 | ⌘K | Ctrl+Shift+K | 清空获得焦点的终端屏幕与滚动历史，并请求程序重绘 |
 | Ctrl+K | Ctrl+K | 发送给 Shell / TUI，保留程序原有快捷键 |

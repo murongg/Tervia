@@ -95,7 +95,7 @@ Save all edited files across projects and worktrees and wait for pending writes/
 - Interface support for Simplified Chinese, Traditional Chinese, English, Japanese, Korean, French, German, Spanish, Portuguese, and Russian. The system's preferred language is used by default, and you can switch languages immediately in settings. Preferences are saved in a human-editable TOML configuration file. New Git interface text primarily covers Simplified Chinese and English; some text in other languages falls back to English.
 - The terminal recognizes Claude / Codex / Gemini / Grok / Hermes / OpenCode / OpenClaw and displays their brand icons and labels. When an agent exits, the label returns to the shell. macOS / Linux use the foreground process group; Windows uses the current shell's child process tree, so background agents on Windows may also affect the label. Recognition does not scan terminal conversation content.
 - A real PTY terminal that loads your local login / interactive shell configuration, with terminal creation, switching, closing, splitting, scrollback, keyboard input, UTF-8 / input methods, ANSI / true color, and a full-screen alternate buffer.
-- Drag to select text, then use ⌘C to copy and ⌘V to paste. Bracketed paste, control keys, and application cursor keys are supported. Hold Shift while dragging to select text when a full-screen application enables mouse reporting.
+- Drag to select text, then use ⌘C to copy and ⌘V to paste (Ctrl+Shift+C / Ctrl+Shift+V on Windows / Linux). On Windows, Ctrl+C copies and clears an existing selection; without a selection, it sends an interrupt. Ctrl+V and Shift+Insert also paste. Bracketed paste, control keys, and application cursor keys are supported. Hold Shift while dragging to select text when a full-screen application enables mouse reporting.
 - Cmd-click terminal file references (Ctrl-click on Windows / Linux) to open files at their source line and column, including `src/main.rs:42:7`, quoted paths with spaces, and absolute paths within the current project. Relative references resolve from the selected project directory; ordinary selection and TUI mouse input remain available.
 - Terminal Find (Cmd+F, Ctrl+Shift+F on Windows / Linux, or the toolbar Search icon) searches literal rendered text and scrollback. Lowercase queries ignore case; uppercase queries match case. Enter / Shift+Enter moves between matches; Escape returns to the shell. Results are bounded to 5,000 matches. Explicit terminal bells flag unfocused sessions and their project; focusing the pane clears its attention indicator.
 - The shell draws its own prompt and input, with support for the basic protocols used by existing prompt themes. There is no separate input field.
@@ -284,6 +284,8 @@ The native menu bar includes File, View and Terminal menus for opening folders/f
 | ⌘⌥P | Ctrl+Alt+P | Search projects and working directories |
 | ⌘, | Ctrl+, | Open the separate settings window |
 | ⌘C / ⌘V | Ctrl+Shift+C / Ctrl+Shift+V | Copy the terminal selection / paste into the terminal |
+| — | Ctrl+C (Windows) | Copy and clear the terminal selection; send an interrupt when nothing is selected |
+| — | Ctrl+V / Shift+Insert (Windows) | Paste into the terminal |
 | ⌘⇧C | Ctrl+Shift+C | Copy selected code with its path and line numbers in Files / Git Diff |
 | ⌘K | Ctrl+Shift+K | Clear the focused terminal's screen and scrollback, and request a redraw |
 | Ctrl+K | Ctrl+K | Send to the shell / TUI, preserving the application's shortcut |
