@@ -14,6 +14,16 @@ pub(crate) fn set(item: &mut Item, mut value: Value) {
                 .as_integer()
                 .zip(value.as_integer())
                 .is_some_and(|(a, b)| a == b)
+            || previous
+                .as_array()
+                .zip(value.as_array())
+                .is_some_and(|(a, b)| {
+                    // Replacing an equal array loses element comments and literal quoting.
+                    a.len() == b.len()
+                        && a.iter()
+                            .zip(b)
+                            .all(|(a, b)| a.as_str().zip(b.as_str()).is_some_and(|(a, b)| a == b))
+                })
         {
             return;
         }

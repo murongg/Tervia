@@ -5,6 +5,32 @@ use gpui_test::TestAppContext;
 use tervia::state::{Screen, Tab};
 
 #[gpui_test::test]
+fn local_shells_inherit_the_startup_directory_and_project_shells_keep_the_project(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = window(cx);
+    let root = tempfile::tempdir().unwrap();
+    let project_path = root.path().join("synthetic project");
+    std::fs::create_dir(&project_path).unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.launch_directory = Some(root.path().to_owned());
+            this.open_local_terminal(window, cx);
+            assert_eq!(this.ensure_console(0, window, cx).read(cx).cwd, root.path());
+            this.new_session(window, cx);
+            assert_eq!(this.ensure_console(1, window, cx).read(cx).cwd, root.path());
+            assert!(this.state.projects.is_empty());
+            let project = this.state.open_directory(project_path.clone());
+            this.init_project(project, window, cx);
+            assert_eq!(
+                this.ensure_console(0, window, cx).read(cx).cwd,
+                project_path
+            );
+        });
+    });
+}
+
+#[gpui_test::test]
 fn shell_selection_is_per_session_and_settings_only_affect_new_terminals(cx: &mut TestAppContext) {
     use tervia::shell::Profile;
     let (view, cx) = window(cx);

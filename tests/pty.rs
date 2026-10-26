@@ -5,6 +5,40 @@ use portable_pty::CommandBuilder;
 use portable_pty::PtySize;
 use tervia::pty::{PtyEvent, PtySession, initial_directory};
 
+#[test]
+fn explicit_startup_arguments_replace_defaults_and_remain_literal() {
+    use std::{
+        ffi::{OsStr, OsString},
+        path::Path,
+    };
+    for executable in [
+        r"C:\synthetic tools\pwsh.exe",
+        "/synthetic tools/bash",
+        "/synthetic tools/mock-shell",
+    ] {
+        for arguments in [
+            vec![],
+            vec![
+                "-Command".into(),
+                "synthetic space 项目".into(),
+                "".into(),
+                "'quoted' ; $(synthetic) \\ literal".into(),
+            ],
+        ] {
+            let cwd = Path::new("synthetic project");
+            let command =
+                tervia::pty::shell_command_with_args(OsStr::new(executable), cwd, Some(&arguments));
+            let expected: Vec<OsString> = std::iter::once(executable)
+                .chain(arguments.iter().map(String::as_str))
+                .map(Into::into)
+                .collect();
+            assert_eq!(command.get_argv(), &expected);
+            assert_eq!(command.get_cwd().unwrap(), cwd.as_os_str());
+            assert_eq!(command.get_env("TERM"), Some(OsStr::new("xterm-256color")));
+        }
+    }
+}
+
 #[cfg(windows)]
 #[test]
 fn windows_terminal_commands_inherit_the_parent_environment() {

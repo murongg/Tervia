@@ -5,24 +5,26 @@ use std::{
 
 use crate::{locale::Language, platform::Platform};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Profile {
     #[default]
     Default,
     PowerShell,
     WindowsPowerShell,
     Cmd,
+    Custom(String),
 }
 
 impl Profile {
     pub const WINDOWS: [Self; 3] = [Self::PowerShell, Self::WindowsPowerShell, Self::Cmd];
 
-    pub fn id(self) -> &'static str {
+    pub fn id(&self) -> &str {
         match self {
             Self::Default => "default",
             Self::PowerShell => "pwsh",
             Self::WindowsPowerShell => "powershell",
             Self::Cmd => "cmd",
+            Self::Custom(path) => path,
         }
     }
 
@@ -30,28 +32,33 @@ impl Profile {
         std::iter::once(Self::Default)
             .chain(Self::WINDOWS)
             .find(|profile| profile.id() == id)
+            .or_else(|| {
+                (Path::new(id).is_absolute() && !id.contains('\0')).then(|| Self::Custom(id.into()))
+            })
     }
 
-    pub fn label(self, language: Language) -> &'static str {
+    pub fn label(&self, language: Language) -> &str {
         match self {
             Self::Default => language.text("shell_default"),
             Self::PowerShell => "PowerShell 7",
             Self::WindowsPowerShell => "Windows PowerShell",
             Self::Cmd => language.text("shell_cmd"),
+            Self::Custom(path) => path,
         }
     }
 
-    fn executable(self) -> &'static str {
+    fn executable(&self) -> &str {
         match self {
             Self::Default => Platform::CURRENT.default_shell(),
             Self::PowerShell => "pwsh.exe",
             Self::WindowsPowerShell => "powershell.exe",
             Self::Cmd => "cmd.exe",
+            Self::Custom(path) => path,
         }
     }
 
     fn locate(
-        self,
+        &self,
         paths: &[PathBuf],
         system: Option<&Path>,
         programs: Option<&Path>,
@@ -68,7 +75,7 @@ impl Profile {
             Self::PowerShell => {
                 programs.map(|root| root.join("PowerShell").join("7").join("pwsh.exe"))
             }
-            Self::Default => None,
+            Self::Default | Self::Custom(_) => None,
         };
         installed.filter(|path| path.is_file()).or_else(|| {
             paths
@@ -78,7 +85,7 @@ impl Profile {
         })
     }
 
-    fn installed(self) -> Option<PathBuf> {
+    fn installed(&self) -> Option<PathBuf> {
         let paths: Vec<_> = std::env::var_os("PATH")
             .map(|value| std::env::split_paths(&value).collect())
             .unwrap_or_default();
@@ -97,11 +104,15 @@ impl Profile {
             .collect()
     }
 
-    pub fn resolve(self) -> OsString {
-        if self == Self::Default {
-            return std::env::var_os("SHELL")
-                .filter(|shell| !shell.is_empty())
-                .unwrap_or_else(|| Platform::CURRENT.default_shell().into());
+    pub fn resolve(&self) -> OsString {
+        match self {
+            Self::Default => {
+                return std::env::var_os("SHELL")
+                    .filter(|shell| !shell.is_empty())
+                    .unwrap_or_else(|| Platform::CURRENT.default_shell().into());
+            }
+            Self::Custom(path) => return path.into(),
+            _ => {}
         }
         // An unavailable explicit selection must fail to launch instead of running a different shell.
         self.installed()
@@ -113,6 +124,34 @@ impl Profile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_profiles_preserve_absolute_paths_without_discovery() {
+        let executable = if cfg!(windows) {
+            r"C:\synthetic tools\项目\missing-shell.exe"
+        } else {
+            "/synthetic tools/项目/missing-shell"
+        };
+        let profile = Profile::from_id(executable).expect("absolute executable path");
+        assert_eq!(profile.id(), executable);
+        assert_eq!(profile.label(Language::English), executable);
+        assert_eq!(profile.resolve(), OsString::from(executable));
+    }
+
+    #[test]
+    fn profiles_reject_relative_paths_and_nuls() {
+        for path in ["mock-shell", "./mock-shell", "", "/synthetic/mock\0shell"] {
+            assert!(Profile::from_id(path).is_none(), "{path:?}");
+        }
+        #[cfg(windows)]
+        for path in [
+            r"C:mock-shell.exe",
+            r"\mock-shell.exe",
+            "C:\\mock\0shell.exe",
+        ] {
+            assert!(Profile::from_id(path).is_none(), "{path:?}");
+        }
+    }
 
     #[test]
     fn discovery_uses_installed_shells_including_paths_with_spaces() {

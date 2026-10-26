@@ -33,8 +33,13 @@ nesting = false
 # Disabling this also stops recording new commands. Existing history is retained.
 [terminal]
 suggestions = true
-# New terminals only: "default" (SHELL or platform default), "pwsh", "powershell", "cmd".
+# New terminals only: "default" (SHELL or platform default), "pwsh", "powershell", "cmd",
+# or an absolute executable path, for example "/opt/homebrew/bin/fish".
+# Windows example: shell = 'C:\Program Files\PowerShell\7\pwsh.exe'
 shell = "default"
+# Omit shell_args to infer startup flags for known shells. Unknown shells get no flags.
+# An explicit array is passed literally; [] launches without startup flags.
+# shell_args = ["-l", "-i"]
 
 # Opt in to desktop alerts for agent turn completion, failures and requests for input/approval.
 [agents]

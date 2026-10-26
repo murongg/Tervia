@@ -3,6 +3,27 @@ use tervia::preferences::Theme;
 use tervia::preferences::Themes;
 
 #[test]
+fn shell_arguments_apply_only_to_the_configured_profile() {
+    use tervia::shell::Profile;
+
+    let mut preferences = Preferences {
+        shell: Profile::Cmd,
+        shell_args: Some(vec!["--mock".into()]),
+        ..Preferences::default()
+    };
+    assert_eq!(
+        preferences.shell_args_for(&Profile::Cmd),
+        Some(&["--mock".into()][..])
+    );
+    assert_eq!(preferences.shell_args_for(&Profile::PowerShell), None);
+    preferences.shell_args = Some(Vec::new());
+    assert_eq!(preferences.shell_args_for(&Profile::Cmd), Some(&[][..]));
+    assert_eq!(preferences.shell_args_for(&Profile::PowerShell), None);
+    preferences.shell_args = None;
+    assert_eq!(preferences.shell_args_for(&Profile::Cmd), None);
+}
+
+#[test]
 fn general_reset_preserves_appearance_and_workspace_choices() {
     let initial = Preferences {
         theme: Theme::Monokai.into(),
@@ -13,6 +34,7 @@ fn general_reset_preserves_appearance_and_workspace_choices() {
         file_nesting: true,
         command_suggestions: false,
         agent_notifications: true,
+        shell_args: Some(vec!["--mock".into()]),
         ..Preferences::default()
     };
     let mut preferences = initial.clone();
@@ -35,6 +57,7 @@ fn workspace_reset_preserves_typography_and_appearance() {
         ui_size: 15,
         file_nesting: true,
         shell: tervia::shell::Profile::Cmd,
+        shell_args: Some(vec!["--mock".into()]),
         ..Preferences::default()
     };
     let mut preferences = initial.clone();
@@ -44,6 +67,7 @@ fn workspace_reset_preserves_typography_and_appearance() {
         Preferences {
             file_nesting: false,
             shell: tervia::shell::Profile::Default,
+            shell_args: None,
             ..initial
         }
     );
@@ -176,6 +200,7 @@ fn reset_restores_all_appearance_preferences() {
     prefs.font_family = "Monaco".into();
     prefs.theme = tervia::preferences::Theme::Light.into();
     prefs.language = tervia::locale::Language::English;
+    prefs.shell_args = Some(vec!["--mock".into()]);
     prefs.reset();
     assert_eq!(prefs, Preferences::default());
 }
@@ -214,6 +239,7 @@ fn appearance_reset_preserves_language_and_workspace_behavior() {
         command_suggestions: false,
         agent_notifications: true,
         shell: tervia::shell::Profile::Cmd,
+        shell_args: Some(vec!["--mock".into()]),
         ..Preferences::default()
     };
     let mut preferences = initial.clone();

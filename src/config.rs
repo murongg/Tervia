@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use toml_edit::{DocumentMut, Item, Table, TableLike, Value};
+use toml_edit::{Array, DocumentMut, Item, Table, TableLike, Value};
 
 use crate::{
     locale::Language,
@@ -249,7 +249,23 @@ fn read(document: &DocumentMut, store: &crate::themes::Store) -> Result<Preferen
             "terminal.shell",
             "default",
         )?)
-        .ok_or("terminal.shell must be default, pwsh, powershell or cmd")?,
+        .ok_or("terminal.shell must be default, pwsh, powershell, cmd or an absolute executable path without NULs")?,
+        shell_args: terminal
+            .get("shell_args")
+            .map(|item| {
+                item.as_array()
+                    .ok_or("terminal.shell_args must be an array of strings without NULs")?
+                    .iter()
+                    .map(|value| {
+                        value
+                            .as_str()
+                            .filter(|value| !value.contains('\0'))
+                            .map(str::to_owned)
+                            .ok_or("terminal.shell_args must be an array of strings without NULs")
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?,
         updates: Settings {
             auto_check: boolean(
                 updates.get("auto_check"),
@@ -337,6 +353,14 @@ fn write(document: &mut DocumentMut, preferences: &Preferences) {
         &mut document["terminal"]["shell"],
         Value::from(preferences.shell.id()),
     );
+    if let Some(arguments) = &preferences.shell_args {
+        set(
+            &mut document["terminal"]["shell_args"],
+            Value::Array(arguments.iter().map(String::as_str).collect::<Array>()),
+        );
+    } else if let Some(terminal) = document["terminal"].as_table_like_mut() {
+        terminal.remove("shell_args");
+    }
     set(
         &mut document["terminal"]["suggestions"],
         Value::from(preferences.command_suggestions),

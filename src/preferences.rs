@@ -9,6 +9,8 @@ pub struct Preferences {
     pub command_suggestions: bool,
     pub agent_notifications: bool,
     pub shell: crate::shell::Profile,
+    // None infers startup flags; an explicit empty list launches without flags.
+    pub shell_args: Option<Vec<String>>,
     pub updates: crate::updates::Settings,
 }
 
@@ -24,12 +26,19 @@ impl Default for Preferences {
             command_suggestions: true,
             agent_notifications: false,
             shell: crate::shell::Profile::Default,
+            shell_args: None,
             updates: crate::updates::Settings::default(),
         }
     }
 }
 
 impl Preferences {
+    pub fn shell_args_for(&self, profile: &crate::shell::Profile) -> Option<&[String]> {
+        self.shell_args
+            .as_deref()
+            .filter(|_| profile == &self.shell)
+    }
+
     pub fn set_code_size(&mut self, size: u8) {
         self.code_size = size.clamp(11, 24);
     }
@@ -60,6 +69,7 @@ impl Preferences {
         let defaults = Self::default();
         self.file_nesting = defaults.file_nesting;
         self.shell = defaults.shell;
+        self.shell_args = defaults.shell_args;
     }
 }
 

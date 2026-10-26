@@ -180,7 +180,14 @@ fn agent_notifications_are_persisted_and_reset_does_not_unmute_them() {
 
 #[test]
 fn terminal_shell_rejects_unknown_profiles_and_non_string_values() {
-    for value in ["'mock-shell'", "false", "7", "[]"] {
+    for value in [
+        "'mock-shell'",
+        "'./mock-shell'",
+        "false",
+        "7",
+        "[]",
+        "\"/synthetic/mock\\u0000shell\"",
+    ] {
         let (_root, mut config) = fixture(&format!("[terminal]\nshell = {value}\n"));
         assert!(config.load().is_err(), "Invalid terminal.shell: {value}");
     }
@@ -212,6 +219,149 @@ fn terminal_shell_defaults_and_explicit_profiles_round_trip_with_comments() {
         assert!(source.contains("# synthetic choice"));
         assert!(source.contains("future = 'mock'"));
     }
+}
+
+#[test]
+fn terminal_shell_accepts_absolute_paths_without_losing_comments() {
+    let executable = if cfg!(windows) {
+        r"C:\synthetic tools\项目\mock-shell.exe"
+    } else {
+        "/synthetic tools/项目/mock-shell"
+    };
+    let (_root, mut config) = fixture(&format!(
+        "[terminal]\nshell = '{executable}' # synthetic custom shell\n"
+    ));
+    let mut preferences = config
+        .load()
+        .expect("absolute custom shell paths are valid");
+    assert_eq!(preferences.shell.id(), executable);
+    assert_eq!(
+        preferences.shell.resolve(),
+        std::ffi::OsStr::new(executable)
+    );
+    preferences.ui_size = 14;
+    config.save(&preferences).unwrap();
+    assert_eq!(config.load().unwrap().shell.id(), executable);
+    assert!(
+        fs::read_to_string(config.path())
+            .unwrap()
+            .contains("# synthetic custom shell")
+    );
+}
+
+#[test]
+fn terminal_shell_arguments_reject_invalid_types_and_nuls() {
+    for value in [
+        "true",
+        "7",
+        "'-i'",
+        "{ mock = '-i' }",
+        "[7]",
+        "['-i', false]",
+        "[\"\\u0000\"]",
+    ] {
+        let source = format!("[terminal]\nshell_args = {value}\n");
+        let (_root, mut config) = fixture(&source);
+        let error = config
+            .load()
+            .expect_err("invalid shell arguments must be rejected");
+        assert!(error.contains("terminal.shell_args"), "{error}");
+        assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
+    }
+}
+
+#[test]
+fn terminal_shell_arguments_distinguish_defaults_empty_and_literal_values() {
+    let (_root, mut config) = fixture("[terminal]\nfuture = 'mock'\n");
+    let mut preferences = config.load().unwrap();
+    assert_eq!(preferences.shell_args, None);
+    for arguments in [
+        Vec::<String>::new(),
+        [
+            "",
+            "--mock",
+            "space value",
+            "项目",
+            "quote\"value",
+            r"back\slash",
+            "$HOME; $(mock) | & *",
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+    ] {
+        preferences.shell_args = Some(arguments.clone());
+        config.save(&preferences).unwrap();
+        assert_eq!(config.load().unwrap().shell_args, Some(arguments));
+    }
+    preferences.shell_args = None;
+    config.save(&preferences).unwrap();
+    assert_eq!(config.load().unwrap().shell_args, None);
+    let saved = fs::read_to_string(config.path()).unwrap();
+    assert!(
+        !saved.parse::<toml_edit::DocumentMut>().unwrap()["terminal"]
+            .as_table_like()
+            .unwrap()
+            .contains_key("shell_args")
+    );
+    assert!(saved.contains("future = 'mock'"));
+}
+
+#[test]
+fn unchanged_shell_arguments_keep_array_formatting_and_comments() {
+    let arguments = r#"shell_args = [
+    '--mock', # synthetic argument
+    'space value',
+    '项目',
+    'quote"value',
+    'back\slash',
+    '$HOME; $(mock) | & *',
+    '',
+] # synthetic array
+"#;
+    let (_root, mut config) = fixture(&format!("[terminal]\n{arguments}future = 'mock'\n"));
+    let mut preferences = config.load().unwrap();
+    preferences.ui_size = 14;
+    config.save(&preferences).unwrap();
+    assert!(
+        fs::read_to_string(config.path())
+            .unwrap()
+            .contains(arguments)
+    );
+    preferences.shell_args = Some(vec!["synthetic replacement".into()]);
+    config.save(&preferences).unwrap();
+    let saved = fs::read_to_string(config.path()).unwrap();
+    assert!(saved.contains("# synthetic array"));
+    assert!(saved.contains("future = 'mock'"));
+    assert_eq!(config.load().unwrap().shell_args, preferences.shell_args);
+}
+
+#[test]
+fn workspace_reset_removes_explicit_shell_arguments_from_config() {
+    let (_root, mut config) = fixture(
+        "[terminal]\nshell = 'cmd'\nshell_args = []\nfuture = 'mock' # synthetic future option\n",
+    );
+    let mut preferences = config.load().unwrap();
+    preferences.reset_workspace();
+    config.save(&preferences).unwrap();
+    let reloaded = config.load().unwrap();
+    assert_eq!(reloaded.shell_args, None);
+    assert_eq!(reloaded.shell, tervia::shell::Profile::Default);
+    assert!(
+        fs::read_to_string(config.path())
+            .unwrap()
+            .contains("future = 'mock' # synthetic future option")
+    );
+}
+
+#[test]
+fn invalid_in_memory_shell_arguments_cannot_replace_the_config() {
+    let source = "[terminal]\nshell_args = ['--mock'] # synthetic arguments\n";
+    let (_root, mut config) = fixture(source);
+    let mut preferences = config.load().unwrap();
+    preferences.shell_args = Some(vec!["synthetic\0argument".into()]);
+    let error = config.save(&preferences).unwrap_err();
+    assert!(error.contains("terminal.shell_args"), "{error}");
+    assert_eq!(fs::read_to_string(config.path()).unwrap(), source);
 }
 
 #[test]

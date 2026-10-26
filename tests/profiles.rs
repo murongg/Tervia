@@ -12,6 +12,58 @@ impl Drop for Cleanup {
 }
 
 #[test]
+fn custom_startup_arguments_reach_the_windows_terminal_host() {
+    let root = tempfile::tempdir().unwrap();
+    let target = Target::new(
+        root.path().join("sessions"),
+        "c".repeat(32),
+        env!("CARGO_BIN_EXE_tervia-session").into(),
+    )
+    .with_shell(tervia::shell::Profile::Cmd.resolve())
+    .with_shell_args(vec![
+        "/D".into(),
+        "/Q".into(),
+        "/K".into(),
+        "set TERVIA_MOCK_ARGUMENT=synthetic value".into(),
+    ]);
+    let _cleanup = Cleanup(target.clone());
+    let (session, events, tracker) = target
+        .open(
+            root.path(),
+            PtySize {
+                rows: 12,
+                cols: 90,
+                pixel_width: 0,
+                pixel_height: 0,
+            },
+        )
+        .unwrap();
+    assert!(tracker.is_none());
+    session
+        .write(b"echo synthetic-startup-%TERVIA_MOCK_ARGUMENT%\r\n")
+        .unwrap();
+    let mut buffer = TerminalBuffer::new(90, 12);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "Output: {}", buffer.text());
+        match events.try_recv() {
+            Ok(PtyEvent::Data(bytes)) => buffer.feed(&bytes),
+            Ok(PtyEvent::Exited(error) | PtyEvent::Error(error)) => panic!("{error}"),
+            Err(async_channel::TryRecvError::Closed) => panic!("Terminal disconnected"),
+            _ => std::thread::sleep(Duration::from_millis(10)),
+        }
+        if buffer
+            .text()
+            .lines()
+            .any(|line| line.trim() == "synthetic-startup-synthetic value")
+        {
+            break;
+        }
+    }
+    session.terminate().unwrap();
+}
+
+#[test]
 fn cmd_starts_in_a_canonical_project_directory_with_spaces_unicode_and_metacharacters() {
     let root = tempfile::tempdir().unwrap();
     let project = root.path().join("synthetic 项目 & project");

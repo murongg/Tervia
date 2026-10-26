@@ -41,7 +41,11 @@ impl Tervia {
 
     fn shell_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let weak = cx.weak_entity();
-        let profiles = self.shell_profiles.clone();
+        let mut profiles = self.shell_profiles.clone();
+        let current = &self.preferences.read(cx).shell;
+        if !profiles.contains(current) {
+            profiles.push(current.clone());
+        }
         let language = self.appearance.language;
         icon_button(
             "new-session-shell",
@@ -53,18 +57,22 @@ impl Tervia {
         .debug_selector(|| "new-session-shell".into())
         .accessibility_label(self.t("select_shell"))
         .dropdown_menu(move |mut menu, _, _| {
-            for &profile in &profiles {
+            for profile in &profiles {
                 let weak = weak.clone();
-                menu = menu.item(PopupMenuItem::new(profile.label(language)).on_click(
-                    move |_, window, cx| {
-                        let _ = weak.update(cx, |_, cx| {
-                            // Restore menu focus before focusing the newly created terminal.
-                            cx.defer_in(window, move |this, window, cx| {
-                                this.new_session_with_shell(profile, window, cx)
+                let profile = profile.clone();
+                menu = menu.item(
+                    PopupMenuItem::new(profile.label(language).to_owned()).on_click(
+                        move |_, window, cx| {
+                            let profile = profile.clone();
+                            let _ = weak.update(cx, |_, cx| {
+                                // Restore menu focus before focusing the newly created terminal.
+                                cx.defer_in(window, move |this, window, cx| {
+                                    this.new_session_with_shell(profile, window, cx)
+                                });
                             });
-                        });
-                    },
-                ));
+                        },
+                    ),
+                );
             }
             menu
         })

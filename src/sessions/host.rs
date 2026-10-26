@@ -69,6 +69,20 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
         Some(shell) => serde_json::from_value::<PathBuf>(shell.clone())?.into_os_string(),
         None => default_shell(),
     };
+    // Older launch documents omit arguments; reconnect never replaces a live host's argv.
+    let shell_args = launch
+        .get("shell_args")
+        .filter(|arguments| !arguments.is_null())
+        .map(|arguments| serde_json::from_value::<Vec<String>>(arguments.clone()))
+        .transpose()?;
+    if shell_args
+        .as_ref()
+        .is_some_and(|arguments| arguments.iter().any(|argument| argument.contains('\0')))
+    {
+        return Err(io::Error::other(
+            "Invalid shell_args: arguments must not contain NULs",
+        ));
+    }
     let ssh = launch.get("ssh").filter(|ssh| !ssh.is_null());
     let task = launch.get("task").filter(|task| !task.is_null());
     if ssh.is_some() && task.is_some() {
@@ -90,7 +104,8 @@ pub(super) fn run(directory: &Path) -> io::Result<()> {
                 let (pty, events) = PtySession::spawn(command, size).map_err(io::Error::other)?;
                 (pty, events, None)
             }
-            None => PtySession::spawn_shell_with(&shell, &cwd, size).map_err(io::Error::other)?,
+            None => PtySession::spawn_shell_with_args(&shell, &cwd, size, shell_args.as_deref())
+                .map_err(io::Error::other)?,
         }
     };
     let mut journal = Journal::create(&directory.join("output"))?;

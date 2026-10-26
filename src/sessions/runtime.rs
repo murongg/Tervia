@@ -23,13 +23,17 @@ pub(super) fn private_directory(path: &Path) -> io::Result<()> {
 }
 
 pub(super) fn write_private(path: &Path, value: &Value) -> io::Result<()> {
+    write_private_bytes(path, &serde_json::to_vec(value)?)
+}
+
+pub(super) fn write_private_bytes(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let mut file = tempfile::NamedTempFile::new_in(
         path.parent()
             .ok_or_else(|| io::Error::other("Missing terminal directory"))?,
     )?;
-    file.write_all(&serde_json::to_vec(value)?)?;
+    file.write_all(bytes)?;
     file.as_file().sync_all()?;
-    // Presence is the ready/finished signal: readers must never observe partially written JSON.
+    // Presence signals readiness, completion or failure; readers must never see partial records.
     file.persist_noclobber(path).map_err(|error| error.error)?;
     Ok(())
 }

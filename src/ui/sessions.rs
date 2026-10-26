@@ -77,7 +77,7 @@ impl Tervia {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<console::Console> {
-        self.ensure_console_with_shell(session, self.preferences.read(cx).shell, window, cx)
+        self.ensure_console_with_shell(session, self.preferences.read(cx).shell.clone(), window, cx)
     }
 
     fn ensure_console_with_shell(
@@ -95,7 +95,11 @@ impl Tervia {
         let home = dirs::home_dir()
             .unwrap_or_else(|| std::path::PathBuf::from(if cfg!(windows) { "C:\\" } else { "/" }));
         let cwd = match owner {
-            Owner::Local => home,
+            Owner::Local => self
+                .launch_directory
+                .as_deref()
+                .map(|directory| tervia::pty::initial_directory(directory, &home))
+                .unwrap_or(home),
             Owner::Project(project) if self.state.terminals().sessions[session].task.is_some() => {
                 // A missing task directory must fail at spawn, never fall back to running in the user's home.
                 self.state.projects[project].root.clone()
@@ -118,6 +122,9 @@ impl Tervia {
             let mut target = self
                 .session_target(id.clone())?
                 .with_shell(profile.resolve());
+            if let Some(arguments) = self.preferences.read(cx).shell_args_for(&profile) {
+                target = target.with_shell_args(arguments.to_vec());
+            }
             if let Some(task) = &self.state.terminals().sessions[session].task {
                 target = target.with_task(task.clone());
             }
@@ -208,7 +215,7 @@ impl Tervia {
     }
 
     pub(super) fn new_session(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_session_with_shell(self.preferences.read(cx).shell, window, cx);
+        self.new_session_with_shell(self.preferences.read(cx).shell.clone(), window, cx);
     }
 
     pub(super) fn new_session_with_shell(

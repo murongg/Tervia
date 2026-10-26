@@ -44,7 +44,8 @@ impl Platform {
         match name {
             "powershell" | "pwsh" => &["-NoLogo", "-NoExit"],
             "cmd" => &["/K"],
-            _ => &["-l", "-i"],
+            "bash" | "zsh" | "fish" | "sh" => &["-l", "-i"],
+            _ => &[],
         }
     }
     pub fn clear_key(self) -> &'static str {

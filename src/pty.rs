@@ -58,10 +58,21 @@ pub fn ssh_command_for(cwd: &Path, host: &crate::ssh::Host) -> Result<CommandBui
 }
 
 pub fn shell_command_for(shell: &std::ffi::OsStr, cwd: &Path) -> CommandBuilder {
+    shell_command_with_args(shell, cwd, None)
+}
+
+pub fn shell_command_with_args(
+    shell: &std::ffi::OsStr,
+    cwd: &Path,
+    arguments: Option<&[String]>,
+) -> CommandBuilder {
     let mut command = terminal_command(shell);
-    command.args(crate::platform::Platform::shell_args(
-        &shell.to_string_lossy(),
-    ));
+    match arguments {
+        Some(arguments) => command.args(arguments),
+        None => command.args(crate::platform::Platform::shell_args(
+            &shell.to_string_lossy(),
+        )),
+    }
     // CMD rejects the verbatim prefix added by canonicalize. Only simplify paths
     // with an equivalent Win32 spelling, preserving long paths and special names.
     #[cfg(windows)]
@@ -135,8 +146,29 @@ impl PtySession {
         ),
         String,
     > {
-        let mut command = shell_command_for(shell, cwd);
-        let integration = ShellIntegration::configure(&mut command)?;
+        Self::spawn_shell_with_args(shell, cwd, size, None)
+    }
+
+    pub fn spawn_shell_with_args(
+        shell: &std::ffi::OsStr,
+        cwd: &Path,
+        size: PtySize,
+        arguments: Option<&[String]>,
+    ) -> Result<
+        (
+            Self,
+            Receiver<PtyEvent>,
+            Option<crate::terminal::shell::Tracker>,
+        ),
+        String,
+    > {
+        let mut command = shell_command_with_args(shell, cwd, arguments);
+        // Explicit argv can own -Command/-File; appending integration would change the user's command.
+        let integration = if arguments.is_none() {
+            ShellIntegration::configure(&mut command)?
+        } else {
+            None
+        };
         let tracker = integration.as_ref().map(|integration| {
             crate::terminal::shell::Tracker::new(
                 integration.token().into(),
