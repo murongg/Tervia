@@ -400,6 +400,10 @@ impl Tervia {
         for parent in view.state.project_rows() {
             view.state.attach_directory(parent, parent);
         }
+        // Restored tabs bypass change_tab, which normally starts the first directory read.
+        if view.state.active_tab() == Tab::Files {
+            view.load_directory(view.state.active_project, PathBuf::new(), false, window, cx);
+        }
         view.subscriptions
             .push(cx.observe_self(|this, cx| this.schedule_workspace_save(cx)));
         view.git_poll = Some(cx.spawn_in(window, async move |weak, cx| {
