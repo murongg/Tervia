@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.19.1 (2026-10-27)
+
+### Fixes
+
+- **files:** load the restored explorer on startup (dc5ae96f)
+
 ## v0.19.0 (2026-10-26)
 
 ### Features
