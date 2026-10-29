@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -48,8 +52,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y pkg-config libssl-dev libfontconfig1-dev libasound2-dev libxkbcommon-x11-dev libxcb-shape0-dev libxcb-xfixes0-dev libxcb-randr0-dev libwayland-dev libvulkan-dev libpipewire-0.3-dev clang cmake fonts-dejavu-core
       - run: cargo fmt --all -- --check
-      - name: Windows core and PTY tests
-        if: runner.os == 'Windows'
+      - name: Core and PTY tests
         run: cargo test --locked --features pty
-      - run: cargo test --locked --features ui-tests
+      - name: Native UI tests
+        # Keep native-only integration tests here so core tests avoid linking GPUI.
+        run: cargo test --locked --features ui-tests --bin tervia --test highlight --test list --test manifest
       - run: cargo clippy --locked --features ui-tests --all-targets -- -D warnings
