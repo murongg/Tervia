@@ -343,7 +343,7 @@ impl Tervia {
                     )
                 })
                 .child(div().flex_1().min_h_0().overflow_hidden().child(
-                    if let Some(preview) = self.file_preview(owner, active) {
+                    if let Some(preview) = self.file_preview(owner, active, cx) {
                         preview
                     } else {
                         Editor::new(editor)
@@ -525,13 +525,14 @@ impl Tervia {
             self.file_reads.select(project)
         };
         let request = self.file_reads.begin(project, path.clone(), draft, reload);
+        let renderer = cx.svg_renderer();
         cx.notify();
         cx.spawn_in(window, async move |weak, cx| {
             let read_path = path.clone();
             let read_root = root.clone();
             let result = cx
                 .background_executor()
-                .spawn(async move { preview::load(&read_root, &read_path) })
+                .spawn(async move { preview::load(&read_root, &read_path, renderer) })
                 .await;
             let _ = weak.update_in(cx, |this, window, cx| {
                 let draft = this.state.projects[project]
