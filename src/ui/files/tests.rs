@@ -892,16 +892,150 @@ fn markdown_and_images_have_native_previews_without_writing_image_bytes(cx: &mut
     });
     cx.run_until_parked();
     cx.update(|_, cx| {
-        view.update(cx, |this, _| {
+        view.update(cx, |this, cx| {
             let image = this.state.projects[0]
                 .files
                 .iter()
                 .position(|file| file.path == "mock.svg")
                 .unwrap();
             assert!(
-                this.file_preview(0, image).is_none(),
+                this.file_preview(0, image, cx).is_none(),
                 "Replacing an image preview releases its retained image bytes"
             );
         })
     });
+}
+
+#[gpui_test::test]
+fn image_preview_fits_the_pane_and_can_be_resized(cx: &mut TestAppContext) {
+    cx.update(gpui_kit::init);
+    let root = tempfile::tempdir().unwrap();
+    for (name, width, height) in [("wide", 2400, 1200), ("tall", 1200, 2400), ("icon", 32, 32)] {
+        fs::write(
+            root.path().join(format!("{name}.svg")),
+            format!("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\"><rect width=\"100%\" height=\"100%\" fill=\"#abcdef\"/></svg>"),
+        )
+        .unwrap();
+    }
+    let mut view = None;
+    let (_, cx) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Tervia::new(window, cx));
+        view = Some(entity.clone());
+        gpui_kit::base::Root::new(entity, window, cx)
+    });
+    let view = view.unwrap();
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            let project = this.state.open_directory(root.path().into());
+            this.init_project(project, window, cx);
+        })
+    });
+    let mut first_zoom = None;
+    for (name, width, height) in [
+        ("wide", 2400.0, 1200.0),
+        ("tall", 1200.0, 2400.0),
+        ("icon", 32.0, 32.0),
+    ] {
+        cx.update(|window, cx| {
+            view.update(cx, |this, cx| {
+                this.open_real_file(0, format!("{name}.svg").into(), window, cx);
+            })
+        });
+        cx.run_until_parked();
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        for window_size in [size(px(960.0), px(640.0)), size(px(1200.0), px(800.0))] {
+            cx.simulate_resize(window_size);
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let viewport = cx
+                .debug_bounds("files-image-viewport")
+                .expect("Image viewport");
+            let image = cx
+                .debug_bounds("files-preview-image")
+                .expect("Decoded image");
+            assert!(viewport.right() <= window_size.width);
+            assert!(viewport.bottom() <= window_size.height);
+            assert!(viewport.contains(&image.origin));
+            assert!(viewport.contains(&image.bottom_right()));
+            assert!(image.size.width <= px(width));
+            assert!(image.size.height <= px(height));
+        }
+        let original = cx
+            .debug_bounds("files-image-original")
+            .expect("Actual-size control");
+        cx.simulate_click(original.center(), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let image = cx.debug_bounds("files-preview-image").unwrap();
+        assert_eq!(image.size, size(px(width), px(height)));
+        for (selector, factor) in [
+            ("files-image-zoom-out", 0.8),
+            ("files-image-zoom-in", 1.0),
+            ("files-image-zoom-in", 1.25),
+        ] {
+            let button = cx.debug_bounds(selector).expect("Zoom control");
+            cx.simulate_click(button.center(), Modifiers::default());
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let actual = cx.debug_bounds("files-preview-image").unwrap().size;
+            assert!((actual.width - px(width * factor)).abs() <= px(0.5));
+            assert!((actual.height - px(height * factor)).abs() <= px(0.5));
+        }
+        if name != "icon" {
+            let viewport = cx.debug_bounds("files-image-viewport").unwrap();
+            let before = cx.debug_bounds("files-preview-image").unwrap();
+            for delta in [point(px(-200.0), px(0.0)), point(px(0.0), px(-200.0))] {
+                cx.simulate_event(ScrollWheelEvent {
+                    position: viewport.center(),
+                    delta: ScrollDelta::Pixels(delta),
+                    ..Default::default()
+                });
+            }
+            cx.update(|window, cx| window.draw(cx).clear(cx));
+            let after = cx.debug_bounds("files-preview-image").unwrap();
+            assert!(
+                after.left() < before.left(),
+                "Zoomed images scroll horizontally"
+            );
+            assert!(
+                after.top() < before.top(),
+                "Zoomed images scroll vertically"
+            );
+        }
+        let fit = cx.debug_bounds("files-image-fit").expect("Fit control");
+        cx.simulate_click(fit.center(), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let viewport = cx.debug_bounds("files-image-viewport").unwrap();
+        let image = cx.debug_bounds("files-preview-image").unwrap();
+        assert!(viewport.contains(&image.origin));
+        assert!(viewport.contains(&image.bottom_right()));
+        let fit_scale = ((viewport.size.width - px(48.0)) / px(width))
+            .min((viewport.size.height - px(48.0)) / px(height))
+            .min(1.0);
+        let zoom_in = cx.debug_bounds("files-image-zoom-in").unwrap();
+        cx.simulate_click(zoom_in.center(), Modifiers::default());
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let actual = cx.debug_bounds("files-preview-image").unwrap().size;
+        assert!((actual.width - px(width * fit_scale * 1.25)).abs() <= px(0.5));
+        assert!((actual.height - px(height * fit_scale * 1.25)).abs() <= px(0.5));
+        if name == "wide" {
+            first_zoom = Some(actual);
+        }
+    }
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| this.select_open_file(0, 0, window, cx));
+        window.draw(cx).clear(cx);
+    });
+    assert_eq!(
+        cx.debug_bounds("files-preview-image").unwrap().size,
+        first_zoom.unwrap(),
+        "Each image tab keeps its zoom independently"
+    );
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| this.reload_file(window, cx));
+    });
+    cx.run_until_parked();
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    assert_eq!(
+        cx.debug_bounds("files-preview-image").unwrap().size,
+        first_zoom.unwrap(),
+        "Reloading the image preserves the selected zoom"
+    );
 }
