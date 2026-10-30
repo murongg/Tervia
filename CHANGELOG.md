@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.19.2 (2026-10-30)
+
+### Fixes
+
+- **files:** constrain image previews and add zoom controls (26abd822)
+
+### Other changes
+
+- reduce desktop validation overhead (0ae1d997)
+
 ## v0.19.1 (2026-10-27)
 
 ### Fixes
