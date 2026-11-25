@@ -417,7 +417,10 @@ fn shell_integration_preserves_startup_files_and_reports_command_boundaries() {
         );
         assert_eq!(commands[0].exit_code, 1);
         assert!(commands[0].output.contains("synthetic-result"));
-        assert_eq!(commands[2].input, "printf synthetic-profile-prompt");
+        assert_eq!(
+            commands[2].input, "printf synthetic-profile-prompt",
+            "{shell} did not report the typed prompt command: {output:?}"
+        );
         assert!(
             commands[1].input.starts_with(' '),
             "{shell} lost the hidden-command marker: {:?}",
