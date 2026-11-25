@@ -447,6 +447,7 @@ impl Tervia {
                         root.join(from).strip_prefix(&owner_root),
                         root.join(to).strip_prefix(&owner_root),
                     ) {
+                        self.explorers[owner].clear_selection();
                         self.state.projects[owner].relocate_files(from, to);
                         for (index, file) in self.state.projects[owner].files.iter_mut().enumerate()
                         {
@@ -463,6 +464,7 @@ impl Tervia {
                 }
                 Operation::Trash(path) => {
                     if let Ok(path) = root.join(path).strip_prefix(&owner_root) {
+                        self.explorers[owner].clear_selection();
                         self.state.projects[owner].forget_files(path);
                         self.prune_previews(owner);
                     }

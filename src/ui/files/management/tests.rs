@@ -24,7 +24,11 @@ fn form_destinations_are_normalized_before_updating_document_paths() {
 struct Surface(Entity<Tervia>);
 impl Render for Surface {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.0.update(cx, |this, cx| this.files(window, cx))
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(self.0.update(cx, |this, cx| this.files(window, cx)))
     }
 }
 
@@ -51,6 +55,85 @@ fn mount<'a>(
     cx.run_until_parked();
     cx.update(|window, cx| window.draw(cx).clear(cx));
     (view.unwrap(), cx)
+}
+
+#[gpui_test::test]
+fn explorer_selects_files_and_folders_with_modifier_clicks(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let folder = ("mock-folder", "explorer-file-mock-folder");
+    let files = [
+        ("first.txt", "explorer-file-first.txt"),
+        ("middle.txt", "explorer-file-middle.txt"),
+        ("third.txt", "explorer-file-third.txt"),
+    ];
+    let [first, middle, last] = files;
+    fs::create_dir(root.path().join(folder.0)).unwrap();
+    for (file, _) in files {
+        fs::write(root.path().join(file), "synthetic content").unwrap();
+    }
+    let (view, cx) = mount(cx, root.path());
+    let click = |cx: &mut gpui_test::VisualTestContext, (_, selector), modifiers| {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        let bounds = cx.debug_bounds(selector).expect(selector);
+        cx.simulate_click(bounds.center(), modifiers);
+        cx.run_until_parked();
+    };
+    let assert_selected = |cx: &mut gpui_test::VisualTestContext, selected: &[(&str, &str)]| {
+        cx.update(|window, cx| window.draw(cx).clear(cx));
+        for entry @ (path, selector) in [folder, first, middle, last] {
+            let row = cx.debug_bounds(selector).unwrap();
+            cx.update(|window, cx| {
+                let theme = &view.read(cx).appearance.theme;
+                let color = crate::ui::theme::Palette::workbench(theme).selected;
+                let center = row.scale(window.scale_factor()).center();
+                let highlighted = window
+                    .painted_quads()
+                    .iter()
+                    .any(|quad| quad.background == color.into() && quad.bounds.contains(&center));
+                assert_eq!(highlighted, selected.contains(&entry), "{path}");
+            });
+        }
+    };
+    let shift = Modifiers {
+        shift: true,
+        ..Modifiers::default()
+    };
+
+    click(cx, first, Modifiers::default());
+    click(cx, last, shift);
+    assert_selected(cx, &[first, middle, last]);
+    click(cx, middle, shift);
+    assert_selected(cx, &[first, middle]);
+    click(cx, folder, Modifiers::secondary_key());
+    assert_selected(cx, &[folder, first, middle]);
+    click(cx, first, Modifiers::secondary_key());
+    assert_selected(cx, &[folder, middle]);
+    view.update(cx, |this, _| {
+        assert!(!this.explorers[0].tree.is_expanded(Path::new(folder.0)));
+        assert_eq!(this.state.project().current_file().unwrap().path, first.0);
+        assert_eq!(this.state.project().open_files.len(), 1);
+    });
+    cx.update(|window, cx| {
+        view.update(cx, |this, cx| {
+            this.select_open_file(0, this.state.project().active_file, window, cx);
+        });
+    });
+    assert_selected(cx, &[first]);
+    click(cx, folder, shift);
+    assert_selected(cx, &[folder, first]);
+
+    click(cx, folder, Modifiers::default());
+    assert_selected(cx, &[folder]);
+    view.update(cx, |this, _| {
+        assert!(this.explorers[0].tree.is_expanded(Path::new(folder.0)));
+    });
+    click(cx, middle, shift);
+    assert_selected(cx, &[folder, first, middle]);
+    click(cx, middle, Modifiers::default());
+    assert_selected(cx, &[middle]);
+    view.update(cx, |this, _| {
+        assert_eq!(this.state.project().current_file().unwrap().path, middle.0);
+    });
 }
 
 #[gpui_test::test]
