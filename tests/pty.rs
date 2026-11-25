@@ -290,7 +290,19 @@ fn shell_integration_preserves_startup_files_and_reports_command_boundaries() {
         .unwrap();
         std::fs::write(
             root.path().join(".bash_profile"),
-            "PS1='mock> '\nHISTFILE='custom history'\nHISTCONTROL=\nHISTIGNORE=\nPROMPT_COMMAND=\"$PROMPT_COMMAND; printf synthetic-profile-prompt\"\nprintf 'synthetic-startup\\n'\nif shopt -q login_shell; then printf 'synthetic-login-mode\\n'; fi\n",
+            r#"PS1='mock> '
+HISTFILE='custom history'
+HISTCONTROL=
+HISTIGNORE=
+PROMPT_COMMAND="$PROMPT_COMMAND; printf synthetic-profile-prompt"
+if ((BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1))); then
+    _mock_bash_prompt() { printf 'synthetic-bash-array-hook'; }
+    PROMPT_COMMAND+=(_mock_bash_prompt)
+    printf 'synthetic-bash-array-mode\n'
+fi
+printf 'synthetic-startup\n'
+if shopt -q login_shell; then printf 'synthetic-login-mode\n'; fi
+"#,
         )
         .unwrap();
         let mut command = CommandBuilder::new(shell);
@@ -408,6 +420,9 @@ fn shell_integration_preserves_startup_files_and_reports_command_boundaries() {
             );
             assert!(output.contains("synthetic-inherited-prompt"));
             assert!(output.contains("synthetic-profile-prompt"));
+            if output.contains("synthetic-bash-array-mode") {
+                assert!(output.contains("synthetic-bash-array-hook"));
+            }
         }
         assert_eq!(commands.len(), 3, "{shell}: {output}");
         assert_eq!(commands[0].input, "printf 'synthetic-result\\n'; false");
@@ -419,7 +434,7 @@ fn shell_integration_preserves_startup_files_and_reports_command_boundaries() {
         assert!(commands[0].output.contains("synthetic-result"));
         assert_eq!(
             commands[2].input, "printf synthetic-profile-prompt",
-            "{shell} did not report the typed prompt command: {output:?}"
+            "{shell} did not report the typed prompt command"
         );
         assert!(
             commands[1].input.starts_with(' '),

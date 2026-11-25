@@ -51,7 +51,8 @@ elif [[ -z $(trap -p DEBUG) ]]; then
         fi
         _tervia_preexec "$_tervia_input"
     }
-    if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a '* ]]; then
+    # The bootstrap exports PROMPT_COMMAND, so a profile can turn it into an exported array (-ax).
+    if [[ $(declare -p PROMPT_COMMAND 2>/dev/null) == 'declare -a'* ]]; then
         PROMPT_COMMAND=(_tervia_before_prompt "${PROMPT_COMMAND[@]}" _tervia_prompt_ready)
     else
         PROMPT_COMMAND="_tervia_before_prompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}; _tervia_prompt_ready"
