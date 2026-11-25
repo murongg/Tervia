@@ -1,5 +1,8 @@
 use crate::ui::scroll::ListScrollbars as _;
-use std::path::PathBuf;
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::{
@@ -19,6 +22,7 @@ use super::{
 pub(super) struct Explorer {
     pub tree: Tree,
     scroll: UniformListScrollHandle,
+    selection: Option<Selection>,
     pub tabs_scroll: ScrollHandle,
     pub previews: super::files::Previews,
     pub finder: super::files::Finder,
@@ -27,11 +31,19 @@ pub(super) struct Explorer {
     pub rendered_rows: std::cell::Cell<usize>,
 }
 
+struct Selection {
+    anchor: PathBuf,
+    paths: BTreeSet<PathBuf>,
+    // A newer editor navigation takes precedence over the selection made in the tree.
+    navigation: usize,
+}
+
 impl Explorer {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Tervia>) -> Self {
         Self {
             tree: Tree::default(),
             scroll: UniformListScrollHandle::new(),
+            selection: None,
             tabs_scroll: ScrollHandle::new(),
             previews: Default::default(),
             finder: super::files::Finder::new(window, cx),
@@ -39,6 +51,65 @@ impl Explorer {
             #[cfg(all(test, feature = "ui-tests"))]
             rendered_rows: std::cell::Cell::new(0),
         }
+    }
+
+    fn select_entry(
+        &mut self,
+        path: &Path,
+        active_file: Option<&Path>,
+        navigation: usize,
+        modifiers: Modifiers,
+    ) {
+        let previous = self
+            .selection
+            .take()
+            .filter(|selection| selection.navigation == navigation);
+        let mut anchor = path.to_owned();
+        let paths = if modifiers.shift {
+            let start = previous
+                .as_ref()
+                .map(|selection| selection.anchor.as_path())
+                .or(active_file)
+                .unwrap_or(path);
+            // Resolve the anchor against the current display order after expansion or refresh.
+            let rows = self.tree.rows();
+            let position = |path: &Path| {
+                rows.iter()
+                    .position(|row| matches!(row, Row::Entry { entry, .. } if entry.path == path))
+            };
+            if let (Some(first), Some(last)) = (position(start), position(path)) {
+                anchor = start.to_owned();
+                rows[first.min(last)..=first.max(last)]
+                    .iter()
+                    .filter_map(|row| match row {
+                        Row::Entry { entry, .. } => Some(entry.path.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            } else {
+                BTreeSet::from([path.to_owned()])
+            }
+        } else if modifiers.secondary() {
+            let mut paths = previous.map_or_else(
+                || active_file.into_iter().map(Path::to_path_buf).collect(),
+                |selection| selection.paths,
+            );
+            if !paths.remove(path) {
+                paths.insert(path.to_owned());
+            }
+            paths
+        } else {
+            BTreeSet::from([path.to_owned()])
+        };
+        self.selection = Some(Selection {
+            anchor,
+            paths,
+            navigation,
+        });
+    }
+
+    pub(super) fn clear_selection(&mut self) {
+        self.selection = None;
     }
 }
 
@@ -318,13 +389,23 @@ impl Tervia {
             Row::Entry { entry, depth } => {
                 let path = entry.path.clone();
                 let folder = entry.kind == EntryKind::Directory;
-                let nested = self.explorers[project].tree.has_nested(&path);
-                let expanded = self.explorers[project].tree.is_expanded(&path);
+                let explorer = &self.explorers[project];
+                let nested = explorer.tree.has_nested(&path);
+                let expanded = explorer.tree.is_expanded(&path);
                 let owner = &self.state.projects[project];
                 let file = owner.files.iter().position(|file| file.disk_path == path);
-                let selected = file.is_some_and(|index| {
-                    owner.active_file == index && owner.open_files.contains(&index)
-                });
+                let selected = explorer
+                    .selection
+                    .as_ref()
+                    .filter(|selection| self.file_reads.selected(project, selection.navigation))
+                    .map_or_else(
+                        || {
+                            file.is_some_and(|index| {
+                                owner.active_file == index && owner.open_files.contains(&index)
+                            })
+                        },
+                        |selection| selection.paths.contains(&path),
+                    );
                 let (text_color, icon_color) = entry_colors(entry.ignored, selected, p);
                 let status = if entry.ignored {
                     None
@@ -492,6 +573,8 @@ impl Tervia {
                 let menu_path = path.clone();
                 let row = div()
                     .id(("explorer-row", index))
+                    .role(Role::ListItem)
+                    .aria_selected(selected)
                     .h(px(30.0))
                     .w_full()
                     .flex()
@@ -499,7 +582,7 @@ impl Tervia {
                     .gap(px(2.0))
                     .pl(px(8.0 + *depth as f32 * 14.0))
                     .bg(if selected { p.selected } else { p.background })
-                    .hover(|style| style.bg(p.raised))
+                    .hover(|style| style.bg(if selected { p.selected } else { p.raised }))
                     .child(disclosure)
                     .child(
                         div()
@@ -521,15 +604,16 @@ impl Tervia {
                                     .child(content)
                                     .on_click(cx.listener(
                                         move |this, event: &ClickEvent, window, cx| {
-                                            if folder {
-                                                this.toggle_directory(
-                                                    project,
-                                                    path.clone(),
-                                                    window,
-                                                    cx,
-                                                );
-                                            } else {
-                                                if event.click_count() >= 2 {
+                                            let modifiers = event.modifiers();
+                                            if !modifiers.shift && !modifiers.secondary() {
+                                                if folder {
+                                                    this.toggle_directory(
+                                                        project,
+                                                        path.clone(),
+                                                        window,
+                                                        cx,
+                                                    );
+                                                } else if event.click_count() >= 2 {
                                                     this.open_real_file(
                                                         project,
                                                         path.clone(),
@@ -545,6 +629,16 @@ impl Tervia {
                                                     );
                                                 }
                                             }
+                                            let active_file = this.state.projects[project]
+                                                .current_file()
+                                                .map(|file| file.disk_path.as_path());
+                                            this.explorers[project].select_entry(
+                                                &path,
+                                                active_file,
+                                                this.file_reads.selection(project),
+                                                modifiers,
+                                            );
+                                            cx.notify();
                                         },
                                     )),
                             ),
